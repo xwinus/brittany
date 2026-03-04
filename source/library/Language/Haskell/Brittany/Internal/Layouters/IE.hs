@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NoImplicitPrelude #-}
@@ -7,13 +8,15 @@ module Language.Haskell.Brittany.Internal.Layouters.IE where
 import qualified Data.List.Extra
 import qualified Data.Text as Text
 import GHC
-  ( AnnKeywordId(..)
-  , GenLocated(L)
+  ( GenLocated(L)
   , Located
   , ModuleName
   , moduleNameString
   , unLoc
   )
+import GHC.Parser.Annotation (getLocA, HasLoc(..))
+import GHC.Types.SrcLoc (SrcSpan)
+import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..))
 import GHC.Hs
 import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.LayouterBasics
@@ -21,23 +24,37 @@ import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Utils
 
+parenthesizeIfSymbolic :: Text -> Text
+parenthesizeIfSymbolic nameText =
+  if Text.null nameText
+    then nameText
+    else
+      let firstChar = Text.head nameText
+          symbolicChars = Text.pack "!:#$%&*+./<=>?@\\^|-~"
+      in
+        if Text.any (== firstChar) symbolicChars
+          then Text.concat [Text.pack "(", nameText, Text.pack ")"]
+          else nameText
 
+-- Convert EpAnn-located to SrcSpan-located for mkAnnKey.
+toL :: (HasLoc (GenLocated l a), HasLoc l) => GenLocated l a -> GenLocated SrcSpan a
+toL x = L (getLocA x) (unLoc x)
 
-prepareName :: LIEWrappedName name -> Located name
-prepareName = ieLWrappedName
+prepareName :: LIEWrappedName GhcPs -> GenLocated SrcSpan (IEWrappedName GhcPs)
+prepareName = toL
 
 layoutIE :: ToBriDoc IE
 layoutIE lie@(L _ ie) = docWrapNode lie $ case ie of
-  IEVar _ x -> layoutWrapped lie x
-  IEThingAbs _ x -> layoutWrapped lie x
-  IEThingAll _ x -> docSeq [layoutWrapped lie x, docLit $ Text.pack "(..)"]
+  IEVar _ x _ -> layoutWrapped lie x
+  IEThingAbs _ x _ -> layoutWrapped lie x
+  IEThingAll _ x _ -> docSeq [layoutWrapped lie x, docLit $ Text.pack "(..)"]
   IEThingWith _ x (IEWildcard _) _ _ ->
     docSeq [layoutWrapped lie x, docLit $ Text.pack "(..)"]
   IEThingWith _ x _ ns _ -> do
     hasComments <- orM
       (hasCommentsBetween lie AnnOpenP AnnCloseP
-      : hasAnyCommentsBelow x
-      : map hasAnyCommentsBelow ns
+      : hasAnyCommentsBelow (toL x)
+      : map (hasAnyCommentsBelow . toL) ns
       )
     let sortedNs = List.sortOn wrappedNameToText ns
     runFilteredAlternative $ do
@@ -51,8 +68,8 @@ layoutIE lie@(L _ ie) = docWrapNode lie $ case ie of
         $ docAddBaseY BrIndentRegular
         $ docPar (layoutWrapped lie x) (layoutItems (splitFirstLast sortedNs))
    where
-    nameDoc = docLit <=< lrdrNameToTextAnn . prepareName
-    layoutItem n = docSeq [docCommaSep, docWrapNode n $ nameDoc n]
+    nameDoc = docLit <=< (fmap parenthesizeIfSymbolic . lrdrNameToTextAnn . toLocatedRdrName . prepareName)
+    layoutItem n = docSeq [docCommaSep, docWrapNode (toL n) $ nameDoc n]
     layoutItems FirstLastEmpty = docSetBaseY $ docLines
       [ docSeq [docParenLSep, docNodeAnnKW lie (Just AnnOpenP) docEmpty]
       , docParenR
@@ -64,7 +81,7 @@ layoutIE lie@(L _ ie) = docWrapNode lie $ case ie of
     layoutItems (FirstLast n1 nMs nN) =
       docSetBaseY
         $ docLines
-        $ [docSeq [docParenLSep, docWrapNode n1 $ nameDoc n1]]
+        $ [docSeq [docParenLSep, docWrapNode (toL n1) $ nameDoc n1]]
         ++ map layoutItem nMs
         ++ [ docSeq [docCommaSep, docNodeAnnKW lie (Just AnnOpenP) $ nameDoc nN]
            , docParenR
@@ -76,13 +93,19 @@ layoutIE lie@(L _ ie) = docWrapNode lie $ case ie of
     ]
   _ -> docEmpty
  where
+  toLocatedRdrName (L _ wn) = toL $ case wn of
+    IEName _ r -> r
+    IEPattern _ r -> r
+    IEType _ r -> r
   layoutWrapped _ = \case
-    L _ (IEName n) -> docLit =<< lrdrNameToTextAnn n
-    L _ (IEPattern n) -> do
-      name <- lrdrNameToTextAnn n
+    L _ (IEName _ n) -> do
+      name <- lrdrNameToTextAnn (toL n)
+      docLit $ parenthesizeIfSymbolic name
+    L _ (IEPattern _ n) -> do
+      name <- lrdrNameToTextAnn (toL n)
       docLit $ Text.pack "pattern " <> name
-    L _ (IEType n) -> do
-      name <- lrdrNameToTextAnn n
+    L _ (IEType _ n) -> do
+      name <- lrdrNameToTextAnn (toL n)
       docLit $ Text.pack "type " <> name
 
 data SortItemsFlag = ShouldSortItems | KeepItemsUnsorted
@@ -106,7 +129,7 @@ layoutAnnAndSepLLIEs shouldSort llies@(L _ lies) = do
       , items <- mergeGroup group
       ]
   let
-    ieDocs = fmap layoutIE $ case shouldSort of
+    ieDocs = fmap (layoutIE . toL) $ case shouldSort of
       ShouldSortItems -> sortedLies
       KeepItemsUnsorted -> lies
   ieCommaDocs <-
@@ -129,8 +152,8 @@ layoutAnnAndSepLLIEs shouldSort llies@(L _ lies) = do
   -- IEThingAll).
   isProperIEThing :: LIE GhcPs -> Bool
   isProperIEThing = \case
-    L _ (IEThingAbs _ _wn) -> True
-    L _ (IEThingAll _ _wn) -> True
+    L _ (IEThingAbs _ _wn _) -> True
+    L _ (IEThingAll _ _wn _) -> True
     L _ (IEThingWith _ _wn NoIEWildcard _ _) -> True
     _ -> False
   isIEVar :: LIE GhcPs -> Bool
@@ -143,7 +166,7 @@ layoutAnnAndSepLLIEs shouldSort llies@(L _ lies) = do
   thingFolder _ l2@(L _ IEThingAll{}) = l2
   thingFolder l1 (L _ IEThingAbs{}) = l1
   thingFolder (L _ IEThingAbs{}) l2 = l2
-  thingFolder (L l (IEThingWith x wn _ consItems1 fieldLbls1)) (L _ (IEThingWith _ _ _ consItems2 fieldLbls2))
+  thingFolder (L l (IEThingWith x wn _ consItems1 mdoc1)) (L _ (IEThingWith _ _ _ consItems2 mdoc2))
     = L
       l
       (IEThingWith
@@ -151,7 +174,7 @@ layoutAnnAndSepLLIEs shouldSort llies@(L _ lies) = do
         wn
         NoIEWildcard
         (consItems1 ++ consItems2)
-        (fieldLbls1 ++ fieldLbls2)
+        (mdoc1 <|> mdoc2)
       )
   thingFolder _ _ =
     error "thingFolder should be exhaustive because we have a guard above"
@@ -196,25 +219,25 @@ layoutLLIEs enableSingleline shouldSort llies = do
 -- | Returns a "fingerprint string", not a full text representation, nor even
 -- a source code representation of this syntax node.
 -- Used for sorting, not for printing the formatter's output source code.
-wrappedNameToText :: LIEWrappedName RdrName -> Text
+wrappedNameToText :: LIEWrappedName GhcPs -> Text
 wrappedNameToText = \case
-  L _ (IEName n) -> lrdrNameToText n
-  L _ (IEPattern n) -> lrdrNameToText n
-  L _ (IEType n) -> lrdrNameToText n
+  L _ (IEName _ n) -> lrdrNameToText (toL n)
+  L _ (IEPattern _ n) -> lrdrNameToText (toL n)
+  L _ (IEType _ n) -> lrdrNameToText (toL n)
 
 -- | Returns a "fingerprint string", not a full text representation, nor even
 -- a source code representation of this syntax node.
 -- Used for sorting, not for printing the formatter's output source code.
 lieToText :: LIE GhcPs -> Text
 lieToText = \case
-  L _ (IEVar _ wn) -> wrappedNameToText wn
-  L _ (IEThingAbs _ wn) -> wrappedNameToText wn
-  L _ (IEThingAll _ wn) -> wrappedNameToText wn
+  L _ (IEVar _ wn _) -> wrappedNameToText wn
+  L _ (IEThingAbs _ wn _) -> wrappedNameToText wn
+  L _ (IEThingAll _ wn _) -> wrappedNameToText wn
   L _ (IEThingWith _ wn _ _ _) -> wrappedNameToText wn
   -- TODO: These _may_ appear in exports!
   -- Need to check, and either put them at the top (for module) or do some
   -- other clever thing.
-  L _ (IEModuleContents _ n) -> moduleNameToText n
+  L _ (IEModuleContents _ n) -> moduleNameToText (toL n)
   L _ IEGroup{} -> Text.pack "@IEGroup"
   L _ IEDoc{} -> Text.pack "@IEDoc"
   L _ IEDocNamed{} -> Text.pack "@IEDocNamed"

@@ -17,8 +17,8 @@ import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Utils
-import Language.Haskell.GHC.ExactPrint.Types (AnnKey, Annotation)
-import qualified Language.Haskell.GHC.ExactPrint.Types as ExactPrint
+import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKey, Annotation)
+import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrint
 
 
 
@@ -410,7 +410,7 @@ layoutWritePriorComments ast = do
     Nothing -> return ()
     Just priors -> do
       unless (null priors) $ layoutSetCommentCol
-      priors `forM_` \(ExactPrint.Comment comment _ _, ExactPrint.DP (x, y)) ->
+      priors `forM_` \(ExactPrint.Comment _ _ comment, ExactPrint.DP (x, y)) ->
         do
           replicateM_ x layoutWriteNewline
           layoutWriteAppendSpaces y
@@ -444,12 +444,12 @@ layoutWritePostComments ast = do
     Nothing -> return ()
     Just posts -> do
       unless (null posts) $ layoutSetCommentCol
-      posts `forM_` \(ExactPrint.Comment comment _ _, ExactPrint.DP (x, y)) ->
+      posts `forM_` \(ExactPrint.Comment _ _ comment, ExactPrint.DP (x, y)) ->
         do
           replicateM_ x layoutWriteNewline
           layoutWriteAppend $ Text.pack $ replicate y ' '
           mModify $ \s -> s { _lstate_addSepSpace = Nothing }
-          layoutWriteAppendMultiline $ Text.lines $ Text.pack $ comment
+          layoutWriteAppendMultiline $ Text.lines $ Text.pack comment
 
 layoutIndentRestorePostComment
   :: (MonadMultiState LayoutState m, MonadMultiWriter Text.Builder.Builder m)

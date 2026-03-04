@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Language.Haskell.Brittany.Internal.Layouters.Decl where
@@ -10,32 +11,40 @@ import qualified Data.Foldable
 import qualified Data.Maybe
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
-import GHC (AnnKeywordId(..), GenLocated(L))
+import GHC (GenLocated(L))
 import GHC.Data.Bag (bagToList, emptyBag)
 import qualified GHC.Data.FastString as FastString
 import GHC.Hs
+import GHC.Hs.Decls (FamEqn(..), TyFamInstDecl(..))
+import GHC.Hs.Type (FieldOcc(..), HsBndrKind(..), HsBndrVar(..), HsSigType(HsSig), HsTyVarBndr(..), HsOuterTyVarBndrs(HsOuterExplicit, HsOuterImplicit), HsWildCardBndrs(HsWC))
 import qualified GHC.OldList as List
+import qualified Data.List.NonEmpty as NonEmpty
 import GHC.Types.Basic
   ( Activation(..)
   , InlinePragma(..)
   , InlineSpec(..)
-  , LexicalFixity(..)
   , RuleMatchInfo(..)
   )
-import GHC.Types.SrcLoc (Located, SrcSpan, getLoc, unLoc)
+import GHC.Types.Name.Occurrence (isSymOcc)
+import GHC.Types.Name.Reader (rdrNameOcc)
+import Language.Haskell.Syntax.Basic (LexicalFixity(..))
+import Language.Haskell.Syntax.Binds (RecordPatSynField(recordPatSynField))
+import GHC.Parser.Annotation (getLocA)
+import GHC.Types.SrcLoc (Located, SrcSpan, getLoc, noSrcSpan, unLoc)
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey, mkAnnKey)
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.DataDecl
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
 import Language.Haskell.Brittany.Internal.Layouters.Pattern
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Stmt
+import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import Language.Haskell.Brittany.Internal.Layouters.Type
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
 import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
-import Language.Haskell.GHC.ExactPrint.Types (mkAnnKey)
 import qualified Language.Haskell.GHC.ExactPrint.Utils as ExactPrint
 
 
@@ -59,11 +68,15 @@ layoutDecl d@(L loc decl) = case decl of
 
 layoutSig :: ToBriDoc Sig
 layoutSig lsig@(L _loc sig) = case sig of
-  TypeSig _ names (HsWC _ (HsIB _ typ)) -> layoutNamesAndType Nothing names typ
+  TypeSig _ names sigTy -> case sigTy of
+    HsWC _ body -> case unLoc body of
+      HsSig{} -> layoutNamesAndType Nothing names body
+      _ -> briDocByExactNoComment (toL lsig)
+    _ -> briDocByExactNoComment (toL lsig)
   InlineSig _ name (InlinePragma _ spec _arity phaseAct conlike) ->
-    docWrapNode lsig $ do
-      nameStr <- lrdrNameToTextAnn name
-      specStr <- specStringCompat lsig spec
+    docWrapNode (toL lsig) $ do
+      nameStr <- lrdrNameToTextAnn (toL name)
+      specStr <- specStringCompat (toL lsig) spec
       let
         phaseStr = case phaseAct of
           NeverActive -> "" -- not [] - for NOINLINE NeverActive is
@@ -80,27 +93,51 @@ layoutSig lsig@(L _loc sig) = case sig of
         $ Text.pack ("{-# " ++ specStr ++ conlikeStr ++ phaseStr)
         <> nameStr
         <> Text.pack " #-}"
-  ClassOpSig _ False names (HsIB _ typ) -> layoutNamesAndType Nothing names typ
-  PatSynSig _ names (HsIB _ typ) ->
-    layoutNamesAndType (Just "pattern") names typ
-  _ -> briDocByExactNoComment lsig -- TODO
+  ClassOpSig _ False names sigTy -> case unLoc sigTy of
+    HsSig{} -> layoutNamesAndType Nothing names sigTy
+    _ -> briDocByExactNoComment (toL lsig)
+  PatSynSig _ names sigTy -> case unLoc sigTy of
+    HsSig{} -> layoutNamesAndType (Just "pattern") names sigTy
+    _ -> briDocByExactNoComment (toL lsig)
+  _ -> briDocByExactNoComment (toL lsig) -- TODO
  where
-  layoutNamesAndType mKeyword names typ = docWrapNode lsig $ do
+  layoutNamesAndType mKeyword names sigType = docWrapNode (toL lsig) $ do
     let
       keyDoc = case mKeyword of
         Just key -> [appSep . docLit $ Text.pack key]
         Nothing -> []
-    nameStrs <- names `forM` lrdrNameToTextAnn
+    nameStrs <- (fmap toL names) `forM` lrdrNameToTextAnn
     let nameStr = Text.intercalate (Text.pack ", ") $ nameStrs
-    typeDoc <- docSharedWrapper layoutType typ
-    hasComments <- hasAnyCommentsBelow lsig
+    (mForallDoc, typ) <- case unLoc sigType of
+      HsSig _ bndrs typ ->
+        let mForallDoc = case bndrs of
+              HsOuterExplicit _ bndrsList ->
+                Just $ do
+                  let bndrs' = map invisBinderToUnit bndrsList
+                  tyVarDocs <- layoutTyVarBndrs bndrs'
+                  let tyVarDocLineList = processTyVarBndrsSingleline tyVarDocs
+                  return $ docSeq
+                    ( [ docLit (Text.pack "forall") ]
+                    ++ tyVarDocLineList
+                    ++ [ docLit (Text.pack " . ") ]
+                    )
+              HsOuterImplicit _ -> Nothing
+        in return (mForallDoc, typ)
+      _ -> return (Nothing, error "layoutNamesAndType: unexpected sigType")
+    typeDoc <- docSharedWrapper layoutType (toL typ)
+    fullTypeDoc <- case mForallDoc of
+      Nothing -> return typeDoc
+      Just mfd -> do
+        fd <- mfd
+        return $ docSeq [fd, docForceSingleline typeDoc]
+    hasComments <- hasAnyCommentsBelow (toL lsig)
     shouldBeHanging <-
       mAsk <&> _conf_layout .> _lconfig_hangingTypeSignature .> confUnpack
     if shouldBeHanging
       then
         docSeq
           $ [ appSep
-            $ docWrapNodeRest lsig
+            $ docWrapNodeRest (toL lsig)
             $ docSeq
             $ keyDoc
             <> [docLit nameStr]
@@ -108,30 +145,30 @@ layoutSig lsig@(L _loc sig) = case sig of
               [ docCols
                   ColTyOpPrefix
                   [ docLit $ Text.pack ":: "
-                  , docAddBaseY (BrIndentSpecial 3) $ typeDoc
+                  , docAddBaseY (BrIndentSpecial 3) $ fullTypeDoc
                   ]
               ]
             ]
       else layoutLhsAndType
         hasComments
-        (appSep . docWrapNodeRest lsig . docSeq $ keyDoc <> [docLit nameStr])
+        (appSep . docWrapNodeRest (toL lsig) . docSeq $ keyDoc <> [docLit nameStr])
         "::"
-        typeDoc
+        fullTypeDoc
 
 specStringCompat
-  :: MonadMultiWriter [BrittanyError] m => LSig GhcPs -> InlineSpec -> m String
+  :: MonadMultiWriter [BrittanyError] m => Located (Sig GhcPs) -> InlineSpec -> m String
 specStringCompat ast = \case
-  NoUserInline -> mTell [ErrorUnknownNode "NoUserInline" ast] $> ""
-  Inline -> pure "INLINE "
-  Inlinable -> pure "INLINABLE "
-  NoInline -> pure "NOINLINE "
+  NoUserInlinePrag -> mTell [ErrorUnknownNode "NoUserInlinePrag" ast] $> ""
+  Inline _ -> pure "INLINE "
+  Inlinable _ -> pure "INLINABLE "
+  NoInline _ -> pure "NOINLINE "
 
 layoutGuardLStmt :: ToBriDoc' (Stmt GhcPs (LHsExpr GhcPs))
-layoutGuardLStmt lgstmt@(L _ stmtLR) = docWrapNode lgstmt $ case stmtLR of
-  BodyStmt _ body _ _ -> layoutExpr body
+layoutGuardLStmt lgstmt@(L _ stmtLR) = docWrapNode (toL lgstmt) $ case stmtLR of
+  BodyStmt _ body _ _ -> layoutExpr (toL body)
   BindStmt _ lPat expr -> do
     patDoc <- docSharedWrapper layoutPat lPat
-    expDoc <- docSharedWrapper layoutExpr expr
+    expDoc <- docSharedWrapper layoutExpr (toL expr)
     docCols
       ColBindStmt
       [ appSep $ colsWrapPat =<< patDoc
@@ -147,23 +184,24 @@ layoutGuardLStmt lgstmt@(L _ stmtLR) = docWrapNode lgstmt $ case stmtLR of
 layoutBind
   :: ToBriDocC (HsBindLR GhcPs GhcPs) (Either [BriDocNumbered] BriDocNumbered)
 layoutBind lbind@(L _ bind) = case bind of
-  FunBind _ fId (MG _ lmatches@(L _ matches) _) [] -> do
-    idStr <- lrdrNameToTextAnn fId
+  FunBind _ fId (MG _ lmatches@(L _ matches)) -> do
+    idStr <- lrdrNameToTextAnn (toL fId)
     binderDoc <- docLit $ Text.pack "="
     funcPatDocs <-
-      docWrapNode lbind
-      $ docWrapNode lmatches
+      docWrapNode (toL lbind)
+      $ docWrapNode (toL lmatches)
       $ layoutPatternBind (Just idStr) binderDoc
       `mapM` matches
     return $ Left $ funcPatDocs
-  PatBind _ pat (GRHSs _ grhss whereBinds) ([], []) -> do
+  PatBind _ pat _ (GRHSs _ grhssNE whereBinds) -> do
+    let grhss = NonEmpty.toList grhssNE
     patDocs <- colsWrapPat =<< layoutPat pat
     clauseDocs <- layoutGrhs `mapM` grhss
-    mWhereDocs <- layoutLocalBinds whereBinds
-    let mWhereArg = mWhereDocs <&> (,) (mkAnnKey lbind) -- TODO: is this the right AnnKey?
+    mWhereDocs <- layoutLocalBinds (L noSrcSpan whereBinds)
+    let mWhereArg = mWhereDocs <&> (,) (mkAnnKey (toL lbind)) -- TODO: is this the right AnnKey?
     binderDoc <- docLit $ Text.pack "="
-    hasComments <- hasAnyCommentsBelow lbind
-    fmap Right $ docWrapNode lbind $ layoutPatternBindFinal
+    hasComments <- hasAnyCommentsBelow (toL lbind)
+    fmap Right $ docWrapNode (toL lbind) $ layoutPatternBindFinal
       Nothing
       binderDoc
       (Just patDocs)
@@ -171,31 +209,32 @@ layoutBind lbind@(L _ bind) = case bind of
       mWhereArg
       hasComments
   PatSynBind _ (PSB _ patID lpat rpat dir) -> do
-    fmap Right $ docWrapNode lbind $ layoutPatSynBind patID lpat dir rpat
-  _ -> Right <$> unknownNodeError "" lbind
+    fmap Right $ docWrapNode (toL lbind) $ layoutPatSynBind (toL patID) lpat dir rpat
+  _ -> Right <$> unknownNodeError "" (toL lbind)
 layoutIPBind :: ToBriDoc IPBind
 layoutIPBind lipbind@(L _ bind) = case bind of
-  IPBind _ (Right _) _ -> error "brittany internal error: IPBind Right"
-  IPBind _ (Left (L _ (HsIPName name))) expr -> do
-    ipName <- docLit $ Text.pack $ '?' : FastString.unpackFS name
-    binderDoc <- docLit $ Text.pack "="
-    exprDoc <- layoutExpr expr
-    hasComments <- hasAnyCommentsBelow lipbind
-    layoutPatternBindFinal
-      Nothing
-      binderDoc
-      (Just ipName)
-      [([], exprDoc, expr)]
-      Nothing
-      hasComments
+  IPBind _ lipName expr -> case unLoc lipName of
+    HsIPName name -> do
+      ipName <- docLit $ Text.pack $ '?' : FastString.unpackFS name
+      binderDoc <- docLit $ Text.pack "="
+      exprDoc <- layoutExpr (toL expr)
+      hasComments <- hasAnyCommentsBelow (toL lipbind)
+      layoutPatternBindFinal
+        Nothing
+        binderDoc
+        (Just ipName)
+        [([], exprDoc, expr)]
+        Nothing
+        hasComments
+    _ -> briDocByExactNoComment (toL lipbind)
 
 
 data BagBindOrSig = BagBind (LHsBindLR GhcPs GhcPs)
                   | BagSig (LSig GhcPs)
 
 bindOrSigtoSrcSpan :: BagBindOrSig -> SrcSpan
-bindOrSigtoSrcSpan (BagBind (L l _)) = l
-bindOrSigtoSrcSpan (BagSig (L l _)) = l
+bindOrSigtoSrcSpan (BagBind b) = getLocA b
+bindOrSigtoSrcSpan (BagSig s) = getLocA s
 
 layoutLocalBinds
   :: ToBriDocC (HsLocalBindsLR GhcPs GhcPs) (Maybe [BriDocNumbered])
@@ -211,12 +250,12 @@ layoutLocalBinds lbinds@(L _ binds) = case binds of
         ++ [ BagSig s | s <- sigs ]
       ordered = List.sortOn (ExactPrint.rs . bindOrSigtoSrcSpan) unordered
     docs <- docWrapNode lbinds $ join <$> ordered `forM` \case
-      BagBind b -> either id return <$> layoutBind b
-      BagSig s -> return <$> layoutSig s
+      BagBind b -> either id return <$> layoutBind (toL b)
+      BagSig s -> return <$> layoutSig (toL s)
     return $ Just $ docs
 --  x@(HsValBinds (ValBindsOut _binds _lsigs)) ->
   HsValBinds _ (XValBindsLR{}) -> error "brittany internal error: XValBindsLR"
-  HsIPBinds _ (IPBinds _ bb) -> Just <$> mapM layoutIPBind bb
+  HsIPBinds _ (IPBinds _ bb) -> Just <$> mapM (layoutIPBind . toL) bb
   EmptyLocalBinds{} -> return $ Nothing
 
 -- TODO: we don't need the `LHsExpr GhcPs` anymore, now that there is
@@ -225,8 +264,8 @@ layoutGrhs
   :: LGRHS GhcPs (LHsExpr GhcPs)
   -> ToBriDocM ([BriDocNumbered], BriDocNumbered, LHsExpr GhcPs)
 layoutGrhs lgrhs@(L _ (GRHS _ guards body)) = do
-  guardDocs <- docWrapNode lgrhs $ layoutStmt `mapM` guards
-  bodyDoc <- layoutExpr body
+  guardDocs <- sequence (map (layoutStmt . toL) guards)
+  bodyDoc <- layoutExpr (toL body)
   return (guardDocs, bodyDoc, body)
 
 layoutPatternBind
@@ -235,15 +274,16 @@ layoutPatternBind
   -> LMatch GhcPs (LHsExpr GhcPs)
   -> ToBriDocM BriDocNumbered
 layoutPatternBind funId binderDoc lmatch@(L _ match) = do
-  let pats = m_pats match
-  let (GRHSs _ grhss whereBinds) = m_grhss match
+  let pats = unLoc (m_pats match)
+  let (GRHSs _ grhssNE whereBinds) = m_grhss match
+      grhss = NonEmpty.toList grhssNE
   patDocs <- pats `forM` \p -> fmap return $ colsWrapPat =<< layoutPat p
   let isInfix = isInfixMatch match
   mIdStr <- case match of
-    Match _ (FunRhs matchId _ _) _ _ -> Just <$> lrdrNameToTextAnn matchId
+    Match _ (FunRhs matchId _ _ _) _ _ -> Just <$> lrdrNameToTextAnn (toL matchId)
     _ -> pure Nothing
   let mIdStr' = fixPatternBindIdentifier match <$> mIdStr
-  patDoc <- docWrapNodePrior lmatch $ case (mIdStr', patDocs) of
+  patDoc <- docWrapNodePrior (toL lmatch) $ case (mIdStr', patDocs) of
     (Just idStr, p1 : p2 : pr) | isInfix -> if null pr
       then docCols
         ColPatternsFuncInfix
@@ -272,11 +312,11 @@ layoutPatternBind funId binderDoc lmatch@(L _ match) = do
     (Nothing, ps) ->
       docCols ColPatterns
         $ (List.intersperse docSeparator $ docForceSingleline <$> ps)
-  clauseDocs <- docWrapNodeRest lmatch $ layoutGrhs `mapM` grhss
-  mWhereDocs <- layoutLocalBinds whereBinds
-  let mWhereArg = mWhereDocs <&> (,) (mkAnnKey lmatch)
+  clauseDocs <- docWrapNodeRest (toL lmatch) $ layoutGrhs `mapM` grhss
+  mWhereDocs <- layoutLocalBinds (L noSrcSpan whereBinds)
+  let mWhereArg = mWhereDocs <&> (,) (mkAnnKey (toL lmatch))
   let alignmentToken = if null pats then Nothing else funId
-  hasComments <- hasAnyCommentsBelow lmatch
+  hasComments <- hasAnyCommentsBelow (toL lmatch)
   layoutPatternBindFinal
     alignmentToken
     binderDoc
@@ -289,9 +329,9 @@ fixPatternBindIdentifier :: Match GhcPs (LHsExpr GhcPs) -> Text -> Text
 fixPatternBindIdentifier match idStr = go $ m_ctxt match
  where
   go = \case
-    (FunRhs _ _ SrcLazy) -> Text.cons '~' idStr
-    (FunRhs _ _ SrcStrict) -> Text.cons '!' idStr
-    (FunRhs _ _ NoSrcStrict) -> idStr
+    (FunRhs _ _ SrcLazy _) -> Text.cons '~' idStr
+    (FunRhs _ _ SrcStrict _) -> Text.cons '!' idStr
+    (FunRhs _ _ NoSrcStrict _) -> idStr
     (StmtCtxt ctx1) -> goInner ctx1
     _ -> idStr
   -- I have really no idea if this path ever occurs, but better safe than
@@ -307,7 +347,7 @@ layoutPatternBindFinal
   -> BriDocNumbered
   -> Maybe BriDocNumbered
   -> [([BriDocNumbered], BriDocNumbered, LHsExpr GhcPs)]
-  -> Maybe (ExactPrint.AnnKey, [BriDocNumbered])
+  -> Maybe (AnnKey, [BriDocNumbered])
      -- ^ AnnKey for the node that contains the AnnWhere position annotation
   -> Bool
   -> ToBriDocM BriDocNumbered
@@ -611,7 +651,7 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc clauseDocs mWhereDocs ha
 -- | Layout a pattern synonym binding
 layoutPatSynBind
   :: Located (IdP GhcPs)
-  -> HsPatSynDetails (Located (IdP GhcPs))
+  -> HsPatSynDetails GhcPs
   -> HsPatSynDir GhcPs
   -> LPat GhcPs
   -> ToBriDocM BriDocNumbered
@@ -664,20 +704,20 @@ layoutPatSynBind name patSynDetails patDir rpat = do
 -- | Helper method for the left hand side of a pattern synonym
 layoutLPatSyn
   :: Located (IdP GhcPs)
-  -> HsPatSynDetails (Located (IdP GhcPs))
+  -> HsPatSynDetails GhcPs
   -> ToBriDocM BriDocNumbered
 layoutLPatSyn name (PrefixCon vars) = do
   docName <- lrdrNameToTextAnn name
-  names <- mapM lrdrNameToTextAnn vars
+  names <- mapM (lrdrNameToTextAnn . toL) vars
   docSeq . fmap appSep $ docLit docName : (docLit <$> names)
 layoutLPatSyn name (InfixCon left right) = do
-  leftDoc <- lrdrNameToTextAnn left
+  leftDoc <- lrdrNameToTextAnn (toL left)
   docName <- lrdrNameToTextAnn name
-  rightDoc <- lrdrNameToTextAnn right
+  rightDoc <- lrdrNameToTextAnn (toL right)
   docSeq . fmap (appSep . docLit) $ [leftDoc, docName, rightDoc]
 layoutLPatSyn name (RecCon recArgs) = do
   docName <- lrdrNameToTextAnn name
-  args <- mapM (lrdrNameToTextAnn . recordPatSynSelectorId) recArgs
+  args <- mapM (\r -> case recordPatSynField r of FieldOcc _ lname -> lrdrNameToTextAnn (toL lname)) recArgs
   docSeq
     . fmap docLit
     $ [docName, Text.pack " { "]
@@ -689,7 +729,7 @@ layoutLPatSyn name (RecCon recArgs) = do
 layoutPatSynWhere
   :: HsPatSynDir GhcPs -> ToBriDocM (Maybe [ToBriDocM BriDocNumbered])
 layoutPatSynWhere hs = case hs of
-  ExplicitBidirectional (MG _ (L _ lbinds) _) -> do
+  ExplicitBidirectional (MG _ (L _ lbinds)) -> do
     binderDoc <- docLit $ Text.pack "="
     Just
       <$> mapM (docSharedWrapper $ layoutPatternBind Nothing binderDoc) lbinds
@@ -701,75 +741,82 @@ layoutPatSynWhere hs = case hs of
 
 layoutTyCl :: ToBriDoc TyClDecl
 layoutTyCl ltycl@(L _loc tycl) = case tycl of
-  SynDecl _ name vars fixity typ -> do
+  SynDecl _ name vars fixityElem typ -> do
     let
-      isInfix = case fixity of
-        Prefix -> False
-        Infix -> True
+      isInfix = (fixityElem == Infix)
     -- hasTrailingParen <- hasAnnKeywordComment ltycl AnnCloseP
     -- let parenWrapper = if hasTrailingParen
     --       then appSep . docWrapNodeRest ltycl
     --       else id
     let wrapNodeRest = docWrapNodeRest ltycl
     docWrapNodePrior ltycl
-      $ layoutSynDecl isInfix wrapNodeRest name (hsq_explicit vars) typ
+      $ layoutSynDecl isInfix wrapNodeRest (toL name) (hsq_explicit vars) typ
   DataDecl _ext name tyVars _ dataDefn ->
-    layoutDataDecl ltycl name tyVars dataDefn
+    layoutDataDecl (toL ltycl) (toL name) tyVars dataDefn
   _ -> briDocByExactNoComment ltycl
 
 layoutSynDecl
-  :: Bool
+  :: forall flag. Data.Data.Data flag =>
+  Bool
   -> (ToBriDocM BriDocNumbered -> ToBriDocM BriDocNumbered)
   -> Located (IdP GhcPs)
-  -> [LHsTyVarBndr () GhcPs]
+  -> [LHsTyVarBndr flag GhcPs]
   -> LHsType GhcPs
   -> ToBriDocM BriDocNumbered
 layoutSynDecl isInfix wrapNodeRest name vars typ = do
-  nameStr <- lrdrNameToTextAnn name
+  nameStr0 <- lrdrNameToTextAnn (toL name)
   let
+    -- GHC 9.14: annotations lack AnnOpenP/AnnBackquote, so lrdrNameToTextAnn
+    -- returns the raw name. Parenthesize operators in prefix position; add
+    -- backticks for alphanumeric names in infix position.
+    isSym = isSymOcc (rdrNameOcc (unLoc name))
+    nameStr
+      | isInfix && not isSym = Text.pack "`" <> nameStr0 <> Text.pack "`"
+      | not isInfix && isSym = Text.pack "(" <> nameStr0 <> Text.pack ")"
+      | otherwise = nameStr0
     lhs = appSep . wrapNodeRest $ if isInfix
       then do
         let (a : b : rest) = vars
-        hasOwnParens <- hasAnnKeywordComment a AnnOpenP
+        hasOwnParens <- hasAnnKeywordComment (toL a) AnnOpenP
         -- This isn't quite right, but does give syntactically valid results
         let needsParens = not (null rest) || hasOwnParens
         docSeq
           $ [docLit $ Text.pack "type", docSeparator]
           ++ [ docParenL | needsParens ]
-          ++ [ layoutTyVarBndr False a
+          ++ [ layoutTyVarBndr False (toL a)
              , docSeparator
              , docLit nameStr
              , docSeparator
-             , layoutTyVarBndr False b
+             , layoutTyVarBndr False (toL b)
              ]
           ++ [ docParenR | needsParens ]
-          ++ fmap (layoutTyVarBndr True) rest
+          ++ fmap (layoutTyVarBndr True . toL) rest
       else
         docSeq
         $ [ docLit $ Text.pack "type"
           , docSeparator
-          , docWrapNode name $ docLit nameStr
+          , docWrapNode (toL name) $ docLit nameStr
           ]
-        ++ fmap (layoutTyVarBndr True) vars
+        ++ fmap (layoutTyVarBndr True . toL) vars
   sharedLhs <- docSharedWrapper id lhs
-  typeDoc <- docSharedWrapper layoutType typ
-  hasComments <- hasAnyCommentsConnected typ
+  typeDoc <- docSharedWrapper layoutType (toL typ)
+  hasComments <- hasAnyCommentsConnected (toL typ)
   layoutLhsAndType hasComments sharedLhs "=" typeDoc
 
-layoutTyVarBndr :: Bool -> ToBriDoc (HsTyVarBndr ())
+layoutTyVarBndr :: forall flag. Data.Data.Data flag => Bool -> ToBriDoc (HsTyVarBndr flag)
 layoutTyVarBndr needsSep lbndr@(L _ bndr) = do
   docWrapNodePrior lbndr $ case bndr of
-    UserTyVar _ _ name -> do
-      nameStr <- lrdrNameToTextAnn name
+    HsTvb _ _ (HsBndrVar _ name) (HsBndrNoKind _) -> do
+      nameStr <- lrdrNameToTextAnn (toL name)
       docSeq $ [ docSeparator | needsSep ] ++ [docLit nameStr]
-    KindedTyVar _ _ name kind -> do
-      nameStr <- lrdrNameToTextAnn name
+    HsTvb _ _ (HsBndrVar _ name) (HsBndrKind _ kind) -> do
+      nameStr <- lrdrNameToTextAnn (toL name)
       docSeq
         $ [ docSeparator | needsSep ]
         ++ [ docLit $ Text.pack "("
            , appSep $ docLit nameStr
            , appSep . docLit $ Text.pack "::"
-           , docForceSingleline $ layoutType kind
+           , docForceSingleline $ layoutType (toL kind)
            , docLit $ Text.pack ")"
            ]
 
@@ -788,19 +835,23 @@ layoutTyFamInstDecl
   -> ToBriDocM BriDocNumbered
 layoutTyFamInstDecl inClass outerNode tfid = do
   let
-    FamEqn _ name bndrsMay pats _fixity typ = hsib_body $ tfid_eqn tfid
-    -- bndrsMay isJust e.g. with
-    --   type instance forall a . MyType (Maybe a) = Either () a
+    eqn = tfid_eqn tfid
+    name = feqn_tycon eqn
+    bndrsMay = case feqn_bndrs eqn of
+      HsOuterExplicit _ bndrs -> Just bndrs
+      _ -> Nothing
+    pats = feqn_pats eqn
+    typ = feqn_rhs eqn
     innerNode = outerNode
   docWrapNodePrior outerNode $ do
-    nameStr <- lrdrNameToTextAnn name
+    nameStr <- lrdrNameToTextAnn (toL name)
     needsParens <- hasAnnKeyword outerNode AnnOpenP
     let
       instanceDoc = if inClass
         then docLit $ Text.pack "type"
         else docSeq
           [appSep . docLit $ Text.pack "type", docLit $ Text.pack "instance"]
-      makeForallDoc :: [LHsTyVarBndr () GhcPs] -> ToBriDocM BriDocNumbered
+      makeForallDoc :: forall flag. [LHsTyVarBndr flag GhcPs] -> ToBriDocM BriDocNumbered
       makeForallDoc bndrs = do
         bndrDocs <- layoutTyVarBndrs bndrs
         docSeq
@@ -812,26 +863,24 @@ layoutTyFamInstDecl inClass outerNode tfid = do
           $ [appSep instanceDoc]
           ++ [ makeForallDoc foralls | Just foralls <- [bndrsMay] ]
           ++ [ docParenL | needsParens ]
-          ++ [appSep $ docWrapNode name $ docLit nameStr]
+          ++ [appSep $ docWrapNode (toL name) $ docLit nameStr]
           ++ intersperse docSeparator (layoutHsTyPats pats)
           ++ [ docParenR | needsParens ]
     hasComments <-
       (||)
       <$> hasAnyRegularCommentsConnected outerNode
       <*> hasAnyRegularCommentsRest innerNode
-    typeDoc <- docSharedWrapper layoutType typ
+    typeDoc <- docSharedWrapper layoutType (toL typ)
     layoutLhsAndType hasComments lhs "=" typeDoc
 
 
-layoutHsTyPats
-  :: [HsArg (LHsType GhcPs) (LHsKind GhcPs)] -> [ToBriDocM BriDocNumbered]
 layoutHsTyPats pats = pats <&> \case
-  HsValArg tm -> layoutType tm
-  HsTypeArg _l ty -> docSeq [docLit $ Text.pack "@", layoutType ty]
+  HsValArg _ tm -> layoutType (toL tm)
+  HsTypeArg _ ty -> docSeq [docLit $ Text.pack "@", layoutType (toL ty)]
     -- we ignore the SourceLoc here.. this LPat not being (L _ Pat{}) change
     -- is a bit strange. Hopefully this does not ignore any important
     -- annotations.
-  HsArgPar _l -> error "brittany internal error: HsArgPar{}"
+  HsArgPar _ -> error "brittany internal error: HsArgPar{}"
 
 --------------------------------------------------------------------------------
 -- ClsInstDecl
@@ -848,10 +897,10 @@ layoutClsInst lcid@(L _ cid) = docLines
   , docEnsureIndent BrIndentRegular
   $ docSetIndentLevel
   $ docSortedLines
-  $ fmap layoutAndLocateSig (cid_sigs cid)
-  ++ fmap layoutAndLocateBind (bagToList $ cid_binds cid)
-  ++ fmap layoutAndLocateTyFamInsts (cid_tyfam_insts cid)
-  ++ fmap layoutAndLocateDataFamInsts (cid_datafam_insts cid)
+  $ fmap (layoutAndLocateSig . toL) (cid_sigs cid)
+  ++ fmap (layoutAndLocateBind . toL) (cid_binds cid)
+  ++ fmap (layoutAndLocateTyFamInsts . toL) (cid_tyfam_insts cid)
+  ++ fmap (layoutAndLocateDataFamInsts . toL) (cid_datafam_insts cid)
   ]
  where
   layoutInstanceHead :: ToBriDocM BriDocNumbered
@@ -864,7 +913,7 @@ layoutClsInst lcid@(L _ cid) = docLines
 
   removeChildren :: ClsInstDecl GhcPs -> ClsInstDecl GhcPs
   removeChildren c = c
-    { cid_binds = emptyBag
+    { cid_binds = []
     , cid_sigs = []
     , cid_tyfam_insts = []
     , cid_datafam_insts = []

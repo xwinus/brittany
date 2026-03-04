@@ -19,36 +19,32 @@ import qualified Data.Text.Lazy.Builder as Text.Builder
 import DataTreePrint
 import GHC (GenLocated(L), Located, moduleName, moduleNameString)
 import qualified GHC.OldList as List
-import GHC.Parser.Annotation (AnnKeywordId(..))
+import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey, Annotation)
 import GHC.Types.Name (getOccString)
 import GHC.Types.Name.Occurrence (occNameString)
 import GHC.Types.Name.Reader (RdrName(..))
 import qualified GHC.Types.SrcLoc as GHC
+import GHC.Parser.Annotation (getLocA)
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Utils
-import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
-import qualified Language.Haskell.GHC.ExactPrint.Annotate as ExactPrint.Annotate
-import qualified Language.Haskell.GHC.ExactPrint.Types as ExactPrint.Types
-import qualified Language.Haskell.GHC.ExactPrint.Types as ExactPrint
-import Language.Haskell.GHC.ExactPrint.Types (AnnKey, Annotation)
+import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrintCompat
+import qualified Language.Haskell.GHC.ExactPrint.ExactPrint as ExactPrint
 import qualified Language.Haskell.GHC.ExactPrint.Utils as ExactPrint.Utils
 
 
 
 processDefault
-  :: ( ExactPrint.Annotate.Annotate ast
+  :: ( ExactPrint.ExactPrint ast
      , MonadMultiWriter Text.Builder.Builder m
-     , MonadMultiReader ExactPrint.Types.Anns m
      )
   => Located ast
   -> m ()
 processDefault x = do
-  anns <- mAsk
-  let str = ExactPrint.exactPrint x anns
+  let str = ExactPrint.exactPrint x
   -- this hack is here so our print-empty-module trick does not add
   -- a newline at the start if there actually is no module header / imports
   -- / anything.
@@ -63,7 +59,7 @@ processDefault x = do
 -- not handled by brittany yet). Useful when starting implementing new
 -- syntactic constructs when children are not handled yet.
 briDocByExact
-  :: (ExactPrint.Annotate.Annotate ast)
+  :: (Data ast, ExactPrint.ExactPrint ast)
   => Located ast
   -> ToBriDocM BriDocNumbered
 briDocByExact ast = do
@@ -80,7 +76,7 @@ briDocByExact ast = do
 -- of its surroundings as layouted by brittany. But there are safe uses of
 -- this, e.g. for any top-level declarations.
 briDocByExactNoComment
-  :: (ExactPrint.Annotate.Annotate ast)
+  :: (Data ast, ExactPrint.ExactPrint ast)
   => Located ast
   -> ToBriDocM BriDocNumbered
 briDocByExactNoComment ast = do
@@ -95,7 +91,7 @@ briDocByExactNoComment ast = do
 -- not contain any newlines. If this property is not met, the semantics
 -- depend on the @econf_AllowRiskyExactPrintUse@ config flag.
 briDocByExactInlineOnly
-  :: (ExactPrint.Annotate.Annotate ast)
+  :: (Data ast, ExactPrint.ExactPrint ast)
   => String
   -> Located ast
   -> ToBriDocM BriDocNumbered
@@ -105,12 +101,12 @@ briDocByExactInlineOnly infoStr ast = do
     "ast"
     _dconf_dump_ast_unknown
     (printTreeWithCustom 100 (customLayouterF anns) ast)
-  let exactPrinted = Text.pack $ ExactPrint.exactPrint ast anns
+  let exactPrinted = Text.pack $ ExactPrint.exactPrint ast
   fallbackMode <-
     mAsk <&> _conf_errorHandling .> _econf_ExactPrintFallback .> confUnpack
   let
     exactPrintNode t = allocateNode $ BDFExternal
-      (ExactPrint.Types.mkAnnKey ast)
+      (ExactPrintCompat.mkAnnKey ast)
       (foldedAnnKeys ast)
       False
       t
@@ -146,15 +142,15 @@ lrdrNameToTextAnnGen f ast@(L _ n) = do
   anns <- mAsk
   let t = f $ rdrNameToText n
   let
-    hasUni x (ExactPrint.Types.G y, _) = x == y
+    hasUni x (ExactPrintCompat.G y, _) = x == y
     hasUni _ _ = False
   -- TODO: in general: we should _always_ process all annotaiton stuff here.
   --       whatever we don't probably should have had some effect on the
   --       output. in such cases, resorting to byExact is probably the safe
   --       choice.
-  return $ case Map.lookup (ExactPrint.Types.mkAnnKey ast) anns of
+  return $ case Map.lookup (ExactPrintCompat.mkAnnKey ast) anns of
     Nothing -> t
-    Just (ExactPrint.Types.Ann _ _ _ aks _ _) -> case n of
+    Just (ExactPrintCompat.Ann _ _ aks _ _ _) -> case n of
       Exact{} | t == Text.pack "()" -> t
       _ | any (hasUni AnnBackquote) aks -> Text.pack "`" <> t <> Text.pack "`"
       _ | any (hasUni AnnCommaTuple) aks -> t
@@ -205,28 +201,30 @@ askIndent = confUnpack . _lconfig_indentAmount . _conf_layout <$> mAsk
 
 
 extractAllComments
-  :: ExactPrint.Annotation -> [(ExactPrint.Comment, ExactPrint.DeltaPos)]
+  :: ExactPrintCompat.Annotation -> [(ExactPrintCompat.Comment, ExactPrintCompat.DeltaPos)]
 extractAllComments ann =
-  ExactPrint.annPriorComments ann ++ extractRestComments ann
+  ExactPrintCompat.annPriorComments ann ++ extractRestComments ann
 
 extractRestComments
-  :: ExactPrint.Annotation -> [(ExactPrint.Comment, ExactPrint.DeltaPos)]
+  :: ExactPrintCompat.Annotation -> [(ExactPrintCompat.Comment, ExactPrintCompat.DeltaPos)]
 extractRestComments ann =
-  ExactPrint.annFollowingComments ann
-    ++ (ExactPrint.annsDP ann >>= \case
-         (ExactPrint.AnnComment com, dp) -> [(com, dp)]
+  ExactPrintCompat.annFollowingComments ann
+    ++ (ExactPrintCompat.annsDP ann >>= \case
+         (ExactPrintCompat.AnnComment com, dp) -> [(com, dp)]
          _ -> []
        )
 
-filterAnns :: Data.Data.Data ast => ast -> ExactPrint.Anns -> ExactPrint.Anns
+filterAnns :: Data.Data.Data ast => ast -> ExactPrintCompat.Anns -> ExactPrintCompat.Anns
 filterAnns ast = Map.filterWithKey (\k _ -> k `Set.member` foldedAnnKeys ast)
 
 -- | True if there are any comments that are
 -- a) connected to any node below (in AST sense) the given node AND
 -- b) after (in source code order) the node.
 hasAnyCommentsBelow :: Data ast => GHC.Located ast -> ToBriDocM Bool
-hasAnyCommentsBelow ast@(L l _) =
-  List.any (\(c, _) -> ExactPrint.commentIdentifier c > ExactPrint.Utils.rs l)
+hasAnyCommentsBelow ast =
+  List.any (\(c, _) -> case ExactPrintCompat.srcSpanToRealSpan (ExactPrintCompat.commentIdentifier c) of
+                         Nothing -> False
+                         Just rc -> GHC.realSrcSpanStart rc > GHC.realSrcSpanStart (ExactPrint.Utils.rs (getLocA ast)))
     <$> astConnectedComments ast
 
 hasCommentsBetween
@@ -239,15 +237,15 @@ hasCommentsBetween ast leftKey rightKey = do
   mAnn <- astAnn ast
   let
     go1 [] = False
-    go1 ((ExactPrint.G kw, _dp) : rest) | kw == leftKey = go2 rest
+    go1 ((ExactPrintCompat.G kw, _dp) : rest) | kw == leftKey = go2 rest
     go1 (_ : rest) = go1 rest
     go2 [] = False
-    go2 ((ExactPrint.AnnComment _, _dp) : _rest) = True
-    go2 ((ExactPrint.G kw, _dp) : _rest) | kw == rightKey = False
+    go2 ((ExactPrintCompat.AnnComment _, _dp) : _rest) = True
+    go2 ((ExactPrintCompat.G kw, _dp) : _rest) | kw == rightKey = False
     go2 (_ : rest) = go2 rest
   case mAnn of
     Nothing -> pure False
-    Just ann -> pure $ go1 $ ExactPrint.annsDP ann
+    Just ann -> pure $ go1 $ ExactPrintCompat.annsDP ann
 
 -- | True if there are any comments that are connected to any node below (in AST
 --   sense) the given node
@@ -269,13 +267,13 @@ hasAnyRegularCommentsConnected ast =
 -- I believe that most of the time we branch on the existence of comments, we
 -- only care about "regular" comments. We simply did not need the distinction
 -- because "irregular" comments are not that common outside of type/data decls.
-isRegularComment :: (ExactPrint.Comment, ExactPrint.DeltaPos) -> Bool
-isRegularComment = (== Nothing) . ExactPrint.Types.commentOrigin . fst
+isRegularComment :: (ExactPrintCompat.Comment, ExactPrintCompat.DeltaPos) -> Bool
+isRegularComment = (== Nothing) . ExactPrintCompat.commentOrigin . fst
 
 astConnectedComments
   :: Data ast
   => GHC.Located ast
-  -> ToBriDocM [(ExactPrint.Types.Comment, ExactPrint.Types.DeltaPos)]
+  -> ToBriDocM [(ExactPrintCompat.Comment, ExactPrintCompat.DeltaPos)]
 astConnectedComments ast = do
   anns <- filterAnns ast <$> mAsk
   pure $ extractAllComments =<< Map.elems anns
@@ -283,7 +281,7 @@ astConnectedComments ast = do
 hasAnyCommentsPrior :: Data ast => GHC.Located ast -> ToBriDocM Bool
 hasAnyCommentsPrior ast = astAnn ast <&> \case
   Nothing -> False
-  Just (ExactPrint.Types.Ann _ priors _ _ _ _) -> not $ null priors
+  Just (ExactPrintCompat.Ann _ _ _ priors _ _) -> not $ null priors
 
 hasAnyRegularCommentsRest :: Data ast => GHC.Located ast -> ToBriDocM Bool
 hasAnyRegularCommentsRest ast = astAnn ast <&> \case
@@ -295,7 +293,7 @@ hasAnnKeywordComment
 hasAnnKeywordComment ast annKeyword = astAnn ast <&> \case
   Nothing -> False
   Just ann -> any hasK (extractAllComments ann)
-  where hasK = (== Just annKeyword) . ExactPrint.Types.commentOrigin . fst
+  where hasK = (== Just annKeyword) . ExactPrintCompat.commentOrigin . fst
 
 hasAnnKeyword
   :: (Data a, MonadMultiReader (Map AnnKey Annotation) m)
@@ -304,16 +302,16 @@ hasAnnKeyword
   -> m Bool
 hasAnnKeyword ast annKeyword = astAnn ast <&> \case
   Nothing -> False
-  Just (ExactPrint.Types.Ann _ _ _ aks _ _) -> any hasK aks
+  Just (ExactPrintCompat.Ann _ _ aks _ _ _) -> any hasK aks
  where
-  hasK (ExactPrint.Types.G x, _) = x == annKeyword
+  hasK (ExactPrintCompat.G x, _) = x == annKeyword
   hasK _ = False
 
 astAnn
   :: (Data ast, MonadMultiReader (Map AnnKey Annotation) m)
   => GHC.Located ast
   -> m (Maybe Annotation)
-astAnn ast = Map.lookup (ExactPrint.Types.mkAnnKey ast) <$> mAsk
+astAnn ast = Map.lookup (ExactPrintCompat.mkAnnKey ast) <$> mAsk
 
 -- new BriDoc stuff
 
@@ -336,9 +334,9 @@ allocNodeIndex = do
 -- docLit t = allocateNode $ BDFLit t
 --
 -- docExt :: (ExactPrint.Annotate.Annotate ast, MonadMultiState NodeAllocIndex m)
---        => Located ast -> ExactPrint.Types.Anns -> Bool -> m BriDocNumbered
+--        => Located ast -> ExactPrintCompat.Anns -> Bool -> m BriDocNumbered
 -- docExt x anns shouldAddComment = allocateNode $ BDFExternal
---                   (ExactPrint.Types.mkAnnKey x)
+--                   (ExactPrintCompat.mkAnnKey x)
 --                   (foldedAnnKeys x)
 --                   shouldAddComment
 --                   (Text.pack $ ExactPrint.exactPrint x anns)
@@ -393,7 +391,7 @@ allocNodeIndex = do
 --                -> m BriDocNumbered
 -- docPostComment ast bdm = do
 --   bd <- bdm
---   allocateNode $ BDFAnnotationPost (ExactPrint.Types.mkAnnKey ast) bd
+--   allocateNode $ BDFAnnotationPost (ExactPrintCompat.mkAnnKey ast) bd
 --
 -- docWrapNode :: ( Data.Data.Data ast, MonadMultiState NodeAllocIndex m)
 --             => Located ast
@@ -405,9 +403,9 @@ allocNodeIndex = do
 --   i2 <- allocNodeIndex
 --   return
 --     $ (,) i1
---     $ BDFAnnotationPrior (ExactPrint.Types.mkAnnKey ast)
+--     $ BDFAnnotationPrior (ExactPrintCompat.mkAnnKey ast)
 --     $ (,) i2
---     $ BDFAnnotationPost (ExactPrint.Types.mkAnnKey ast)
+--     $ BDFAnnotationPost (ExactPrintCompat.mkAnnKey ast)
 --     $ bd
 --
 -- docPar :: MonadMultiState NodeAllocIndex m
@@ -438,16 +436,17 @@ docLitS :: String -> ToBriDocM BriDocNumbered
 docLitS s = allocateNode $ BDFLit $ Text.pack s
 
 docExt
-  :: (ExactPrint.Annotate.Annotate ast)
+  :: (Data ast, ExactPrint.ExactPrint ast)
   => Located ast
-  -> ExactPrint.Types.Anns
+  -> ExactPrintCompat.Anns
   -> Bool
   -> ToBriDocM BriDocNumbered
 docExt x anns shouldAddComment = allocateNode $ BDFExternal
-  (ExactPrint.Types.mkAnnKey x)
+  (ExactPrintCompat.mkAnnKey x)
   (foldedAnnKeys x)
   shouldAddComment
-  (Text.pack $ ExactPrint.exactPrint x anns)
+  (Text.dropWhileEnd (== '\n') . Text.dropWhile (== '\n') . Text.pack
+    $ ExactPrint.exactPrint x)
 
 docAlt :: [ToBriDocM BriDocNumbered] -> ToBriDocM BriDocNumbered
 docAlt l = allocateNode . BDFAlt =<< sequence l
@@ -585,7 +584,7 @@ docNodeAnnKW
   -> ToBriDocM BriDocNumbered
   -> ToBriDocM BriDocNumbered
 docNodeAnnKW ast kw bdm =
-  docAnnotationKW (ExactPrint.Types.mkAnnKey ast) kw bdm
+  docAnnotationKW (ExactPrintCompat.mkAnnKey ast) kw bdm
 
 docNodeMoveToKWDP
   :: Data.Data.Data ast
@@ -595,7 +594,7 @@ docNodeMoveToKWDP
   -> ToBriDocM BriDocNumbered
   -> ToBriDocM BriDocNumbered
 docNodeMoveToKWDP ast kw shouldRestoreIndent bdm =
-  docMoveToKWDP (ExactPrint.Types.mkAnnKey ast) kw shouldRestoreIndent bdm
+  docMoveToKWDP (ExactPrintCompat.mkAnnKey ast) kw shouldRestoreIndent bdm
 
 class DocWrapable a where
   docWrapNode :: ( Data.Data.Data ast)
@@ -618,18 +617,18 @@ instance DocWrapable (ToBriDocM BriDocNumbered) where
     i2 <- allocNodeIndex
     return
       $ (,) i1
-      $ BDFAnnotationPrior (ExactPrint.Types.mkAnnKey ast)
+      $ BDFAnnotationPrior (ExactPrintCompat.mkAnnKey ast)
       $ (,) i2
-      $ BDFAnnotationRest (ExactPrint.Types.mkAnnKey ast)
+      $ BDFAnnotationRest (ExactPrintCompat.mkAnnKey ast)
       $ bd
   docWrapNodePrior ast bdm = do
     bd <- bdm
     i1 <- allocNodeIndex
-    return $ (,) i1 $ BDFAnnotationPrior (ExactPrint.Types.mkAnnKey ast) $ bd
+    return $ (,) i1 $ BDFAnnotationPrior (ExactPrintCompat.mkAnnKey ast) $ bd
   docWrapNodeRest ast bdm = do
     bd <- bdm
     i2 <- allocNodeIndex
-    return $ (,) i2 $ BDFAnnotationRest (ExactPrint.Types.mkAnnKey ast) $ bd
+    return $ (,) i2 $ BDFAnnotationRest (ExactPrintCompat.mkAnnKey ast) $ bd
 
 instance DocWrapable (ToBriDocM a) => DocWrapable [ToBriDocM a] where
   docWrapNode ast bdms = case bdms of

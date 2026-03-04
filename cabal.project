@@ -1,5 +1,8 @@
 packages: .
 
+-- Allow newer base, template-haskell, time, and containers for GHC 9.14
+allow-newer: base, template-haskell, time, containers
+
 allow-newer:
     -- https://github.com/lspitzner/butcher/issues/7
     , butcher:base
@@ -7,3 +10,6 @@ allow-newer:
     , data-tree-print:base
     -- https://github.com/lspitzner/multistate/pull/8
     , multistate:base
+    , czipwith:template-haskell
+    , indexed-traversable:containers
+    , aeson:template-haskell

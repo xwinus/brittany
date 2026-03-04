@@ -356,11 +356,17 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
           disableFormatting =
             moduleConf & _conf_disable_formatting & confUnpack
         (errsWarns, outSText, hasChanges) <- do
+          let
+            ensureTrailingNewline t =
+              if Text.null t || Text.last t /= '\n'
+                then Text.append t (Text.singleton '\n')
+                else t
           if
             | disableFormatting -> do
-              pure ([], originalContents, False)
+              let out = ensureTrailingNewline originalContents
+              pure ([], out, out /= originalContents)
             | exactprintOnly -> do
-              let r = Text.pack $ ExactPrint.exactPrint parsedSource anns
+              let r = ensureTrailingNewline $ Text.pack $ ExactPrint.exactPrint parsedSource
               pure ([], r, r /= originalContents)
             | otherwise -> do
               let
@@ -391,7 +397,8 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
               out' <- if moduleConf & _conf_obfuscate & confUnpack
                 then lift $ obfuscate out
                 else pure out
-              pure $ (ews, out', out' /= originalContents)
+              let out'' = ensureTrailingNewline out'
+              pure $ (ews, out'', out'' /= originalContents)
         let
           customErrOrder ErrorInput{} = 4
           customErrOrder LayoutWarning{} = -1 :: Int

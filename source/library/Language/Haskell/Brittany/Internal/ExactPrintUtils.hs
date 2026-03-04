@@ -4,12 +4,14 @@
 {-# LANGUAGE MonadComprehensions #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Language.Haskell.Brittany.Internal.ExactPrintUtils where
 
 import qualified Control.Monad.State.Class as State.Class
 import qualified Control.Monad.Trans.MultiRWS.Strict as MultiRWSS
 import Data.Data
+import Data.Dynamic (Dynamic, fromDynamic, toDyn)
 import qualified Data.Foldable as Foldable
 import qualified Data.Generics as SYB
 import Data.HList.HList
@@ -19,16 +21,25 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import GHC (GenLocated(L))
 import qualified GHC hiding (parseModule)
-import qualified GHC.Driver.CmdLine as GHC
-import GHC.Hs
-import qualified GHC.Types.SrcLoc as GHC
-import GHC.Types.SrcLoc (Located, SrcSpan)
+import GHC.Hs (GhcPs, HsDecl, HsModule(..), LHsDecl, hsmodDecls)
+import GHC.Parser.Annotation
+  ( AnnContext
+  , AnnList
+  , AnnListItem
+  , EpAnn(..)
+  , NoEpAnns
+  , epaLocationRealSrcSpan
+  , getLocA
+  , HasLoc(..)
+  )
+import GHC.Types.SrcLoc (Located, RealSrcSpan, SrcSpan, unLoc)
+import GHC.Types.SrcLoc (EpaLocation'(..))
+import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.Config.Types
 import qualified Language.Haskell.Brittany.Internal.ParseModule as ParseModule
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
-import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
-import qualified Language.Haskell.GHC.ExactPrint.Types as ExactPrint
+import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrint
 import qualified System.IO
 
 
@@ -62,16 +73,17 @@ commentAnnFixTransformGlob ast = do
                     )
   let nodes = SYB.everything (<>) extract ast
   let
-    annsMap :: Map GHC.RealSrcLoc ExactPrint.AnnKey
+    annsMap :: Map SrcLoc.RealSrcLoc ExactPrint.AnnKey
     annsMap = Map.fromListWith
       (const id)
-      [ (GHC.realSrcSpanEnd span, annKey)
-      | (GHC.RealSrcSpan span _, annKey) <- Foldable.toList nodes
+      [ (SrcLoc.realSrcSpanEnd realSpan, annKey)
+      | (_, annKey) <- Foldable.toList nodes
+      , Just realSpan <- [ExactPrint.annKeyRealSpan annKey]
       ]
   nodes `forM_` (snd .> processComs annsMap)
  where
   processComs annsMap annKey1 = do
-    mAnn <- State.Class.gets fst <&> Map.lookup annKey1
+    mAnn <- State.Class.gets (Map.lookup annKey1)
     mAnn `forM_` \ann1 -> do
       let
         priors = ExactPrint.annPriorComments ann1
@@ -82,27 +94,29 @@ commentAnnFixTransformGlob ast = do
           :: (ExactPrint.Comment, ExactPrint.DeltaPos)
           -> ExactPrint.TransformT Identity Bool
         processCom comPair@(com, _) =
-          case GHC.realSrcSpanStart $ ExactPrint.commentIdentifier com of
-            comLoc -> case Map.lookupLE comLoc annsMap of
-              Just (_, annKey2) | loc1 /= loc2 -> case (con1, con2) of
-                (ExactPrint.CN "RecordCon", ExactPrint.CN "HsRecField") ->
-                  move $> False
-                (x, y) | x == y -> move $> False
-                _ -> return True
-               where
-                ExactPrint.AnnKey annKeyLoc1 con1 = annKey1
-                ExactPrint.AnnKey annKeyLoc2 con2 = annKey2
-                loc1 = GHC.realSrcSpanStart annKeyLoc1
-                loc2 = GHC.realSrcSpanStart annKeyLoc2
-                move = ExactPrint.modifyAnnsT $ \anns ->
-                  let
-                    ann2 = Data.Maybe.fromJust $ Map.lookup annKey2 anns
-                    ann2' = ann2
-                      { ExactPrint.annFollowingComments =
-                        ExactPrint.annFollowingComments ann2 ++ [comPair]
-                      }
-                  in Map.insert annKey2 ann2' anns
-              _ -> return True -- retain comment at current node.
+          case ExactPrint.srcSpanToRealSpan (ExactPrint.commentIdentifier com) of
+            Nothing -> return True
+            Just comRealSpan ->
+              let comLoc = SrcLoc.realSrcSpanStart comRealSpan
+              in case Map.lookupLE comLoc annsMap of
+                Just (_, annKey2) ->
+                  case (ExactPrint.annKeyRealSpan annKey1, ExactPrint.annKeyRealSpan annKey2) of
+                    (Just r1, Just r2) | SrcLoc.realSrcSpanStart r1 /= SrcLoc.realSrcSpanStart r2 ->
+                      case (ExactPrint.annKeyCon annKey1, ExactPrint.annKeyCon annKey2) of
+                        (ExactPrint.CN "RecordCon", ExactPrint.CN "HsRecField") ->
+                          move annKey2 $> False
+                        (x, y) | x == y -> move annKey2 $> False
+                        _ -> return True
+                     where
+                      move ak2 = ExactPrint.modifyAnnsT $ \anns ->
+                        let ann2 = Data.Maybe.fromJust $ Map.lookup ak2 anns
+                            ann2' = ann2
+                              { ExactPrint.annFollowingComments =
+                                ExactPrint.annFollowingComments ann2 ++ [comPair]
+                              }
+                        in Map.insert ak2 ann2' anns
+                    _ -> return True
+                _ -> return True -- retain comment at current node.
       priors' <- filterM processCom priors
       follows' <- filterM processCom follows
       assocs' <- flip filterM assocs $ \case
@@ -185,12 +199,14 @@ commentAnnFixTransformGlob ast = do
 -- elements to the relevant annotations. Avoids quadratic behaviour a trivial
 -- implementation would have.
 extractToplevelAnns
-  :: Located HsModule
+  :: Located (HsModule GhcPs)
   -> ExactPrint.Anns
   -> Map ExactPrint.AnnKey ExactPrint.Anns
 extractToplevelAnns lmod anns = output
  where
-  (L _ (HsModule _ _ _ _ ldecls _ _)) = lmod
+  (L _ m) = lmod
+  -- GHC 9.14: hsmodDecls returns [LHsDecl GhcPs] with EpAnn location; convert to SrcSpan for mkAnnKey
+  ldecls = map (\ldecl -> L (getLocA ldecl) (unLoc ldecl)) (hsmodDecls m)
   declMap1 :: Map ExactPrint.AnnKey ExactPrint.AnnKey
   declMap1 = Map.unions $ ldecls <&> \ldecl ->
     Map.fromSet (const (ExactPrint.mkAnnKey ldecl)) (foldedAnnKeys ldecl)
@@ -198,10 +214,12 @@ extractToplevelAnns lmod anns = output
   declMap2 =
     Map.fromList
       $ [ (captured, declMap1 Map.! k)
-        | (k, ExactPrint.Ann _ _ _ _ _ (Just captured)) <- Map.toList anns
+        | (k, ExactPrint.Ann (Just captured) _ _ _ _ _) <- Map.toList anns
         ]
   declMap = declMap1 `Map.union` declMap2
-  modKey = ExactPrint.mkAnnKey lmod
+  -- Use getLocA for consistent SrcSpan-based keys with ExtractAnns (mkAnnKeyL)
+  lmodSrc = L (getLocA lmod) (unLoc lmod)
+  modKey = ExactPrint.mkAnnKey lmodSrc
   output = groupMap (\k _ -> Map.findWithDefault modKey k declMap) anns
 
 groupMap :: (Ord k, Ord l) => (k -> a -> l) -> Map k a -> Map l (Map k a)
@@ -212,19 +230,39 @@ groupMap f = Map.foldlWithKey'
   insert k a Nothing = Just (Map.singleton k a)
   insert k a (Just m) = Just (Map.insert k a m)
 
+-- | Extract SrcSpan from Dynamic. GHC 9.14 uses EpAnn-based locations;
+-- try EpAnn AnnListItem (SrcSpanAnnA) first, then SrcSpan.
+tryGetSrcSpanFromDynamic :: Dynamic -> Maybe SrcSpan
+tryGetSrcSpanFromDynamic d =
+  fromDynamic @SrcSpan d
+    <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn AnnListItem) d)
+    <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn NoEpAnns) d)
+    <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn AnnContext) d)
+    <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn (AnnList ())) d)
+    <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn ()) d)
+    <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn [()]) d)
+
+-- | Safely convert an EpAnn's entry to SrcSpan, returning Nothing for
+-- generated spans that would cause epaLocationRealSrcSpan to panic.
+tryEpAnnToSrcSpan :: EpAnn a -> Maybe SrcSpan
+tryEpAnnToSrcSpan epann = case epann of
+  EpAnn anc _ _ -> case anc of
+    EpaSpan ss -> case ss of
+      SrcLoc.RealSrcSpan rss _ -> Just (ExactPrint.realSpanToSrcSpan rss)
+      _ -> Nothing
+    _ -> Nothing
+  _ -> Nothing
+
 foldedAnnKeys :: Data.Data.Data ast => ast -> Set ExactPrint.AnnKey
 foldedAnnKeys ast = SYB.everything
   Set.union
-  (\x -> maybe
-    Set.empty
-    Set.singleton
-    [ SYB.gmapQi 1 (ExactPrint.mkAnnKey . L l) x
-    | locTyCon == SYB.typeRepTyCon (SYB.typeOf x)
-    , l :: SrcSpan <- SYB.gmapQi 0 SYB.cast x
-    ]
-      -- for some reason, ghc-8.8 has forgotten how to infer the type of l,
-      -- even though it is passed to mkAnnKey above, which only accepts
-      -- SrcSpan.
+  (\x ->
+    if locTyCon /= SYB.typeRepTyCon (SYB.typeOf x)
+      then Set.empty
+      else
+        case tryGetSrcSpanFromDynamic (SYB.gmapQi 0 toDyn x) of
+          Nothing -> Set.empty
+          Just l -> Set.singleton (SYB.gmapQi 1 (ExactPrint.mkAnnKey . L l) x)
   )
   ast
   where locTyCon = SYB.typeRepTyCon (SYB.typeOf (L () ()))
@@ -245,10 +283,6 @@ withTransformedAnns ast m = MultiRWSS.mGetRawR >>= \case
  where
   f anns =
     let
-      ((), (annsBalanced, _), _) =
+      (annsBalanced, ()) =
         ExactPrint.runTransform anns (commentAnnFixTransformGlob ast)
     in annsBalanced
-
-
-warnExtractorCompat :: GHC.Warn -> String
-warnExtractorCompat (GHC.Warn _ (L _ s)) = s

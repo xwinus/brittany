@@ -17,7 +17,7 @@ import qualified Data.Sequence as Seq
 import DataTreePrint
 import qualified GHC.Data.FastString as GHC
 import qualified GHC.Driver.Session as GHC
-import qualified GHC.Hs.Extension as HsExtension
+import GHC.Hs (NoExtField(..))
 import qualified GHC.OldList as List
 import GHC.Types.Name.Occurrence as OccName (occNameString)
 import qualified GHC.Types.SrcLoc as GHC
@@ -26,8 +26,8 @@ import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
-import qualified Language.Haskell.GHC.ExactPrint.Types as ExactPrint.Types
-import qualified Language.Haskell.GHC.ExactPrint.Utils as ExactPrint.Utils
+import Language.Haskell.Brittany.Internal.ExactPrintCompat (Anns)
+import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrint.Types
 import qualified Text.PrettyPrint as PP
 
 
@@ -40,10 +40,10 @@ parDocW = PP.fsep . fmap PP.text . List.words . List.unwords
 
 
 showSDoc_ :: GHC.SDoc -> String
-showSDoc_ = GHC.showSDoc GHC.unsafeGlobalDynFlags
+showSDoc_ = GHC.showSDocUnsafe
 
 showOutputable :: (GHC.Outputable a) => a -> String
-showOutputable = GHC.showPpr GHC.unsafeGlobalDynFlags
+showOutputable = GHC.showPprUnsafe
 
 fromMaybeIdentity :: Identity a -> Maybe a -> Identity a
 fromMaybeIdentity x y = Data.Coerce.coerce $ fromMaybe (Data.Coerce.coerce x) y
@@ -72,7 +72,7 @@ instance Show ShowIsId where
 data A x = A ShowIsId x
   deriving Data
 
-customLayouterF :: ExactPrint.Types.Anns -> LayouterF
+customLayouterF :: Anns -> LayouterF
 customLayouterF anns layoutF =
   DataToLayouter
     $ f
@@ -108,8 +108,8 @@ customLayouterF anns layoutF =
   located (GHC.L ss a) = runDataToLayouter layoutF $ A annStr a
    where
     annStr = case cast ss of
-      Just (s :: GHC.SrcSpan) ->
-        ShowIsId $ show (ExactPrint.Utils.getAnnotationEP (GHC.L s a) anns)
+      Just (_ :: GHC.SrcSpan) ->
+        ShowIsId "(annotation)"
       Nothing -> ShowIsId "nnnnnnnn"
 
 customLayouterNoAnnsF :: LayouterF
@@ -226,7 +226,7 @@ briDocToDoc = astToDoc . removeAnnotations
 briDocToDocWithAnns :: BriDoc -> PP.Doc
 briDocToDocWithAnns = astToDoc
 
-annsDoc :: ExactPrint.Types.Anns -> PP.Doc
+annsDoc :: Anns -> PP.Doc
 annsDoc =
   printTreeWithCustom 100 customLayouterNoAnnsF . fmap (ShowIsId . show)
 
@@ -271,5 +271,5 @@ lines' s = case break (== '\n') s of
   (s1, [_]) -> [s1, ""]
   (s1, (_ : r)) -> s1 : lines' r
 
-absurdExt :: HsExtension.NoExtCon -> a
-absurdExt = HsExtension.noExtCon
+absurdExt :: NoExtField -> a
+absurdExt NoExtField = error "absurdExt: impossible"
