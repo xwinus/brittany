@@ -24,9 +24,12 @@ import GHC
   , unLoc
   )
 import GHC.Hs
-  ( HsExpr(..)
+  ( GhcPs
+  , HsExpr(..)
   , HsModule(..)
+  , IE(..)
   , ImportDecl(..)
+  , LIE
   , LImportDecl
   , LHsDecl
   , LHsExpr
@@ -63,6 +66,9 @@ extractAnnsFromModule lmod =
   let mod' = unLoc lmod
       modAnns = extractModuleHeaderAnns lmod mod'
       importAnns = extractImportAnns (hsmodImports mod')
+      exportAnns = case hsmodExports mod' of
+        Nothing -> Map.empty
+        Just llies -> extractIEListAnns llies
       declAnns = extractDeclAnns (hsmodDecls mod')
       nestedAnns = extractNestedEpAnns (hsmodDecls mod')
       -- Move module's following comments to the last declaration's
@@ -84,7 +90,7 @@ extractAnnsFromModule lmod =
         _ -> declAnns
       modAnns' = if null modFollowingRaw then modAnns
                  else Map.map (\ann -> ann { annFollowingComments = [] }) modAnns
-      result = modAnns' <> importAnns <> declAnns' <> nestedAnns
+      result = modAnns' <> importAnns <> exportAnns <> declAnns' <> nestedAnns
   in result
 
 extractModuleHeaderAnns :: ParsedSource -> HsModule GhcPs -> Anns
@@ -110,14 +116,19 @@ extractImportAnns :: [LImportDecl GhcPs] -> Anns
 extractImportAnns imports = mconcat $ snd $ List.mapAccumL extractOne (1, 1) imports
   where
     extractOne prevEnd limport =
-      case maybeImportEpAnn (unLoc limport) of
+      let idecl = unLoc limport
+      in case maybeImportEpAnn idecl of
         Nothing -> (prevEnd, Map.empty)
         Just (anc, cs) ->
           let ancSpan = epaLocationRealSrcSpan anc
               key = mkAnnKeyL limport
               ann = buildAnnotation prevEnd ancSpan cs
               prevEnd' = ss2posEnd ancSpan
-          in (prevEnd', Map.singleton key ann)
+              -- Also extract IE list annotations from import items
+              ieAnns = case ideclImportList idecl of
+                Nothing -> Map.empty
+                Just (_, llies) -> extractIEListAnns llies
+          in (prevEnd', Map.singleton key ann <> ieAnns)
 
 extractDeclAnns :: [LHsDecl GhcPs] -> Anns
 extractDeclAnns decls =
@@ -254,6 +265,35 @@ extractNestedEpAnns decls =
            [] -> Nothing
            _ -> let (_, (_, spanR)) = List.last sorted
                 in Just (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+
+-- | Extract annotations for IE (import/export) list container and items.
+-- Handles both import lists (ideclImportList) and export lists (hsmodExports).
+extractIEListAnns :: GenLocated (EpAnn ann) [LIE GhcPs] -> Anns
+extractIEListAnns llies@(L epann lies) =
+  let containerAnns = case epann of
+        EpAnn anc _ cs ->
+          let ancSpan = epaLocationRealSrcSpan anc
+              key = mkAnnKeyL llies
+              ref = ss2pos ancSpan
+              ann = buildAnnotation ref ancSpan cs
+          in Map.singleton key ann
+        _ -> Map.empty
+      containerRef = case epann of
+        EpAnn anc _ _ -> ss2pos (epaLocationRealSrcSpan anc)
+        _ -> (1, 1)
+      (_, itemAnnsList) = List.mapAccumL extractIEItem containerRef lies
+  in containerAnns <> mconcat itemAnnsList
+  where
+    extractIEItem :: (Int, Int) -> LIE GhcPs -> ((Int, Int), Anns)
+    extractIEItem prevEnd lie@(L lieEpann _) =
+      case lieEpann of
+        EpAnn anc _ cs ->
+          let ancSpan = epaLocationRealSrcSpan anc
+              key = mkAnnKeyL lie
+              ann = buildAnnotation prevEnd ancSpan cs
+              newEnd = ss2posEnd ancSpan
+          in (newEnd, Map.singleton key ann)
+        _ -> (prevEnd, Map.empty)
 
 tryEpAnnFromLocation :: (Data l, Typeable l) => l -> Maybe (EpaLocation, EpAnnComments)
 tryEpAnnFromLocation loc =
