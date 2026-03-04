@@ -54,7 +54,15 @@ layoutExpr' lexpr@(L _ expr) = do
   let allowFreeIndent = indentPolicy == IndentPolicyFree
   docWrapNode lexpr $ case expr of
     HsVar _ vname -> do
-      docLit =<< lrdrNameToTextAnn (toL vname)
+      t <- lrdrNameToTextAnn (toL vname)
+      -- GHC 9.14: apply paren adornment from NameAnn for operators in
+      -- expression position (e.g., (:) → "(:)"). Skip for names that are
+      -- already complete (like "()" or "[]"), and skip backticks since callers
+      -- (SectionL, SectionR, OpApp) handle those.
+      let t' = if t == Text.pack "()" || t == Text.pack "[]"
+               then t
+               else applyNameAdornmentParensOnly vname t
+      docLit t'
     XExpr _ -> briDocByExactInlineOnly "XExpr" lexpr
     HsOverLabel _ name ->
       let label = FastString.unpackFS name in docLit . Text.pack $ '#' : label
@@ -940,7 +948,14 @@ layoutExpr' lexpr@(L _ expr) = do
     HsUntypedSplice{} -> do
       -- TODO
       briDocByExactInlineOnly "HsUntypedSplice{}" lexpr
+    HsProc{} -> briDocByExactInlineOnly "HsProc{}" lexpr
+    HsStatic{} -> briDocByExactInlineOnly "HsStatic{}" lexpr
+    HsGetField{} -> briDocByExactInlineOnly "HsGetField{}" lexpr
+    HsProjection{} -> briDocByExactInlineOnly "HsProjection{}" lexpr
+    HsPragE{} -> briDocByExactInlineOnly "HsPragE{}" lexpr
+    HsEmbTy{} -> briDocByExactInlineOnly "HsEmbTy{}" lexpr
     XExpr _ -> briDocByExactInlineOnly "XExpr" lexpr
+    _ -> briDocByExactInlineOnly "unknown HsExpr" lexpr
 
 recordExpression
   :: (Data.Data.Data lExpr, Data.Data.Data name)

@@ -75,7 +75,7 @@ layoutSig lsig@(L _loc sig) = case sig of
     _ -> briDocByExactNoComment (toL lsig)
   InlineSig _ name (InlinePragma _ spec _arity phaseAct conlike) ->
     docWrapNode (toL lsig) $ do
-      nameStr <- lrdrNameToTextAnn (toL name)
+      nameStr <- applyNameAdornment name <$> lrdrNameToTextAnn (toL name)
       specStr <- specStringCompat (toL lsig) spec
       let
         phaseStr = case phaseAct of
@@ -106,7 +106,7 @@ layoutSig lsig@(L _loc sig) = case sig of
       keyDoc = case mKeyword of
         Just key -> [appSep . docLit $ Text.pack key]
         Nothing -> []
-    nameStrs <- (fmap toL names) `forM` lrdrNameToTextAnn
+    nameStrs <- names `forM` \n -> applyNameAdornment n <$> lrdrNameToTextAnn (toL n)
     let nameStr = Text.intercalate (Text.pack ", ") $ nameStrs
     (mForallDoc, typ) <- case unLoc sigType of
       HsSig _ bndrs typ ->
@@ -185,7 +185,7 @@ layoutBind
   :: ToBriDocC (HsBindLR GhcPs GhcPs) (Either [BriDocNumbered] BriDocNumbered)
 layoutBind lbind@(L _ bind) = case bind of
   FunBind _ fId (MG _ lmatches@(L _ matches)) -> do
-    idStr <- lrdrNameToTextAnn (toL fId)
+    idStr <- applyNameAdornment fId <$> lrdrNameToTextAnn (toL fId)
     binderDoc <- docLit $ Text.pack "="
     funcPatDocs <-
       docWrapNode (toL lbind)
@@ -280,7 +280,7 @@ layoutPatternBind funId binderDoc lmatch@(L _ match) = do
   patDocs <- pats `forM` \p -> fmap return $ colsWrapPat =<< layoutPat p
   let isInfix = isInfixMatch match
   mIdStr <- case match of
-    Match _ (FunRhs matchId _ _ _) _ _ -> Just <$> lrdrNameToTextAnn (toL matchId)
+    Match _ (FunRhs matchId _ _ _) _ _ -> Just . applyNameAdornment matchId <$> lrdrNameToTextAnn (toL matchId)
     _ -> pure Nothing
   let mIdStr' = fixPatternBindIdentifier match <$> mIdStr
   patDoc <- docWrapNodePrior (toL lmatch) $ case (mIdStr', patDocs) of

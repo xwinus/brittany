@@ -60,22 +60,22 @@ layoutPat lpat@(L _ pat) = docWrapNode (toL lpat) $ case pat of
     --       return $ (x1' Seq.<| middle) Seq.|> xN'
   ConPat _ lname (PrefixCon args) -> do
     -- Abc a b c -> expr
-    nameDoc <- lrdrNameToTextAnn (toL lname)
+    nameDoc' <- applyNameAdornment lname <$> lrdrNameToTextAnn (toL lname)
     argDocs <- layoutPat `mapM` args
     if null argDocs
-      then return <$> docLit nameDoc
+      then return <$> docLit nameDoc'
       else do
-        x1 <- appSep (docLit nameDoc)
+        x1 <- appSep (docLit nameDoc')
         xR <- fmap Seq.fromList $ sequence $ spacifyDocs $ fmap
           colsWrapPat
           argDocs
         return $ x1 Seq.<| xR
   ConPat _ lname (InfixCon left right) -> do
     -- a :< b -> expr
-    nameDoc <- lrdrNameToTextAnn (toL lname)
+    nameDoc' <- applyNameAdornment lname <$> lrdrNameToTextAnn (toL lname)
     leftDoc <- appSep . colsWrapPat =<< layoutPat left
     rightDoc <- colsWrapPat =<< layoutPat right
-    middle <- appSep $ docLit nameDoc
+    middle <- appSep $ docLit nameDoc'
     return $ Seq.empty Seq.|> leftDoc Seq.|> middle Seq.|> rightDoc
   ConPat _ lname (RecCon (HsRecFields _ [] Nothing)) -> do
     -- Abc{} -> expr

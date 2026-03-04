@@ -39,7 +39,7 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
         (L _ (ConDeclH98 _ext consName False _qvars (Just (L _ [])) details _conDoc))
           -> docWrapNode ltycl $ do
               nameStr <- lrdrNameToTextAnn name
-              consNameStr <- lrdrNameToTextAnn (toL consName)
+              consNameStr <- applyNameAdornment consName <$> lrdrNameToTextAnn (toL consName)
               tyVarLine <- return <$> createBndrDoc bndrs
               rhsDoc <- return <$> createDetailsDoc consNameStr details
               createDerivingPar mDerivs $ docSeq
@@ -76,7 +76,7 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
               let lhsContext = unLoc (maybe (L noSrcSpan []) toL mCtxt)
               lhsContextDoc <- docSharedWrapper createContextDoc lhsContext
               nameStr <- lrdrNameToTextAnn name
-              consNameStr <- lrdrNameToTextAnn (toL consName)
+              consNameStr <- applyNameAdornment consName <$> lrdrNameToTextAnn (toL consName)
               tyVarLine <- return <$> createBndrDoc bndrs
               forallDocMay <- case createForallDoc qvars of
                 Nothing -> pure Nothing

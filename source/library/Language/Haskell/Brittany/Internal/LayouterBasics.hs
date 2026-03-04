@@ -24,7 +24,7 @@ import GHC.Types.Name (getOccString)
 import GHC.Types.Name.Occurrence (occNameString)
 import GHC.Types.Name.Reader (RdrName(..))
 import qualified GHC.Types.SrcLoc as GHC
-import GHC.Parser.Annotation (getLocA)
+import GHC.Parser.Annotation (EpAnn(..), NameAnn(..), NameAdornment(..), getLocA)
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.Prelude
@@ -156,6 +156,35 @@ lrdrNameToTextAnnGen f ast@(L _ n) = do
       _ | any (hasUni AnnCommaTuple) aks -> t
       _ | any (hasUni AnnOpenP) aks -> Text.pack "(" <> t <> Text.pack ")"
       _ | otherwise -> t
+
+-- | Apply adornment (parens, backticks) from a GHC 9.14 LocatedN name to text.
+-- In GHC 9.14, NameAnn carries NameAdornment info that was previously in annsDP.
+-- Call this with the original LocatedN name BEFORE toL conversion.
+applyNameAdornment :: GenLocated (EpAnn NameAnn) RdrName -> Text -> Text
+applyNameAdornment (L (EpAnn _ nameAnn _) _) t = case getAdornment nameAnn of
+  Just NameParens{} -> Text.pack "(" <> t <> Text.pack ")"
+  Just NameBackquotes{} -> Text.pack "`" <> t <> Text.pack "`"
+  _ -> t
+  where
+    getAdornment (NameAnn { nann_adornment = a }) = Just a
+    getAdornment (NameAnnCommas { nann_adornment = a }) = Just a
+    getAdornment (NameAnnOnly { nann_adornment = a }) = Just a
+    getAdornment _ = Nothing
+applyNameAdornment _ t = t
+
+-- | Like applyNameAdornment but only applies parentheses, not backticks.
+-- Use this for HsVar in expression position where callers (SectionL, SectionR,
+-- OpApp) handle backtick wrapping themselves.
+applyNameAdornmentParensOnly :: GenLocated (EpAnn NameAnn) RdrName -> Text -> Text
+applyNameAdornmentParensOnly (L (EpAnn _ nameAnn _) _) t = case getAdornment nameAnn of
+  Just NameParens{} -> Text.pack "(" <> t <> Text.pack ")"
+  _ -> t
+  where
+    getAdornment (NameAnn { nann_adornment = a }) = Just a
+    getAdornment (NameAnnCommas { nann_adornment = a }) = Just a
+    getAdornment (NameAnnOnly { nann_adornment = a }) = Just a
+    getAdornment _ = Nothing
+applyNameAdornmentParensOnly _ t = t
 
 lrdrNameToTextAnn
   :: (MonadMultiReader Config m, MonadMultiReader (Map AnnKey Annotation) m)
