@@ -51,15 +51,15 @@ import qualified Language.Haskell.GHC.ExactPrint.Utils as ExactPrint
 
 layoutDecl :: ToBriDoc HsDecl
 layoutDecl d@(L loc decl) = case decl of
-  SigD _ sig -> withTransformedAnns d $ layoutSig (L loc sig)
-  ValD _ bind -> withTransformedAnns d $ layoutBind (L loc bind) >>= \case
+  SigD _ sig -> withTransformedAnns d $ docWrapNode d $ layoutSig (L loc sig)
+  ValD _ bind -> withTransformedAnns d $ docWrapNode d $ layoutBind (L loc bind) >>= \case
     Left ns -> docLines $ return <$> ns
     Right n -> return n
-  TyClD _ tycl -> withTransformedAnns d $ layoutTyCl (L loc tycl)
+  TyClD _ tycl -> withTransformedAnns d $ docWrapNode d $ layoutTyCl (L loc tycl)
   InstD _ (TyFamInstD _ tfid) ->
-    withTransformedAnns d $ layoutTyFamInstDecl False d tfid
+    withTransformedAnns d $ docWrapNode d $ layoutTyFamInstDecl False d tfid
   InstD _ (ClsInstD _ inst) ->
-    withTransformedAnns d $ layoutClsInst (L loc inst)
+    withTransformedAnns d $ docWrapNode d $ layoutClsInst (L loc inst)
   _ -> briDocByExactNoComment d
 
 --------------------------------------------------------------------------------

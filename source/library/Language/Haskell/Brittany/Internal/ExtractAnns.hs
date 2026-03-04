@@ -65,7 +65,8 @@ extractAnnsFromModule lmod =
       importAnns = extractImportAnns (hsmodImports mod')
       declAnns = extractDeclAnns (hsmodDecls mod')
       nestedAnns = extractNestedEpAnns (hsmodDecls mod')
-  in modAnns <> importAnns <> declAnns <> nestedAnns
+      result = modAnns <> importAnns <> declAnns <> nestedAnns
+  in result
 
 extractModuleHeaderAnns :: ParsedSource -> HsModule GhcPs -> Anns
 extractModuleHeaderAnns lmod mod' =

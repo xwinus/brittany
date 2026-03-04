@@ -120,7 +120,14 @@ emptyAnns :: Anns
 emptyAnns = Map.empty
 
 mkAnnKey :: Data a => GenLocated SrcSpan a -> AnnKey
-mkAnnKey (L span a) = AnnKey [span] (CN (show (toConstr a)))
+mkAnnKey (L span a) = AnnKey [stripBufSpan span] (CN (show (toConstr a)))
+
+-- | Strip BufSpan from SrcSpan to normalize keys.
+-- GHC 9.14 getLocA preserves BufSpan but epaLocationRealSrcSpan/realSpanToSrcSpan
+-- strips it, causing key mismatches. Normalize to always strip.
+stripBufSpan :: SrcSpan -> SrcSpan
+stripBufSpan (RealSrcSpan r _) = RealSrcSpan r Strict.Nothing
+stripBufSpan s = s
 
 -- | Convert SrcSpan to RealSrcSpan when possible (for use with realSrcSpanStart/End).
 srcSpanToRealSpan :: SrcSpan -> Maybe RealSrcSpan
