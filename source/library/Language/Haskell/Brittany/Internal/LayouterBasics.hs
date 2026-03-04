@@ -164,6 +164,7 @@ applyNameAdornment :: GenLocated (EpAnn NameAnn) RdrName -> Text -> Text
 applyNameAdornment (L (EpAnn _ nameAnn _) _) t = case getAdornment nameAnn of
   Just NameParens{} -> Text.pack "(" <> t <> Text.pack ")"
   Just NameBackquotes{} -> Text.pack "`" <> t <> Text.pack "`"
+  Just NameSquare{} -> Text.pack "[]"  -- GHC 9.14: ListTuplePuns bracket syntax
   _ -> t
   where
     getAdornment (NameAnn { nann_adornment = a }) = Just a
@@ -178,6 +179,7 @@ applyNameAdornment _ t = t
 applyNameAdornmentParensOnly :: GenLocated (EpAnn NameAnn) RdrName -> Text -> Text
 applyNameAdornmentParensOnly (L (EpAnn _ nameAnn _) _) t = case getAdornment nameAnn of
   Just NameParens{} -> Text.pack "(" <> t <> Text.pack ")"
+  Just NameSquare{} -> Text.pack "[]"  -- GHC 9.14: ListTuplePuns bracket syntax
   _ -> t
   where
     getAdornment (NameAnn { nann_adornment = a }) = Just a
