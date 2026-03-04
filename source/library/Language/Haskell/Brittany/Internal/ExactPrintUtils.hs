@@ -32,7 +32,9 @@ import GHC.Parser.Annotation
   ( AnnContext
   , AnnList
   , AnnListItem
+  , AnnPragma
   , EpAnn(..)
+  , NameAnn
   , NoEpAnns
   , epaLocationRealSrcSpan
   , getLocA
@@ -274,6 +276,8 @@ tryGetSrcSpanFromDynamic d =
     <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn AnnListItem) d)
     <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn NoEpAnns) d)
     <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn AnnContext) d)
+    <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn NameAnn) d)
+    <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn AnnPragma) d)
     <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn (AnnList ())) d)
     <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn ()) d)
     <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn [()]) d)
