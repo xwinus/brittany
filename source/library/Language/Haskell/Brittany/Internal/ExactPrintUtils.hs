@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MonadComprehensions #-}
@@ -21,7 +22,12 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import GHC (GenLocated(L))
 import qualified GHC hiding (parseModule)
-import GHC.Hs (GhcPs, HsDecl, HsModule(..), LHsDecl, hsmodDecls)
+import GHC.Hs
+  ( GhcPs, HsDecl, HsExpr, HsModule(..)
+  , LHsDecl, LHsExpr, LHsBind, LMatch, LGRHS, LHsType, LPat
+  , StmtLR
+  , hsmodDecls
+  )
 import GHC.Parser.Annotation
   ( AnnContext
   , AnnList
@@ -65,12 +71,28 @@ parseModuleFromString = ParseModule.parseModule
 commentAnnFixTransformGlob :: SYB.Data ast => ast -> ExactPrint.Transform ()
 commentAnnFixTransformGlob ast = do
   let
-    extract :: forall a . SYB.Data a => a -> Seq (SrcSpan, ExactPrint.AnnKey)
-    extract = -- traceFunctionWith "extract" (show . SYB.typeOf) show $
+    -- Match Located (GenLocated SrcSpan) nodes from the old API
+    extractLocated :: forall a . SYB.Data a => a -> Seq (SrcSpan, ExactPrint.AnnKey)
+    extractLocated =
       const Seq.empty
         `SYB.ext1Q` (\l@(L span _) ->
                       Seq.singleton (span, ExactPrint.mkAnnKey l)
                     )
+    -- Also match GHC 9.14 LocatedAn nodes (GenLocated (EpAnn ann) a)
+    -- which use different location wrappers than plain Located.
+    mkKeyAn :: (Data a1, HasLoc l, HasLoc (GenLocated l a1)) => GenLocated l a1 -> Seq (SrcSpan, ExactPrint.AnnKey)
+    mkKeyAn x = let span = getLocA x in Seq.singleton (span, ExactPrint.mkAnnKey (L span (unLoc x)))
+    extractGhc914 :: forall a . SYB.Data a => a -> Seq (SrcSpan, ExactPrint.AnnKey)
+    extractGhc914 =
+      const Seq.empty
+        `SYB.extQ` (\(l :: LHsExpr GhcPs) -> mkKeyAn l)
+        `SYB.extQ` (\(l :: LHsDecl GhcPs) -> mkKeyAn l)
+        `SYB.extQ` (\(l :: LHsBind GhcPs) -> mkKeyAn l)
+        `SYB.extQ` (\(l :: LMatch GhcPs (LHsExpr GhcPs)) -> mkKeyAn l)
+        `SYB.extQ` (\(l :: LGRHS GhcPs (LHsExpr GhcPs)) -> mkKeyAn l)
+        `SYB.extQ` (\(l :: LHsType GhcPs) -> mkKeyAn l)
+    extract :: forall a . SYB.Data a => a -> Seq (SrcSpan, ExactPrint.AnnKey)
+    extract x = extractLocated x <> extractGhc914 x
   let nodes = SYB.everything (<>) extract ast
   let
     annsMap :: Map SrcLoc.RealSrcLoc ExactPrint.AnnKey
@@ -102,19 +124,27 @@ commentAnnFixTransformGlob ast = do
                 Just (_, annKey2) ->
                   case (ExactPrint.annKeyRealSpan annKey1, ExactPrint.annKeyRealSpan annKey2) of
                     (Just r1, Just r2) | SrcLoc.realSrcSpanStart r1 /= SrcLoc.realSrcSpanStart r2 ->
-                      case (ExactPrint.annKeyCon annKey1, ExactPrint.annKeyCon annKey2) of
-                        (ExactPrint.CN "RecordCon", ExactPrint.CN "HsRecField") ->
-                          move annKey2 $> False
-                        (x, y) | x == y -> move annKey2 $> False
-                        _ -> return True
+                      let -- GHC 9.14: relax constructor check. Allow movement if:
+                          -- 1. Same constructor (original logic)
+                          -- 2. RecordCon → HsRecField (original logic)
+                          -- 3. Target is contained within source (new for GHC 9.14)
+                          con1 = ExactPrint.annKeyCon annKey1
+                          con2 = ExactPrint.annKeyCon annKey2
+                          sameOrContained =
+                            con1 == con2
+                            || (con1 == ExactPrint.CN "RecordCon" && con2 == ExactPrint.CN "HsRecField")
+                            || containsSpan r1 r2
+                      in if sameOrContained then move annKey2 $> False else return True
                      where
                       move ak2 = ExactPrint.modifyAnnsT $ \anns ->
-                        let ann2 = Data.Maybe.fromJust $ Map.lookup ak2 anns
-                            ann2' = ann2
-                              { ExactPrint.annFollowingComments =
-                                ExactPrint.annFollowingComments ann2 ++ [comPair]
-                              }
-                        in Map.insert ak2 ann2' anns
+                        case Map.lookup ak2 anns of
+                          Just ann2 ->
+                            let ann2' = ann2
+                                  { ExactPrint.annFollowingComments =
+                                    ExactPrint.annFollowingComments ann2 ++ [comPair]
+                                  }
+                            in Map.insert ak2 ann2' anns
+                          Nothing -> anns
                     _ -> return True
                 _ -> return True -- retain comment at current node.
       priors' <- filterM processCom priors
@@ -129,6 +159,12 @@ commentAnnFixTransformGlob ast = do
           , ExactPrint.annsDP = assocs'
           }
       ExactPrint.modifyAnnsT $ \anns -> Map.insert annKey1 ann1' anns
+
+  -- Check if inner span is contained within outer span
+  containsSpan :: RealSrcSpan -> RealSrcSpan -> Bool
+  containsSpan outer inner =
+    SrcLoc.realSrcSpanStart outer <= SrcLoc.realSrcSpanStart inner
+    && SrcLoc.realSrcSpanEnd inner <= SrcLoc.realSrcSpanEnd outer
 
 
 -- TODO: this is unused by now, but it contains one detail that

@@ -103,10 +103,10 @@ layoutIE lie@(L _ ie) = docWrapNode lie $ case ie of
       docLit $ parenthesizeIfSymbolic name
     L _ (IEPattern _ n) -> do
       name <- lrdrNameToTextAnn (toL n)
-      docLit $ Text.pack "pattern " <> name
+      docLit $ Text.pack "pattern " <> parenthesizeIfSymbolic name
     L _ (IEType _ n) -> do
       name <- lrdrNameToTextAnn (toL n)
-      docLit $ Text.pack "type " <> name
+      docLit $ Text.pack "type " <> parenthesizeIfSymbolic name
 
 data SortItemsFlag = ShouldSortItems | KeepItemsUnsorted
 -- Helper function to deal with Located lists of LIEs.

@@ -33,9 +33,12 @@ layoutType ltype = layoutType' (toL ltype)
   layoutType' ltype'@(L _ typ) = docWrapNode ltype' $ case typ of
     HsTyVar _ promoted name -> do
       t <- lrdrNameToTextAnnTypeEqualityIsSpecial (toL name)
+      let t' = if t == Text.pack "()" || t == Text.pack "[]"
+               then t
+               else applyNameAdornmentParensOnly name t
       case promoted of
-        IsPromoted -> docSeq [docSeparator, docTick, docWrapNode (toL name) $ docLit t]
-        NotPromoted -> docWrapNode (toL name) $ docLit t
+        IsPromoted -> docSeq [docSeparator, docTick, docWrapNode (toL name) $ docLit t']
+        NotPromoted -> docWrapNode (toL name) $ docLit t'
     HsForAllTy _ hsf (L _ (HsQualTy _ (L _ cntxts) typ2)) -> do
       let bndrs = getBinders hsf
       typeDoc <- docSharedWrapper layoutType (toL typ2)

@@ -9,6 +9,7 @@ import qualified Data.Semigroup as Semigroup
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import GHC (GenLocated(L), RdrName(..), SrcSpan, unLoc)
+import GHC.Types.Name.Reader (RdrName(Exact))
 import GHC.Types.SrcLoc (noSrcSpan)
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..))
 import qualified GHC.Data.FastString as FastString
@@ -41,6 +42,7 @@ isSymbolicSectionOp (L _ expr) =
   pure $ case expr of
     HsVar _ (L _ (Unqual occ)) -> isSymbolic $ occNameString occ
     HsVar _ (L _ (Qual _ occ)) -> isSymbolic $ occNameString occ
+    HsVar _ (L _ (Exact name)) -> isSymbolic $ getOccString name
     _ -> False
   where
     isSymbolic s = not (null s) && head s `elem` ("!:#$%&*+./<=>?@\\^|-~" :: String)
@@ -268,12 +270,18 @@ layoutExpr' lexpr@(L _ expr) = do
           final -> (final, opExprList)
         (leftOperand, appList) = gather [] expLeft
       leftOperandDoc <- docSharedWrapper layoutExpr' (toL leftOperand)
-      appListDocs <- appList `forM` \(x, y) ->
-        [ (xD, yD)
-        | xD <- docSharedWrapper layoutExpr' (toL x)
-        , yD <- docSharedWrapper layoutExpr' (toL y)
-        ]
-      opLastDoc <- docSharedWrapper layoutExpr' (toL expOp)
+      -- GHC 9.14: wrap alphanumeric infix ops with backticks
+      appListDocs <- appList `forM` \(x, y) -> do
+        isSymX <- isSymbolicSectionOp x
+        xD <- docSharedWrapper layoutExpr' (toL x)
+        yD <- docSharedWrapper layoutExpr' (toL y)
+        let xD' = if isSymX then xD
+              else docSeq [docLit $ Text.pack "`", xD, docLit $ Text.pack "`"]
+        pure (xD', yD)
+      isSymLast <- isSymbolicSectionOp expOp
+      opLastDoc' <- docSharedWrapper layoutExpr' (toL expOp)
+      let opLastDoc = if isSymLast then opLastDoc'
+            else docSeq [docLit $ Text.pack "`", opLastDoc', docLit $ Text.pack "`"]
       expLastDoc <- docSharedWrapper layoutExpr' (toL expRight)
       allowSinglelinePar <- do
         hasComLeft <- hasAnyCommentsConnected (toL expLeft)
@@ -322,6 +330,10 @@ layoutExpr' lexpr@(L _ expr) = do
     OpApp _ expLeft expOp expRight -> do
       expDocLeft <- docSharedWrapper layoutExpr' (toL expLeft)
       expDocOp <- docSharedWrapper layoutExpr' (toL expOp)
+      -- GHC 9.14: wrap alphanumeric infix ops with backticks
+      isSymOp <- isSymbolicSectionOp expOp
+      let expDocOp' = if isSymOp then expDocOp
+            else docSeq [docLit $ Text.pack "`", expDocOp, docLit $ Text.pack "`"]
       expDocRight <- docSharedWrapper layoutExpr' (toL expRight)
       let
         allowPar = case (expOp, expRight) of
@@ -337,41 +349,30 @@ layoutExpr' lexpr@(L _ expr) = do
         -- one-line
         addAlternative $ docSeq
           [ appSep $ docForceSingleline expDocLeft
-          , appSep $ docForceSingleline expDocOp
+          , appSep $ docForceSingleline expDocOp'
           , docForceSingleline expDocRight
           ]
-        -- -- line + freely indented block for right expression
-        -- addAlternative
-        --   $ docSeq
-        --   [ appSep $ docForceSingleline expDocLeft
-        --   , appSep $ docForceSingleline expDocOp
-        --   , docSetBaseY $ docAddBaseY BrIndentRegular expDocRight
-        --   ]
         -- two-line
         addAlternative $ do
           let
             expDocOpAndRight = docForceSingleline $ docCols
               ColOpPrefix
-              [appSep $ expDocOp, docSetBaseY expDocRight]
+              [appSep $ expDocOp', docSetBaseY expDocRight]
           if leftIsDoBlock
             then docLines [expDocLeft, expDocOpAndRight]
             else docAddBaseY BrIndentRegular
               $ docPar expDocLeft expDocOpAndRight
-              -- TODO: in both cases, we don't force expDocLeft to be
-              -- single-line, which has certain.. interesting consequences.
-              -- At least, the "two-line" label is not entirely
-              -- accurate.
         -- one-line + par
         addAlternativeCond allowPar $ docSeq
           [ appSep $ docForceSingleline expDocLeft
-          , appSep $ docForceSingleline expDocOp
+          , appSep $ docForceSingleline expDocOp'
           , docForceParSpacing expDocRight
           ]
         -- more lines
         addAlternative $ do
           let
             expDocOpAndRight =
-              docCols ColOpPrefix [appSep expDocOp, docSetBaseY expDocRight]
+              docCols ColOpPrefix [appSep expDocOp', docSetBaseY expDocRight]
           if leftIsDoBlock
             then docLines [expDocLeft, expDocOpAndRight]
             else docAddBaseY BrIndentRegular

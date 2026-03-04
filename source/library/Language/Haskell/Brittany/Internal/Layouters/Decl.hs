@@ -1004,8 +1004,14 @@ layoutClsInst lcid@(L _ cid) = docLines
   --   to layout data/type decls.
   stripWhitespace' :: Text -> Text
   stripWhitespace' t =
-    Text.intercalate (Text.pack "\n") $ go $ List.drop 1 $ Text.lines t
+    Text.intercalate (Text.pack "\n") $ go $ dropLeadingEmpty $ Text.lines t
    where
+    -- GHC 9.14: docExt already strips leading newlines, so the first line
+    -- may be the actual data/type keyword, not a blank.  Only drop if empty.
+    dropLeadingEmpty [] = []
+    dropLeadingEmpty (l : ls)
+      | Text.null (Text.stripStart l) = ls
+      | otherwise = l : ls
     go [] = []
     go (line1 : lineR) = case Text.stripStart line1 of
       st
