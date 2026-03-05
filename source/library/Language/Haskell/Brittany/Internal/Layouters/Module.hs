@@ -147,7 +147,7 @@ transformToCommentedImport is = do
           ++ replicate (blanksBeforeImportDecl + initialBlanks) EmptyLine
           ++ [ ImportStatement ImportStatementRecord
                  { commentsBefore = beforeComments
-                 , commentsAfter = accConnectedComm
+                 , commentsAfter = accConnectedComm ++ annFollowingComments ann
                  , importStatement = decl
                  }
              ]

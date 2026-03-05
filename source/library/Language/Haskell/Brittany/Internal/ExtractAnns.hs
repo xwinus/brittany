@@ -8,6 +8,7 @@
 -- expected by layouters.
 module Language.Haskell.Brittany.Internal.ExtractAnns where
 
+import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import Data.Data (Data, gmapQ, gmapQi)
 import Data.Dynamic (Dynamic, fromDynamic, toDyn)
 import Data.Typeable (Typeable)
@@ -25,6 +26,7 @@ import GHC
   )
 import GHC.Hs
   ( GhcPs
+  , GrhsAnn
   , HsExpr(..)
   , HsModule(..)
   , IE(..)
@@ -49,13 +51,15 @@ import GHC.Parser.Annotation
   , EpAnnComments(..)
   , EpaLocation
   , EpToken(..)
+  , emptyComments
   , epaLocationRealSrcSpan
   , getFollowingComments
   , getLocA
   , NoEpAnns
   , priorComments
   )
-import GHC.Types.SrcLoc (RealSrcSpan)
+import qualified GHC.Parser.Lexer
+import GHC.Types.SrcLoc (EpaLocation'(..), RealSrcSpan, SrcSpan(..))
 import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.ExactPrintCompat
 import Language.Haskell.Brittany.Internal.Prelude
@@ -66,50 +70,181 @@ import qualified Language.Haskell.GHC.ExactPrint.Utils as EPUtils
 -- | Convert GHC 9.14 parsed module to brittany's Anns format.
 extractAnnsFromModule :: ParsedSource -> Anns
 extractAnnsFromModule lmod =
-  let mod' = unLoc lmod
-      modAnns = extractModuleHeaderAnns lmod mod'
-      -- Compute starting reference for imports: end of module header or
-      -- last prior comment (pragma), so import entry deltas are correct.
-      importPrevEnd = case hsmodAnn (hsmodExt mod') of
-        EpAnn anc _ cs ->
-          let ancSpan = epaLocationRealSrcSpan anc
-              headerEnd = ss2posEnd ancSpan
-              -- Also check prior comments (pragmas): the last one may be
-              -- later than the module header anchor.
-              priorEnds = [ ss2posEnd (epaLocationRealSrcSpan (EPTypes.commentLoc x))
-                          | lc <- priorComments cs
-                          , x <- EPUtils.tokComment lc
-                          ]
-          in if null priorEnds then headerEnd
-             else maximum (headerEnd : priorEnds)
-        _ -> (1, 1)
-      importAnns = extractImportAnns importPrevEnd (hsmodImports mod')
+  -- Step 1: Redistribute intra-declaration comments from module annotation to
+  -- individual AST nodes. In GHC 9.14, ALL file comments are stored on the
+  -- module header's EpAnn. We use ghc-exactprint's bottom-up traversal to claim
+  -- comments within each node's span, but keep module-level comments (between
+  -- imports/decls, trailing, pragmas) on the module annotation for our own
+  -- distribution logic.
+  let lmod' = redistributeIntraDeclComments lmod
+      mod' = unLoc lmod'
+      -- Step 2: Get remaining module-level comments (not claimed by nested nodes)
+      modPriorComments = case hsmodAnn (hsmodExt mod') of
+        EpAnn _anc _ cs -> List.concatMap lepaToSpanAndContent (priorComments cs)
+        _ -> []
+      modFollowingComments = case hsmodAnn (hsmodExt mod') of
+        EpAnn _anc _ cs -> List.concatMap lepaToSpanAndContent (getFollowingComments cs)
+        _ -> []
+      -- Step 3: Build timeline of child nodes for distributing remaining comments
+      importTargets = mapMaybe (\limport ->
+        let idecl = unLoc limport
+        in case maybeImportEpAnn idecl of
+          Nothing -> Nothing
+          Just (anc, _) ->
+            let ancSpan = epaLocationRealSrcSpan anc
+            in Just (mkAnnKeyL limport, ss2pos ancSpan, ss2posEnd ancSpan)
+        ) (hsmodImports mod')
+      declTargets = mapMaybe (\ldecl ->
+        case maybeDeclEpAnn ldecl of
+          Nothing -> Nothing
+          Just (anc, _) ->
+            let ancSpan = epaLocationRealSrcSpan anc
+            in Just (mkAnnKeyL ldecl, ss2pos ancSpan, ss2posEnd ancSpan)
+        ) (hsmodDecls mod')
+      allTargets = List.sortOn (\(_, start, _) -> start) (importTargets ++ declTargets)
+      -- Step 4: Distribute remaining module comments to child nodes
+      sortedModComs = List.sortOn fst (modPriorComments ++ modFollowingComments)
+      (modOwnComs, childComAssignments) = distributeModuleComments allTargets sortedModComs
+      childPriorPatches = Map.fromListWith (++)
+        [(k, coms) | (k, PriorCom, coms) <- childComAssignments]
+      childFollowingPatches = Map.fromListWith (++)
+        [(k, coms) | (k, FollowingCom, coms) <- childComAssignments]
+      -- Step 5: Extract annotations from the preprocessed AST
+      modAnnsRaw = extractModuleHeaderAnns lmod' mod'
+      importAnns = extractImportAnns (1, 1) (hsmodImports mod')
       exportAnns = case hsmodExports mod' of
         Nothing -> Map.empty
         Just llies -> extractIEListAnns llies
       declAnns = extractDeclAnns (hsmodDecls mod')
       nestedAnns = extractNestedEpAnns (hsmodDecls mod')
-      -- Move module's following comments to the last declaration's
-      -- following comments. GHC 9.14 attaches trailing comments of the
-      -- last declaration to the module's EpAnn rather than the declaration's.
-      theDecls = hsmodDecls mod'
-      modFollowingRaw = List.concatMap annFollowingComments (Map.elems modAnns)
-      lastDeclInfo = case reverse theDecls of
-        (ld : _) -> case maybeDeclEpAnn ld of
-          Just (anc, _) -> Just (mkAnnKeyL ld, ss2posEnd (epaLocationRealSrcSpan anc))
-          Nothing -> Just (mkAnnKeyL ld, (1, 1))
-        [] -> Nothing
-      -- Recompute DPs for module following comments relative to last decl end
-      recomputeFollowing lastEnd = recomputeComDPs lastEnd modFollowingRaw
-      declAnns' = case lastDeclInfo of
-        Just (ldk, lastEnd) | not (null modFollowingRaw) ->
-          let recomputed = recomputeFollowing lastEnd
-          in Map.adjust (\ann -> ann { annFollowingComments = annFollowingComments ann ++ recomputed }) ldk declAnns
-        _ -> declAnns
-      modAnns' = if null modFollowingRaw then modAnns
-                 else Map.map (\ann -> ann { annFollowingComments = [] }) modAnns
-      result = modAnns' <> importAnns <> exportAnns <> declAnns' <> nestedAnns
-  in result
+      -- Step 6: Apply remaining comment patches to import/decl annotations
+      patchAnns anns = Map.mapWithKey (\k ann ->
+        let priorPatch = Map.findWithDefault [] k childPriorPatches
+            followPatch = Map.findWithDefault [] k childFollowingPatches
+        in ann { annPriorComments = priorPatch ++ annPriorComments ann
+               , annFollowingComments = annFollowingComments ann ++ followPatch
+               }
+        ) anns
+      importAnns' = patchAnns importAnns
+      declAnns' = patchAnns declAnns
+      -- Step 7: Module annotation gets only its own comments
+      modKey = mkAnnKeyL lmod'
+      modAnns = case Map.lookup modKey modAnnsRaw of
+        Nothing -> modAnnsRaw
+        Just modAnn ->
+          let ownPriors = snd $ List.mapAccumL buildModComDP (1, 1) modOwnComs
+          in Map.singleton modKey (modAnn { annPriorComments = ownPriors
+                                          , annFollowingComments = [] })
+  in modAnns <> importAnns' <> exportAnns <> declAnns' <> nestedAnns
+
+-- | Redistribute intra-declaration comments from the module annotation to
+-- individual AST nodes. Uses ghc-exactprint's bottom-up traversal to claim
+-- comments within each node's span, then puts unclaimed comments back on
+-- the module annotation (instead of distributing to imports/decls like
+-- insertCppComments does).
+redistributeIntraDeclComments :: ParsedSource -> ParsedSource
+redistributeIntraDeclComments (L l p) = L l p'
+  where
+    modAnn = hsmodAnn (hsmodExt p)
+    (allComments, p0) = case modAnn of
+      EpAnn anct ant cst ->
+        let cs = EPUtils.sortEpaComments $ priorComments cst ++ getFollowingComments cst
+            p0' = p { hsmodExt = (hsmodExt p) { hsmodAnn = EpAnn anct ant emptyComments }}
+        in (cs, p0')
+      _ -> ([], p)
+    -- Bottom-up traversal: each node claims comments within its span
+    (p1, remaining) = runState (SYB.everywhereM (SYB.mkM addCommentsListItem
+                                                  `SYB.extM` addCommentsGrhs
+                                                  `SYB.extM` addCommentsList) p0) allComments
+    -- Put unclaimed comments back on module annotation (NOT on imports/decls)
+    p' = case hsmodAnn (hsmodExt p1) of
+      EpAnn anc2 an2 cs2 ->
+        let cs2' = EPUtils.workInComments cs2 remaining
+        in p1 { hsmodExt = (hsmodExt p1) { hsmodAnn = EpAnn anc2 an2 cs2' }}
+      _ -> p1
+
+    addCommentsListItem :: EpAnn AnnListItem -> State [GHC.LEpaComment] (EpAnn AnnListItem)
+    addCommentsListItem = addComments
+    addCommentsGrhs :: EpAnn GrhsAnn -> State [GHC.LEpaComment] (EpAnn GrhsAnn)
+    addCommentsGrhs = addComments
+    addCommentsList :: EpAnn (AnnList ()) -> State [GHC.LEpaComment] (EpAnn (AnnList ()))
+    addCommentsList = addComments
+    addComments :: forall ann. EpAnn ann -> State [GHC.LEpaComment] (EpAnn ann)
+    addComments (EpAnn anc an ocs) =
+      case anc of
+        EpaSpan (RealSrcSpan s _) -> do
+          unAllocated <- get
+          let (rest, these) = GHC.Parser.Lexer.allocateComments s unAllocated
+              cs' = EPUtils.workInComments ocs these
+          put rest
+          return $ EpAnn anc an cs'
+        _ -> return $ EpAnn anc an ocs
+    addComments other = return other
+
+data ComType = PriorCom | FollowingCom deriving (Eq)
+
+-- | Distribute remaining module-level comments to the appropriate child nodes.
+-- After insertCppComments, only trailing and inter-item comments remain.
+distributeModuleComments
+  :: [(AnnKey, (Int, Int), (Int, Int))]  -- (key, start, end) of child nodes
+  -> [((Int, Int), (String, RealSrcSpan))]  -- sorted remaining module comments
+  -> ( [((Int, Int), (String, RealSrcSpan))]  -- module's own comments (before any child)
+     , [(AnnKey, ComType, [(Comment, DeltaPos)])]  -- child assignments
+     )
+distributeModuleComments targets coms =
+  case targets of
+    [] -> (coms, [])  -- no children, all comments stay with module
+    ((_, firstStart, _) : _) ->
+      let (beforeFirst, rest) = List.partition (\((l, _), _) -> l < fst firstStart) coms
+          assignments = assignToTargets targets rest
+      in (beforeFirst, assignments)
+  where
+    assignToTargets _ [] = []
+    assignToTargets tgts comSpans =
+      let go [] leftover = case reverse tgts of
+            ((lastK, _, lastEnd) : _) | not (null leftover) ->
+              let cds = snd $ List.mapAccumL buildModComDP lastEnd (List.sortOn fst leftover)
+              in [(lastK, FollowingCom, cds)]
+            _ -> []
+          go ((k, _start, end) : rest) cs =
+            let nextStart = case rest of
+                  ((_, ns, _) : _) -> Just ns
+                  [] -> Nothing
+                -- Trailing: on same line as this target's end
+                (trailing, nonTrailing) = List.partition
+                  (\((l, _), _) -> l == fst end) cs
+                -- Between this target and next
+                (priorForNext, remaining) = case nextStart of
+                  Just ns -> List.partition
+                    (\((l, _), _) -> l > fst end && l < fst ns)
+                    nonTrailing
+                  Nothing -> ([], nonTrailing)
+                trailingCDs = if null trailing then []
+                  else let cds = snd $ List.mapAccumL buildModComDP end (List.sortOn fst trailing)
+                       in [(k, FollowingCom, cds)]
+                priorCDs = case rest of
+                  ((nk, _, _) : _) | not (null priorForNext) ->
+                    let sorted = List.sortOn fst priorForNext
+                        initRef = case sorted of
+                          ((pos, _) : _) -> pos
+                          [] -> (1, 1)
+                        cds = snd $ List.mapAccumL buildModComDP initRef sorted
+                    in [(nk, PriorCom, cds)]
+                  _ -> []
+            in trailingCDs ++ priorCDs ++ go rest remaining
+      in go tgts comSpans
+
+buildModComDP :: (Int, Int) -> ((Int, Int), (String, RealSrcSpan))
+              -> ((Int, Int), (Comment, DeltaPos))
+buildModComDP prev ((line, col), (content, spanR)) =
+  let dp = posToDP prev (line, col)
+      nextPos = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+      bComment = Comment
+        { commentOrigin = Nothing
+        , commentIdentifier = realSpanToSrcSpan spanR
+        , commentContents = content
+        }
+  in (nextPos, (bComment, dp))
 
 extractModuleHeaderAnns :: ParsedSource -> HsModule GhcPs -> Anns
 extractModuleHeaderAnns lmod mod' =
@@ -131,22 +266,81 @@ extractModuleHeaderAnns lmod mod' =
     _ -> Map.empty
 
 extractImportAnns :: (Int, Int) -> [LImportDecl GhcPs] -> Anns
-extractImportAnns startRef imports = mconcat $ snd $ List.mapAccumL extractOne startRef imports
+extractImportAnns startRef imports =
+  let initial = (startRef, Nothing) :: ((Int, Int), Maybe AnnKey)
+      (_, rawResults) = List.mapAccumL extractOne initial imports
+      mainAnns = mconcat [main | (main, _, _) <- rawResults]
+      ieAnns = mconcat [ie | (_, ie, _) <- rawResults]
+      -- Collect trailing comment patches: (prevKey -> trailing comments)
+      trailingPatches = Map.fromListWith (++)
+        [(k, coms) | (_, _, Just (k, coms)) <- rawResults]
+      -- Apply patches: add trailing comments as followingComments
+      merged = Map.mapWithKey (\k ann -> case Map.lookup k trailingPatches of
+        Nothing -> ann
+        Just coms -> ann { annFollowingComments = annFollowingComments ann ++ coms }
+        ) mainAnns
+  in merged <> ieAnns
   where
-    extractOne prevEnd limport =
+    extractOne (prevEnd, prevKey) limport =
       let idecl = unLoc limport
       in case maybeImportEpAnn idecl of
-        Nothing -> (prevEnd, Map.empty)
+        Nothing -> ((prevEnd, prevKey), (Map.empty, Map.empty, Nothing))
         Just (anc, cs) ->
           let ancSpan = epaLocationRealSrcSpan anc
               key = mkAnnKeyL limport
-              ann = buildAnnotation prevEnd ancSpan cs
-              prevEnd' = ss2posEnd ancSpan
+              importStart = ss2pos ancSpan
+              importEnd = ss2posEnd ancSpan
+              rawPriors = priorComments cs
+              rawFollowing = getFollowingComments cs
+              -- Split prior comments: trailing comments from the previous
+              -- import (on prevEnd line) vs actual prior comments.
+              allPriorSpans = List.sortOn fst (List.concatMap lepaToSpanAndContent rawPriors)
+              (trailingPrev, rest) = case prevKey of
+                Just _ -> List.partition
+                  (\((line, _), _) -> line == fst prevEnd && fst prevEnd /= fst importStart)
+                  allPriorSpans
+                Nothing -> ([], allPriorSpans)
+              -- Filter: only comments before import start are genuine priors
+              actualPrior = List.filter
+                (\((line, _), _) -> line < fst importStart) rest
+              priorRef = case actualPrior of
+                ((pos, _) : _) -> pos
+                [] -> importStart
+              priorComs = snd $ List.mapAccumL buildComDP priorRef actualPrior
+              entryDelta = case actualPrior of
+                [] -> DP (0, 0)
+                _ -> let (_, (_, spanR)) = List.last actualPrior
+                         afterRef = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+                     in posToDP afterRef importStart
+              followComs = lepaToCommentsWithDP importEnd rawFollowing
+              -- Build trailing comments for previous import
+              trailingComs = snd $ List.mapAccumL buildComDP prevEnd trailingPrev
+              trailingPatch = case prevKey of
+                Just pk | not (null trailingComs) -> Just (pk, trailingComs)
+                _ -> Nothing
+              ann = Ann
+                { annCapturedSpan = Nothing
+                , annSortKey = Nothing
+                , annsDP = []
+                , annFollowingComments = followComs
+                , annPriorComments = priorComs
+                , annEntryDelta = entryDelta
+                }
               -- Also extract IE list annotations from import items
               ieAnns = case ideclImportList idecl of
                 Nothing -> Map.empty
                 Just (_, llies) -> extractIEListAnns llies
-          in (prevEnd', Map.singleton key ann <> ieAnns)
+          in ((importEnd, Just key), (Map.singleton key ann, ieAnns, trailingPatch))
+
+    buildComDP prev ((line, col), (content, spanR)) =
+      let dp = posToDP prev (line, col)
+          nextPos = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+          bComment = Comment
+            { commentOrigin = Nothing
+            , commentIdentifier = realSpanToSrcSpan spanR
+            , commentContents = content
+            }
+      in (nextPos, (bComment, dp))
 
 extractDeclAnns :: [LHsDecl GhcPs] -> Anns
 extractDeclAnns decls =
@@ -258,7 +452,18 @@ extractNestedEpAnns decls =
         )
       raw = SYB.everything (++) extract decls
       sorted = List.sortOn (\(_, sp, _) -> (SrcLoc.srcSpanStartLine sp, SrcLoc.srcSpanStartCol sp)) raw
-      baseAnns = Map.fromList $ map buildNested sorted
+      -- Build nested annotations with trailing comment redistribution:
+      -- Comments on the same line as the previous node's end get moved from
+      -- the current node's priorComments to the previous node's followingComments.
+      initial = ((1, 1), Nothing) :: ((Int, Int), Maybe AnnKey)
+      (_, rawNested) = List.mapAccumL buildNestedAccum initial sorted
+      mainNested = Map.fromList [(k, ann) | (k, ann, _) <- rawNested]
+      trailingPatches = Map.fromListWith (++)
+        [(pk, coms) | (_, _, Just (pk, coms)) <- rawNested]
+      baseAnns = Map.mapWithKey (\k ann -> case Map.lookup k trailingPatches of
+        Nothing -> ann
+        Just coms -> ann { annFollowingComments = annFollowingComments ann ++ coms }
+        ) mainNested
       -- Override pass: for compound expressions (HsIf, etc.), redistribute
       -- inner comments to child expression annotations (as prior comments)
       -- so BDAnnotationPrior emits them before the correct subexpression.
@@ -274,7 +479,7 @@ extractNestedEpAnns decls =
       overrideAnns = Map.fromList $ SYB.everything (++) overrideExtract decls
   in overrideAnns <> baseAnns  -- overrideAnns wins for duplicate keys
   where
-    buildNested (key, ancSpan, cs) =
+    buildNestedAccum (prevEnd, prevKey) (key, ancSpan, cs) =
       let nodeStart = ss2pos ancSpan
           nodeEnd = (SrcLoc.srcSpanEndLine ancSpan, SrcLoc.srcSpanEndCol ancSpan)
           rawPriors = priorComments cs
@@ -284,9 +489,17 @@ extractNestedEpAnns decls =
           -- in annsDP (emitted at keyword positions by BDAnnotationKW).
           allPriorSpans = List.concatMap lepaToSpanAndContent rawPriors
           sortedPriors = List.sortOn fst allPriorSpans
+          -- Trailing comments: on the same line as the previous node's end
+          -- These should be followingComments on the previous node, not
+          -- priorComments on this node.
+          (trailingPrev, rest) = case prevKey of
+            Just _ -> List.partition
+              (\((line, _), _) -> line == fst prevEnd && fst prevEnd /= fst nodeStart)
+              sortedPriors
+            Nothing -> ([], sortedPriors)
           (genuinePriors, innerComments) = List.partition
             (\((line, _), _) -> line < fst nodeStart)
-            sortedPriors
+            rest
           -- Genuine prior comments (before node start)
           priorRef = case genuinePriors of
             ((pos, _) : _) -> pos
@@ -300,6 +513,11 @@ extractNestedEpAnns decls =
           -- Inner comments → annsDP as AnnComment entries
           innerDP = snd $ List.mapAccumL buildInnerComDP nodeStart innerComments
           followComs = lepaToCommentsWithDP nodeEnd (getFollowingComments cs)
+          -- Build trailing comments for previous node
+          trailingComs = snd $ List.mapAccumL buildComDP' prevEnd trailingPrev
+          trailingPatch = case prevKey of
+            Just pk | not (null trailingComs) -> Just (pk, trailingComs)
+            _ -> Nothing
           ann = Ann
             { annCapturedSpan = Nothing
             , annSortKey = Nothing
@@ -308,7 +526,7 @@ extractNestedEpAnns decls =
             , annPriorComments = priorComs
             , annEntryDelta = entryDelta
             }
-      in (key, ann)
+      in ((nodeEnd, Just key), (key, ann, trailingPatch))
 
     buildComDP' prev ((line, col), (content, spanR)) =
       let dp = posToDP prev (line, col)
@@ -354,19 +572,76 @@ extractIEListAnns llies@(L epann lies) =
       containerRef = case epann of
         EpAnn anc _ _ -> ss2pos (epaLocationRealSrcSpan anc)
         _ -> (1, 1)
-      (_, itemAnnsList) = List.mapAccumL extractIEItem containerRef lies
-  in containerAnns <> mconcat itemAnnsList
+      initial = (containerRef, Nothing) :: ((Int, Int), Maybe AnnKey)
+      (_, rawItems) = List.mapAccumL extractIEItem initial lies
+      itemAnns = Map.fromList [(k, ann) | (k, ann, _) <- rawItems]
+      trailingPatches = Map.fromListWith (++)
+        [(pk, coms) | (_, _, Just (pk, coms)) <- rawItems]
+      mergedItems = Map.mapWithKey (\k ann -> case Map.lookup k trailingPatches of
+        Nothing -> ann
+        Just coms -> ann { annFollowingComments = annFollowingComments ann ++ coms }
+        ) itemAnns
+  in containerAnns <> mergedItems
   where
-    extractIEItem :: (Int, Int) -> LIE GhcPs -> ((Int, Int), Anns)
-    extractIEItem prevEnd lie@(L lieEpann _) =
+    extractIEItem
+      :: ((Int, Int), Maybe AnnKey)
+      -> LIE GhcPs
+      -> (((Int, Int), Maybe AnnKey), (AnnKey, Annotation, Maybe (AnnKey, [(Comment, DeltaPos)])))
+    extractIEItem (prevEnd, prevKey) lie@(L lieEpann _) =
       case lieEpann of
         EpAnn anc _ cs ->
           let ancSpan = epaLocationRealSrcSpan anc
               key = mkAnnKeyL lie
-              ann = buildAnnotation prevEnd ancSpan cs
-              newEnd = ss2posEnd ancSpan
-          in (newEnd, Map.singleton key ann)
-        _ -> (prevEnd, Map.empty)
+              ieStart = ss2pos ancSpan
+              ieEnd = ss2posEnd ancSpan
+              rawPriors = priorComments cs
+              rawFollowing = getFollowingComments cs
+              allPriorSpans = List.sortOn fst (List.concatMap lepaToSpanAndContent rawPriors)
+              -- Trailing comments from previous item
+              (trailingPrev, rest) = case prevKey of
+                Just _ -> List.partition
+                  (\((line, _), _) -> line == fst prevEnd && fst prevEnd /= fst ieStart)
+                  allPriorSpans
+                Nothing -> ([], allPriorSpans)
+              actualPrior = List.filter
+                (\((line, _), _) -> line < fst ieStart) rest
+              priorRef = case actualPrior of
+                ((pos, _) : _) -> pos
+                [] -> ieStart
+              priorComs = snd $ List.mapAccumL buildIEComDP priorRef actualPrior
+              entryDelta = case actualPrior of
+                [] -> DP (0, 0)
+                _ -> let (_, (_, spanR)) = List.last actualPrior
+                         afterRef = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+                     in posToDP afterRef ieStart
+              followComs = lepaToCommentsWithDP ieEnd rawFollowing
+              trailingComs = snd $ List.mapAccumL buildIEComDP prevEnd trailingPrev
+              trailingPatch = case prevKey of
+                Just pk | not (null trailingComs) -> Just (pk, trailingComs)
+                _ -> Nothing
+              ann = Ann
+                { annCapturedSpan = Nothing
+                , annSortKey = Nothing
+                , annsDP = []
+                , annFollowingComments = followComs
+                , annPriorComments = priorComs
+                , annEntryDelta = entryDelta
+                }
+          in ((ieEnd, Just key), (key, ann, trailingPatch))
+        _ ->
+          let dummyAnn = Ann Nothing Nothing [] [] [] (DP (0, 0))
+              key = mkAnnKeyL lie
+          in ((prevEnd, prevKey), (key, dummyAnn, Nothing))
+
+    buildIEComDP prev ((line, col), (content, spanR)) =
+      let dp = posToDP prev (line, col)
+          nextPos = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+          bComment = Comment
+            { commentOrigin = Nothing
+            , commentIdentifier = realSpanToSrcSpan spanR
+            , commentContents = content
+            }
+      in (nextPos, (bComment, dp))
 
 tryEpAnnFromLocation :: (Data l, Typeable l) => l -> Maybe (EpaLocation, EpAnnComments)
 tryEpAnnFromLocation loc =
