@@ -60,6 +60,7 @@ data AnnKeywordId
   | AnnOpenB
   | AnnCloseB
   | AnnData
+  | AnnElse
   deriving (Data, Eq, Ord, Show)
 
 type AnnSpan = [SrcSpan]

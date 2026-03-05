@@ -11,7 +11,7 @@ module Language.Haskell.Brittany.Internal.ExtractAnns where
 import Data.Data (Data, gmapQ, gmapQi, toConstr)
 import Data.Dynamic (Dynamic, fromDynamic, toDyn)
 import Data.Typeable (Typeable)
-import Data.Maybe (mapMaybe)
+import Data.Maybe (catMaybes, mapMaybe)
 import Data.Foldable (asum)
 import qualified Data.Generics as SYB
 import qualified Data.List as List
@@ -36,6 +36,7 @@ import GHC.Hs
   , LHsBind
   , LMatch
   , LGRHS
+  , AnnsIf(..)
   )
 import GHC.Hs.ImpExp (ideclAnn, ideclExt)
 import GHC.Parser.Annotation (HasLoc(..))
@@ -46,6 +47,7 @@ import GHC.Parser.Annotation
   , EpAnn(..)
   , EpAnnComments(..)
   , EpaLocation
+  , EpToken(..)
   , epaLocationRealSrcSpan
   , getFollowingComments
   , getLocA
@@ -158,9 +160,18 @@ extractDeclAnns decls =
               -- Split prior comments: trailing comments from the previous
               -- declaration (on prevEnd line) vs actual prior comments.
               allPriorSpans = List.sortOn fst (List.concatMap lepaToSpanAndContent rawPriors)
-              (trailingPrev, actualPrior) = List.partition
-                (\((line, _), _) -> line == fst prevEnd && fst prevEnd /= fst declStart)
-                allPriorSpans
+              -- Only classify as trailing when there IS a previous declaration
+              (trailingPrev, rest) = case prevKey of
+                Just _ -> List.partition
+                  (\((line, _), _) -> line == fst prevEnd && fst prevEnd /= fst declStart)
+                  allPriorSpans
+                Nothing -> ([], allPriorSpans)
+              -- Filter out inner comments (at/after declaration start).
+              -- These belong to nested nodes and will be handled by
+              -- extractNestedEpAnns. Including them here causes negative
+              -- entryDelta, placing comments on the same line as the decl.
+              actualPrior = List.filter
+                (\((line, _), _) -> line < fst declStart) rest
               -- Actual prior comments: use first comment's own position as
               -- reference so it gets DP(0,0) = starts at cursor position.
               priorRef = case actualPrior of
@@ -206,13 +217,9 @@ extractDeclAnns decls =
 -- preservation for layout decisions.
 extractNestedEpAnns :: [LHsDecl GhcPs] -> Anns
 extractNestedEpAnns decls =
-  let extractLHsExpr :: LHsExpr GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractLHsExpr lexpr@(L loc x) =
-        if hasLocationOnlyEpAnn x
-        then case tryEpAnnFromLocation loc of
-               Just (anc, cs) -> [(mkAnnKeyL lexpr, epaLocationRealSrcSpan anc, cs)]
-               Nothing -> extractFromLocated lexpr
-        else extractFromLocated lexpr
+  let -- Base extraction for all nodes (including HsIf/HsCase via location annotation)
+      extractLHsExpr :: LHsExpr GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
+      extractLHsExpr = extractFromLocatedWithLoc
       extractLHsDecl :: LHsDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
       extractLHsDecl = extractFromLocated
       extractLHsBind :: LHsBind GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
@@ -232,30 +239,75 @@ extractNestedEpAnns decls =
         )
       raw = SYB.everything (++) extract decls
       sorted = List.sortOn (\(_, sp, _) -> (SrcLoc.srcSpanStartLine sp, SrcLoc.srcSpanStartCol sp)) raw
-      anns = map buildNested sorted
-  in Map.fromList anns
+      baseAnns = Map.fromList $ map buildNested sorted
+      -- Override pass: for compound expressions (HsIf, etc.), redistribute
+      -- inner comments to child expression annotations (as prior comments)
+      -- so BDAnnotationPrior emits them before the correct subexpression.
+      overrideExpr :: LHsExpr GhcPs -> [(AnnKey, Annotation)]
+      overrideExpr lexpr@(L loc expr) = case expr of
+        HsIf xIf _ thenExpr elseExpr ->
+          extractHsIfAnns lexpr loc xIf thenExpr elseExpr
+        _ -> []
+      overrideExtract :: SYB.GenericQ [(AnnKey, Annotation)]
+      overrideExtract = const [] `SYB.extQ` overrideExpr
+      overrideAnns = Map.fromList $ SYB.everything (++) overrideExtract decls
+  in overrideAnns <> baseAnns  -- overrideAnns wins for duplicate keys
   where
     buildNested (key, ancSpan, cs) =
       let nodeStart = ss2pos ancSpan
           nodeEnd = (SrcLoc.srcSpanEndLine ancSpan, SrcLoc.srcSpanEndCol ancSpan)
           rawPriors = priorComments cs
-          -- For nested nodes, compute prior comment DPs from the node's
-          -- own start to keep deltas small and positive (these comments
-          -- are typically on or just before the same line).
-          priorComs = lepaToCommentsWithDP nodeStart rawPriors
-          entryDelta = case lastNestedCommentEnd rawPriors of
-            Just afterRef -> posToDP afterRef nodeStart
-            Nothing -> DP (0, 0)
+          -- Split prior comments: those BEFORE the node start are genuinely
+          -- prior (emitted before the node by BDAnnotationPrior), while those
+          -- AFTER or ON the node start belong inside the node and should be
+          -- in annsDP (emitted at keyword positions by BDAnnotationKW).
+          allPriorSpans = List.concatMap lepaToSpanAndContent rawPriors
+          sortedPriors = List.sortOn fst allPriorSpans
+          (genuinePriors, innerComments) = List.partition
+            (\((line, _), _) -> line < fst nodeStart)
+            sortedPriors
+          -- Genuine prior comments (before node start)
+          priorRef = case genuinePriors of
+            ((pos, _) : _) -> pos
+            [] -> nodeStart
+          priorComs = snd $ List.mapAccumL buildComDP' priorRef genuinePriors
+          entryDelta = case genuinePriors of
+            [] -> DP (0, 0)
+            _ -> let (_, (_, spanR)) = List.last genuinePriors
+                     afterRef = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+                 in posToDP afterRef nodeStart
+          -- Inner comments → annsDP as AnnComment entries
+          innerDP = snd $ List.mapAccumL buildInnerComDP nodeStart innerComments
           followComs = lepaToCommentsWithDP nodeEnd (getFollowingComments cs)
           ann = Ann
             { annCapturedSpan = Nothing
             , annSortKey = Nothing
-            , annsDP = []
+            , annsDP = innerDP
             , annFollowingComments = followComs
             , annPriorComments = priorComs
             , annEntryDelta = entryDelta
             }
       in (key, ann)
+
+    buildComDP' prev ((line, col), (content, spanR)) =
+      let dp = posToDP prev (line, col)
+          nextPos = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+          bComment = Comment
+            { commentOrigin = Nothing
+            , commentIdentifier = realSpanToSrcSpan spanR
+            , commentContents = content
+            }
+      in (nextPos, (bComment, dp))
+
+    buildInnerComDP prev ((line, col), (content, spanR)) =
+      let dp = posToDP prev (line, col)
+          nextPos = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+          bComment = Comment
+            { commentOrigin = Nothing
+            , commentIdentifier = realSpanToSrcSpan spanR
+            , commentContents = content
+            }
+      in (nextPos, (AnnComment bComment, dp))
 
     lastNestedCommentEnd :: [GHC.LEpaComment] -> Maybe (Int, Int)
     lastNestedCommentEnd lcs =
@@ -297,11 +349,16 @@ extractIEListAnns llies@(L epann lies) =
 
 tryEpAnnFromLocation :: (Data l, Typeable l) => l -> Maybe (EpaLocation, EpAnnComments)
 tryEpAnnFromLocation loc =
-  tryEpAnnFromDynamic (toDyn loc)
+  tryExtractEpAnnFields loc
+    <|> tryEpAnnFromDynamic (toDyn loc)
     <|> (tryEpAnnFromDynamic . gmapQi 0 toDyn $ loc)
+    <|> asum (gmapQ tryExtractEpAnnFields loc)
     <|> asum (map tryEpAnnFromDynamic (gmapQ toDyn loc))
     <|> asum (map tryEpAnnFromDynamic (SYB.everything (++) (\x -> [toDyn x]) loc))
 
+-- | Try to extract (EpaLocation, EpAnnComments) from a Dynamic that may
+-- contain any EpAnn ann value. Uses specific fromDynamic attempts for common
+-- types, then falls back to a generic 3-field detection approach.
 tryEpAnnFromDynamic :: Dynamic -> Maybe (EpaLocation, EpAnnComments)
 tryEpAnnFromDynamic dyn =
   (\e -> (entry e, comments e)) <$> fromDynamic @(EpAnn AnnContext) dyn
@@ -310,6 +367,16 @@ tryEpAnnFromDynamic dyn =
     <|> (\e -> (entry e, comments e)) <$> fromDynamic @(EpAnn (AnnList ())) dyn
     <|> (\e -> (entry e, comments e)) <$> fromDynamic @(EpAnn ()) dyn
     <|> (\e -> (entry e, comments e)) <$> fromDynamic @(EpAnn [()]) dyn
+
+-- | Generic extraction of (EpaLocation, EpAnnComments) from any Data value
+-- that has exactly 3 fields where the 1st is EpaLocation and the 3rd is
+-- EpAnnComments. This matches ANY EpAnn ann without needing to enumerate types.
+tryExtractEpAnnFields :: Data d => d -> Maybe (EpaLocation, EpAnnComments)
+tryExtractEpAnnFields d =
+  let fields = gmapQ toDyn d
+  in case fields of
+    [f1, _, f3] -> (,) <$> fromDynamic @EpaLocation f1 <*> fromDynamic @EpAnnComments f3
+    _ -> Nothing
 
 hasLocationOnlyEpAnn :: HsExpr GhcPs -> Bool
 hasLocationOnlyEpAnn e = case e of
@@ -326,16 +393,177 @@ extractFromLocated
   -> [(AnnKey, RealSrcSpan, EpAnnComments)]
 extractFromLocated ln@(L loc x) =
   let key = mkAnnKeyL ln
-      children = gmapQ toDyn x
-      fromPayload =
-        mapMaybe
-          (\dyn -> fmap (\(anc, cs) -> (key, epaLocationRealSrcSpan anc, cs)) (tryEpAnnFromDynamic dyn))
-          children
+      -- Generic extraction: try each child of the payload to see if it's
+      -- an EpAnn (any type) by checking for 3-field (EpaLocation, ?, EpAnnComments)
+      fromPayload = catMaybes $ gmapQ
+        (\child -> fmap (\(anc, cs) -> (key, epaLocationRealSrcSpan anc, cs)) (tryExtractEpAnnFields child))
+        x
       fromLoc = fmap (\(anc, cs) -> (key, epaLocationRealSrcSpan anc, cs)) (tryEpAnnFromDynamic (toDyn loc))
       locOnly = case fromDynamic @(HsExpr GhcPs) (toDyn x) of
         Just e -> hasLocationOnlyEpAnn e
         Nothing -> False
   in if null fromPayload && locOnly then maybe [] pure fromLoc else fromPayload
+
+-- | Like extractFromLocated, but always tries the location annotation first.
+-- GHC 9.14 stores comments on the location annotation (e.g., EpAnn AnnListItem
+-- for expressions), not (only) in the payload's extension field.
+extractFromLocatedWithLoc
+  :: (Data a, HasLoc l, HasLoc (GenLocated l a), Data l, Typeable l)
+  => GenLocated l a
+  -> [(AnnKey, RealSrcSpan, EpAnnComments)]
+extractFromLocatedWithLoc ln@(L loc _) =
+  let key = mkAnnKeyL ln
+      -- Try the location annotation first (this is where comments live)
+      fromLoc = case tryExtractEpAnnFields loc of
+        Just (anc, cs) -> [(key, epaLocationRealSrcSpan anc, cs)]
+        Nothing -> case tryEpAnnFromDynamic (toDyn loc) of
+          Just (anc, cs) -> [(key, epaLocationRealSrcSpan anc, cs)]
+          Nothing -> []
+  in if null fromLoc then extractFromLocated ln else fromLoc
+
+-- | Redistribute inner comments from HsIf to child expression annotations.
+-- GHC 9.14 stores all comments on the location annotation (EpAnn AnnListItem)
+-- of the HsIf node. Comments between keywords belong to child expressions:
+-- - Between "then" and "else" → prior comment on then-expression
+-- - After "else" → prior comment on else-expression
+-- We create override annotations for the children with the redistributed
+-- comments as annPriorComments, so BDAnnotationPrior emits them correctly.
+extractHsIfAnns
+  :: LHsExpr GhcPs
+  -> EpAnn AnnListItem  -- location annotation (has comments)
+  -> AnnsIf             -- extension annotation (has keyword positions)
+  -> LHsExpr GhcPs      -- then-expression
+  -> LHsExpr GhcPs      -- else-expression
+  -> [(AnnKey, Annotation)]
+extractHsIfAnns lexpr locAnn annsIf thenExpr elseExpr =
+  let ifKey = mkAnnKeyL lexpr
+      thenKey = mkAnnKeyL thenExpr
+      elseKey = mkAnnKeyL elseExpr
+  in case locAnn of
+    EpAnn locAnc _ locCs ->
+      let ancSpan = epaLocationRealSrcSpan locAnc
+          nodeStart = ss2pos ancSpan
+          nodeEnd = ss2posEnd ancSpan
+          -- Keyword positions from AnnsIf
+          thenPos = epTokenPos (aiThen annsIf)
+          elsePos = epTokenPos (aiElse annsIf)
+          -- Comments from location annotation
+          rawPriors = priorComments locCs
+          allComSpans = List.sortOn fst $ List.concatMap lepaToSpanAndContent rawPriors
+          -- Split: before node start (genuine prior) vs at/after node start (inner)
+          (genuinePriorSpans, innerComSpans) = List.partition
+            (\((line, _), _) -> line < fst nodeStart) allComSpans
+          -- Classify inner comments by keyword position
+          -- Between "then" and "else" → then-expression prior
+          -- After "else" → else-expression prior
+          (thenComSpans, elseComSpans) = classifyByKeywords thenPos elsePos innerComSpans
+          -- Build HsIf annotation: genuine priors only, no inner comments
+          genuinePriorComs = lepaToCommentsWithDP nodeStart
+            (List.filter (isBeforeNode nodeStart) rawPriors)
+          entryDelta = case genuinePriorSpans of
+            [] -> DP (0, 0)
+            _ -> let (_, (_, spanR)) = List.last genuinePriorSpans
+                     afterRef = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+                 in posToDP afterRef nodeStart
+          followComs = lepaToCommentsWithDP nodeEnd (getFollowingComments locCs)
+          ifAnn = Ann
+            { annCapturedSpan = Nothing
+            , annSortKey = Nothing
+            , annsDP = []
+            , annFollowingComments = followComs
+            , annPriorComments = genuinePriorComs
+            , annEntryDelta = entryDelta
+            }
+          -- Build child annotations with redistributed comments
+          thenChildAnn = buildChildAnn thenPos thenComSpans thenExpr
+          elseChildAnn = buildChildAnn elsePos elseComSpans elseExpr
+      in [(ifKey, ifAnn)]
+         ++ maybe [] (\a -> [(thenKey, a)]) thenChildAnn
+         ++ maybe [] (\a -> [(elseKey, a)]) elseChildAnn
+    _ -> []  -- EpAnnNotUsed; base extraction handles this
+  where
+    epTokenPos :: EpToken tok -> Maybe (Int, Int)
+    epTokenPos (EpTok loc) = Just $ ss2pos (epaLocationRealSrcSpan loc)
+    epTokenPos NoEpTok = Nothing
+
+    isBeforeNode :: (Int, Int) -> GHC.LEpaComment -> Bool
+    isBeforeNode ns lc =
+      all (\((line, _), _) -> line < fst ns) (lepaToSpanAndContent lc)
+
+    -- | Classify inner comments: before elsePos → then-expression,
+    -- at/after elsePos → else-expression
+    classifyByKeywords
+      :: Maybe (Int, Int) -> Maybe (Int, Int)
+      -> [((Int, Int), (String, RealSrcSpan))]
+      -> ([((Int, Int), (String, RealSrcSpan))], [((Int, Int), (String, RealSrcSpan))])
+    classifyByKeywords _thenPos elsePos coms = case elsePos of
+      Just ep -> List.partition (\((line, _), _) -> line < fst ep) coms
+      Nothing -> (coms, [])  -- no else → all go to then
+
+    -- | Build a child annotation with redistributed comments as prior comments.
+    -- The DP for each comment is computed relative to the preceding keyword
+    -- position (e.g., "then" keyword for then-expression comments), so that
+    -- the comment gets placed on a new line at the correct column.
+    buildChildAnn
+      :: Maybe (Int, Int)  -- keyword position (e.g., "then" position)
+      -> [((Int, Int), (String, RealSrcSpan))]
+      -> LHsExpr GhcPs
+      -> Maybe Annotation
+    buildChildAnn _ [] _ = Nothing
+    buildChildAnn kwPos comSpans childExpr =
+      let childStart = getExprStart childExpr
+          -- Use keyword position as initial reference (it's before the comments).
+          -- This gives positive line deltas for DP computation.
+          initRef = case kwPos of
+            Just kp -> kp
+            Nothing -> case comSpans of
+              ((pos, _) : _) -> pos
+              [] -> childStart
+          priorComs = snd $ List.mapAccumL (buildRelativeDP childStart) initRef comSpans
+          entryDelta = case comSpans of
+            [] -> DP (0, 0)
+            _ -> let (_, (_, spanR)) = List.last comSpans
+                     afterRef = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+                 in posToDP afterRef childStart
+      in Just Ann
+            { annCapturedSpan = Nothing
+            , annSortKey = Nothing
+            , annsDP = []
+            , annFollowingComments = []
+            , annPriorComments = priorComs
+            , annEntryDelta = entryDelta
+            }
+
+    getExprStart :: LHsExpr GhcPs -> (Int, Int)
+    getExprStart lexpr =
+      let srcSpan = getLocA lexpr
+      in case srcSpanToRealSpan srcSpan of
+        Just rsp -> ss2pos rsp
+        Nothing -> (1, 1)
+
+    -- | Build a (Comment, DP) for a prior comment on a child expression.
+    -- The DP's x-component is the column offset from the child's start column,
+    -- since layoutMoveToCommentPos adds indLevelLinger (≈ child indent) to x.
+    buildRelativeDP
+      :: (Int, Int)  -- child expression start
+      -> (Int, Int)  -- previous position (for chaining)
+      -> ((Int, Int), (String, RealSrcSpan))
+      -> ((Int, Int), (Comment, DeltaPos))
+    buildRelativeDP (_childLine, _childCol) prev ((comLine, _comCol), (content, spanR)) =
+      let -- layoutMoveToCommentPos uses indLevelLinger + x for column positioning.
+          -- indLevelLinger already equals the child's indent level, so x=0
+          -- places the comment at the correct indent. y must be >= 1 to preserve
+          -- the pending newline from docPar.
+          dp = if fst prev == comLine
+               then DP (0, 0)
+               else DP (max 1 (comLine - fst prev), 0)
+          nextPos = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+          bComment = Comment
+            { commentOrigin = Nothing
+            , commentIdentifier = realSpanToSrcSpan spanR
+            , commentContents = content
+            }
+      in (nextPos, (bComment, dp))
 
 maybeImportEpAnn :: ImportDecl GhcPs -> Maybe (EpaLocation, EpAnnComments)
 maybeImportEpAnn idecl =

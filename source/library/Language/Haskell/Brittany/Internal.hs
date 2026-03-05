@@ -621,9 +621,17 @@ ppPreamble lmod@(L loc m@HsModule{}) = do
   -- first; layoutModule and processDefault don't include them. Our
   -- ExtractAnns puts these in annPriorComments.
   let modKey = mkAnnKey (toL lmod)
-  forM_ (maybe [] annPriorComments (Map.lookup modKey filteredAnns)) $
-    \(c, dp) -> do
-      ppmMoveToExactLoc dp
+  let modPriorComments = maybe [] annPriorComments (Map.lookup modKey filteredAnns)
+  forM_ (zip [0::Int ..] modPriorComments) $
+    \(idx, (c, dp)) -> do
+      -- For comments after the first, the DP accounts for the newline we
+      -- added after the previous comment, so subtract 1 row.
+      let dp' = if idx > 0
+            then case dp of
+              EP.DP (y, x) | y > 0 -> EP.DP (y - 1, x)
+              _ -> dp
+            else dp
+      ppmMoveToExactLoc dp'
       mTell $ Text.Builder.fromString (commentContents c)
       mTell $ Text.Builder.fromString "\n"
 

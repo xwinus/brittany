@@ -15,7 +15,7 @@ import GHC (GenLocated(L))
 import GHC.Data.Bag (bagToList, emptyBag)
 import qualified GHC.Data.FastString as FastString
 import GHC.Hs
-import GHC.Hs.Decls (FamEqn(..), TyFamInstDecl(..))
+import GHC.Hs.Decls (AnnSynDecl(..), FamEqn(..), TyFamInstDecl(..))
 import GHC.Hs.Type (FieldOcc(..), HsBndrKind(..), HsBndrVar(..), HsSigType(HsSig), HsTyVarBndr(..), HsOuterTyVarBndrs(HsOuterExplicit, HsOuterImplicit), HsWildCardBndrs(HsWC))
 import qualified GHC.OldList as List
 import qualified Data.List.NonEmpty as NonEmpty
@@ -712,7 +712,11 @@ layoutLPatSyn name (PrefixCon vars) = do
   docSeq . fmap appSep $ docLit docName : (docLit <$> names)
 layoutLPatSyn name (InfixCon left right) = do
   leftDoc <- lrdrNameToTextAnn (toL left)
-  docName <- lrdrNameToTextAnn name
+  nameText <- lrdrNameToTextAnn name
+  -- GHC 9.14: annsDP lacks AnnBackquote, so add backticks for non-symbol
+  -- names in infix position.
+  let isSym = isSymOcc (rdrNameOcc (unLoc name))
+      docName = if isSym then nameText else Text.pack "`" <> nameText <> Text.pack "`"
   rightDoc <- lrdrNameToTextAnn (toL right)
   docSeq . fmap (appSep . docLit) $ [leftDoc, docName, rightDoc]
 layoutLPatSyn name (RecCon recArgs) = do
@@ -741,16 +745,13 @@ layoutPatSynWhere hs = case hs of
 
 layoutTyCl :: ToBriDoc TyClDecl
 layoutTyCl ltycl@(L _loc tycl) = case tycl of
-  SynDecl _ name vars fixityElem typ -> do
+  SynDecl annSynDecl name vars fixityElem typ -> do
     let
       isInfix = (fixityElem == Infix)
-    -- hasTrailingParen <- hasAnnKeywordComment ltycl AnnCloseP
-    -- let parenWrapper = if hasTrailingParen
-    --       then appSep . docWrapNodeRest ltycl
-    --       else id
+      hasSourceParens = not (null (asd_opens annSynDecl))
     let wrapNodeRest = docWrapNodeRest ltycl
     docWrapNodePrior ltycl
-      $ layoutSynDecl isInfix wrapNodeRest (toL name) (hsq_explicit vars) typ
+      $ layoutSynDecl isInfix hasSourceParens wrapNodeRest (toL name) (hsq_explicit vars) typ
   DataDecl _ext name tyVars _ dataDefn ->
     layoutDataDecl (toL ltycl) (toL name) tyVars dataDefn
   _ -> briDocByExactNoComment ltycl
@@ -758,12 +759,13 @@ layoutTyCl ltycl@(L _loc tycl) = case tycl of
 layoutSynDecl
   :: forall flag. Data.Data.Data flag =>
   Bool
+  -> Bool   -- hasSourceParens: source had explicit parentheses around LHS
   -> (ToBriDocM BriDocNumbered -> ToBriDocM BriDocNumbered)
   -> Located (IdP GhcPs)
   -> [LHsTyVarBndr flag GhcPs]
   -> LHsType GhcPs
   -> ToBriDocM BriDocNumbered
-layoutSynDecl isInfix wrapNodeRest name vars typ = do
+layoutSynDecl isInfix hasSourceParens wrapNodeRest name vars typ = do
   nameStr0 <- lrdrNameToTextAnn (toL name)
   let
     -- GHC 9.14: annotations lack AnnOpenP/AnnBackquote, so lrdrNameToTextAnn
@@ -778,8 +780,9 @@ layoutSynDecl isInfix wrapNodeRest name vars typ = do
       then do
         let (a : b : rest) = vars
         hasOwnParens <- hasAnnKeywordComment (toL a) AnnOpenP
-        -- This isn't quite right, but does give syntactically valid results
-        let needsParens = not (null rest) || hasOwnParens
+        -- Parenthesize when there are extra vars, when old-style annotation
+        -- says so, or when the source had explicit parens (asd_opens).
+        let needsParens = not (null rest) || hasOwnParens || hasSourceParens
         docSeq
           $ [docLit $ Text.pack "type", docSeparator]
           ++ [ docParenL | needsParens ]

@@ -36,6 +36,7 @@ import GHC.Parser.Annotation
   , EpAnn(..)
   , NameAnn
   , NoEpAnns
+  , EpaLocation
   , epaLocationRealSrcSpan
   , getLocA
   , HasLoc(..)
