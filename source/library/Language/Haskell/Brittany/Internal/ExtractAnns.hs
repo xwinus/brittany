@@ -8,7 +8,7 @@
 -- expected by layouters.
 module Language.Haskell.Brittany.Internal.ExtractAnns where
 
-import Data.Data (Data, gmapQ, gmapQi, toConstr)
+import Data.Data (Data, gmapQ, gmapQi)
 import Data.Dynamic (Dynamic, fromDynamic, toDyn)
 import Data.Typeable (Typeable)
 import Data.Maybe (catMaybes, mapMaybe)

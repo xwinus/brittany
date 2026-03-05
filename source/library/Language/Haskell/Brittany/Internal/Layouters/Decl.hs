@@ -108,28 +108,101 @@ layoutSig lsig@(L _loc sig) = case sig of
         Nothing -> []
     nameStrs <- names `forM` \n -> applyNameAdornment n <$> lrdrNameToTextAnn (toL n)
     let nameStr = Text.intercalate (Text.pack ", ") $ nameStrs
-    (mForallDoc, typ) <- case unLoc sigType of
+    (mForallParts, typ) <- case unLoc sigType of
       HsSig _ bndrs typ ->
-        let mForallDoc = case bndrs of
+        let mForallParts = case bndrs of
               HsOuterExplicit _ bndrsList ->
                 Just $ do
                   let bndrs' = map invisBinderToUnit bndrsList
                   tyVarDocs <- layoutTyVarBndrs bndrs'
                   let tyVarDocLineList = processTyVarBndrsSingleline tyVarDocs
-                  return $ docSeq
-                    ( [ docLit (Text.pack "forall") ]
-                    ++ tyVarDocLineList
-                    ++ [ docLit (Text.pack " . ") ]
-                    )
+                  let forallWithDot = docSeq
+                        ( [ docLit (Text.pack "forall") ]
+                        ++ tyVarDocLineList
+                        ++ [ docLit (Text.pack " . ") ]
+                        )
+                  let forallNoDot = docSeq
+                        ( [ docLit (Text.pack "forall") ]
+                        ++ tyVarDocLineList
+                        )
+                  return (forallWithDot, forallNoDot)
               HsOuterImplicit _ -> Nothing
-        in return (mForallDoc, typ)
+        in return (mForallParts, typ)
       _ -> return (Nothing, error "layoutNamesAndType: unexpected sigType")
     typeDoc <- docSharedWrapper layoutType (toL typ)
-    fullTypeDoc <- case mForallDoc of
+    fullTypeDoc <- case mForallParts of
       Nothing -> return typeDoc
-      Just mfd -> do
-        fd <- mfd
-        return $ docSeq [fd, docForceSingleline typeDoc]
+      Just mfp -> do
+        (forallWithDot, forallNoDot) <- mfp
+        -- Check if inner type is HsQualTy to build proper multiline layout
+        case unLoc typ of
+          HsQualTy _ lcntxts typ2 -> do
+            let lcntxts' = toL lcntxts
+                cntxts' = map toL (unLoc lcntxts)
+            innerTypeDoc <- docSharedWrapper layoutType (toL typ2)
+            cntxtDocs <- cntxts' `forM` docSharedWrapper layoutType
+            let
+              contextDoc = docWrapNode lcntxts' $ case cntxtDocs of
+                [] -> docLit $ Text.pack "()"
+                [x] -> x
+                _ -> docAlt
+                  [ let open = docLit $ Text.pack "("
+                        close = docLit $ Text.pack ")"
+                        list = List.intersperse docCommaSep
+                             $ docForceSingleline <$> cntxtDocs
+                    in docSeq ([open] ++ list ++ [close])
+                  , let open = docCols ColTyOpPrefix
+                          [docParenLSep, docAddBaseY (BrIndentSpecial 2) $ head cntxtDocs]
+                        close = docLit $ Text.pack ")"
+                        list = List.tail cntxtDocs <&> \cntxtDoc ->
+                          docCols ColTyOpPrefix
+                            [docCommaSep, docAddBaseY (BrIndentSpecial 2) cntxtDoc]
+                    in docPar open $ docLines $ list ++ [close]
+                  ]
+              maybeForceML = case toL typ2 of
+                (L _ HsFunTy{}) -> docForceMultiline
+                _ -> id
+            return $ docAlt
+              -- forall m . Foo => ColMap2 -> ColInfo -> ...  (all on one line)
+              [ docSeq
+                [ forallWithDot
+                , docForceSingleline contextDoc
+                , docLit $ Text.pack " => "
+                , docForceSingleline innerTypeDoc
+                ]
+              -- forall m
+              --  . Foo
+              -- => ColMap2
+              -- -> ColInfo
+              , docPar
+                  forallNoDot
+                  (docLines
+                    [ docCols ColTyOpPrefix
+                      [ docLit $ Text.pack " . "
+                      , docAddBaseY (BrIndentSpecial 3) contextDoc
+                      ]
+                    , docCols ColTyOpPrefix
+                      [ docLit $ Text.pack "=> "
+                      , docAddBaseY (BrIndentSpecial 3) $ maybeForceML innerTypeDoc
+                      ]
+                    ]
+                  )
+              ]
+          _ -> do
+            let maybeForceML' = case unLoc typ of
+                  HsFunTy{} -> docForceMultiline
+                  _ -> id
+            return $ docAlt
+              [ docSeq [forallWithDot, docForceSingleline typeDoc]
+              , docPar
+                  forallNoDot
+                  (docCols
+                    ColTyOpPrefix
+                    [ docLit $ Text.pack " . "
+                    , docAddBaseY (BrIndentSpecial 3) $ maybeForceML' typeDoc
+                    ]
+                  )
+              ]
     hasComments <- hasAnyCommentsBelow (toL lsig)
     shouldBeHanging <-
       mAsk <&> _conf_layout .> _lconfig_hangingTypeSignature .> confUnpack
@@ -1018,8 +1091,15 @@ layoutClsInst lcid@(L _ cid) = docLines
     go [] = []
     go (line1 : lineR) = case Text.stripStart line1 of
       st
-        | isTypeOrData st -> st : lineR
+        | isTypeOrData st ->
+          let keyIndent = Text.length line1 - Text.length st
+          in st : map (stripNSpaces keyIndent) lineR
         | otherwise -> st : go lineR
+    stripNSpaces n t
+      | n <= 0 = t
+      | otherwise = case Text.uncons t of
+          Just (' ', rest) -> stripNSpaces (n - 1) rest
+          _ -> t
     isTypeOrData t' =
       (Text.pack "type" `Text.isPrefixOf` t')
         || (Text.pack "newtype" `Text.isPrefixOf` t')

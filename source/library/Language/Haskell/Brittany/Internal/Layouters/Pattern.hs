@@ -177,6 +177,19 @@ layoutPat lpat@(L _ pat) = docWrapNode (toL lpat) $ case pat of
     pure $ case mNegative of
       Just{} -> Seq.fromList [negDoc, litDoc]
       Nothing -> Seq.singleton litDoc
+  ViewPat _ expr1 pat1 -> do
+    -- (expr -> nestedpat) -> expr
+    exprDoc <- docSharedWrapper layoutExpr (toL expr1)
+    patDocs <- layoutPat pat1
+    case Seq.viewl patDocs of
+      Seq.EmptyL -> Seq.singleton <$> docForceSingleline exprDoc
+      x1 Seq.:< xR -> do
+        x1' <- docSeq
+          [ appSep $ docForceSingleline exprDoc
+          , appSep $ docLit $ Text.pack "->"
+          , return x1
+          ]
+        return $ x1' Seq.<| xR
 
   _ -> return <$> briDocByExactInlineOnly "some unknown pattern" (toL lpat)
 
