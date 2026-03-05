@@ -23,7 +23,12 @@ import qualified Data.Set as Set
 import GHC (GenLocated(L))
 import qualified GHC hiding (parseModule)
 import GHC.Hs
-  ( GhcPs, HsDecl, HsExpr, HsModule(..)
+  ( AnnExplicitSum
+  , AnnProjection
+  , AnnsIf
+  , AnnsModule
+  , EpAnnHsCase
+  , GhcPs, GrhsAnn, HsDecl, HsExpr, HsModule(..)
   , LHsDecl, LHsExpr, LHsBind, LMatch, LGRHS, LHsType, LPat
   , StmtLR
   , hsmodDecls
@@ -282,6 +287,12 @@ tryGetSrcSpanFromDynamic d =
     <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn (AnnList ())) d)
     <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn ()) d)
     <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn [()]) d)
+    <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn GrhsAnn) d)
+    <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn EpAnnHsCase) d)
+    <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn AnnsIf) d)
+    <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn AnnExplicitSum) d)
+    <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn AnnProjection) d)
+    <|> (tryEpAnnToSrcSpan =<< fromDynamic @(EpAnn AnnsModule) d)
 
 -- | Safely convert an EpAnn's entry to SrcSpan, returning Nothing for
 -- generated spans that would cause epaLocationRealSrcSpan to panic.

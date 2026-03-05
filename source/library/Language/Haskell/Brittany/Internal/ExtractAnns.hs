@@ -29,6 +29,8 @@ import GHC.Hs
   , GrhsAnn
   , HsExpr(..)
   , HsModule(..)
+  , HsSigType
+  , HsType
   , IE(..)
   , ImportDecl(..)
   , LIE
@@ -36,7 +38,10 @@ import GHC.Hs
   , LHsDecl
   , LHsExpr
   , LHsBind
+  , LHsSigType
+  , LHsType
   , LMatch
+  , LPat
   , LGRHS
   , AnnsIf(..)
   , ExprLStmt
@@ -440,6 +445,12 @@ extractNestedEpAnns decls =
       extractLGRHS = extractFromLocated
       extractLStmt :: ExprLStmt GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
       extractLStmt = extractFromLocatedWithLoc
+      extractLHsType :: LHsType GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
+      extractLHsType = extractFromLocatedWithLoc
+      extractLHsSigType :: LHsSigType GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
+      extractLHsSigType = extractFromLocatedWithLoc
+      extractLPat :: LPat GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
+      extractLPat = extractFromLocatedWithLoc
       extract :: SYB.GenericQ [(AnnKey, RealSrcSpan, EpAnnComments)]
       extract =
         (const []
@@ -449,6 +460,9 @@ extractNestedEpAnns decls =
           `SYB.extQ` extractLMatch
           `SYB.extQ` extractLGRHS
           `SYB.extQ` extractLStmt
+          `SYB.extQ` extractLHsType
+          `SYB.extQ` extractLHsSigType
+          `SYB.extQ` extractLPat
         )
       raw = SYB.everything (++) extract decls
       sorted = List.sortOn (\(_, sp, _) -> (SrcLoc.srcSpanStartLine sp, SrcLoc.srcSpanStartCol sp)) raw
@@ -788,12 +802,14 @@ extractFromLocated
   -> [(AnnKey, RealSrcSpan, EpAnnComments)]
 extractFromLocated ln@(L loc x) =
   let key = mkAnnKeyL ln
+      safeEpaLoc (EpaSpan (RealSrcSpan rss _)) = Just rss
+      safeEpaLoc _ = Nothing
       -- Generic extraction: try each child of the payload to see if it's
       -- an EpAnn (any type) by checking for 3-field (EpaLocation, ?, EpAnnComments)
       fromPayload = catMaybes $ gmapQ
-        (\child -> fmap (\(anc, cs) -> (key, epaLocationRealSrcSpan anc, cs)) (tryExtractEpAnnFields child))
+        (\child -> do (anc, cs) <- tryExtractEpAnnFields child; rss <- safeEpaLoc anc; pure (key, rss, cs))
         x
-      fromLoc = fmap (\(anc, cs) -> (key, epaLocationRealSrcSpan anc, cs)) (tryEpAnnFromDynamic (toDyn loc))
+      fromLoc = do (anc, cs) <- tryEpAnnFromDynamic (toDyn loc); rss <- safeEpaLoc anc; pure (key, rss, cs)
       locOnly = case fromDynamic @(HsExpr GhcPs) (toDyn x) of
         Just e -> hasLocationOnlyEpAnn e
         Nothing -> False
@@ -809,10 +825,16 @@ extractFromLocatedWithLoc
 extractFromLocatedWithLoc ln@(L loc _) =
   let key = mkAnnKeyL ln
       -- Try the location annotation first (this is where comments live)
+      safeEpaLoc (EpaSpan (RealSrcSpan rss _)) = Just rss
+      safeEpaLoc _ = Nothing
       fromLoc = case tryExtractEpAnnFields loc of
-        Just (anc, cs) -> [(key, epaLocationRealSrcSpan anc, cs)]
+        Just (anc, cs) -> case safeEpaLoc anc of
+          Just rss -> [(key, rss, cs)]
+          Nothing -> []
         Nothing -> case tryEpAnnFromDynamic (toDyn loc) of
-          Just (anc, cs) -> [(key, epaLocationRealSrcSpan anc, cs)]
+          Just (anc, cs) -> case safeEpaLoc anc of
+            Just rss -> [(key, rss, cs)]
+            Nothing -> []
           Nothing -> []
   in if null fromLoc then extractFromLocated ln else fromLoc
 
