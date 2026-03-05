@@ -313,7 +313,9 @@ extractImportAnns startRef imports =
                 [] -> importStart
               priorComs = snd $ List.mapAccumL buildComDP priorRef actualPrior
               entryDelta = case actualPrior of
-                [] -> DP (0, 0)
+                [] -> case prevKey of
+                  Just _ -> posToDP prevEnd importStart
+                  Nothing -> DP (0, 0)  -- first import: spacing handled by module layout
                 _ -> let (_, (_, spanR)) = List.last actualPrior
                          afterRef = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
                      in posToDP afterRef importStart
