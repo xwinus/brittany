@@ -464,6 +464,18 @@ extractNestedEpAnns decls =
         Nothing -> ann
         Just coms -> ann { annFollowingComments = annFollowingComments ann ++ coms }
         ) mainNested
+      -- Redistribute inner comments (annsDP) from parent nodes to child nodes.
+      -- For each annotation with inner comments, find the child annotation
+      -- whose end position is closest to (and before) each comment's position,
+      -- then move the comment to that child's annFollowingComments.
+      -- Skip nodes handled by overrides (HsIf, HsDo) and nodes wrapped with
+      -- docWrapNode (GRHS, Match) since their BDAnnotationRest handles annsDP.
+      spanMap = Map.fromList [(k, (ss2pos sp, ss2posEnd sp)) | (k, sp, _) <- sorted]
+      skipKeys = Map.map (const ()) overrideAnns
+        <> Map.fromList [(k, ()) | (k, _, _) <- sorted, isWrappedNodeType k]
+      isWrappedNodeType (AnnKey _ cn) = unConName cn `elem`
+        ["GRHS", "Match", "ValD", "SigD", "TyClD", "InstD", "DerivD"]
+      redistributedAnns = redistributeInnerComments spanMap skipKeys baseAnns
       -- Override pass: for compound expressions (HsIf, etc.), redistribute
       -- inner comments to child expression annotations (as prior comments)
       -- so BDAnnotationPrior emits them before the correct subexpression.
@@ -477,7 +489,7 @@ extractNestedEpAnns decls =
       overrideExtract :: SYB.GenericQ [(AnnKey, Annotation)]
       overrideExtract = const [] `SYB.extQ` overrideExpr
       overrideAnns = Map.fromList $ SYB.everything (++) overrideExtract decls
-  in overrideAnns <> baseAnns  -- overrideAnns wins for duplicate keys
+  in overrideAnns <> redistributedAnns  -- overrideAnns wins for duplicate keys
   where
     buildNestedAccum (prevEnd, prevKey) (key, ancSpan, cs) =
       let nodeStart = ss2pos ancSpan
@@ -565,6 +577,84 @@ extractNestedEpAnns decls =
            [] -> Nothing
            _ -> let (_, (_, spanR)) = List.last sorted
                 in Just (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+
+-- | Redistribute inner comments (annsDP AnnComment entries) from parent
+-- annotations to the most appropriate child annotations. For each inner
+-- comment, finds the child annotation whose span ends closest before the
+-- comment's position, and moves the comment to that child's
+-- annFollowingComments with a recomputed DP relative to the child's end.
+redistributeInnerComments
+  :: Map.Map AnnKey ((Int, Int), (Int, Int))  -- span map: key -> (start, end)
+  -> Map.Map AnnKey ()  -- override keys to skip
+  -> Anns  -- input annotations
+  -> Anns  -- output with inner comments redistributed
+redistributeInnerComments spanMap skipKeys anns =
+  let -- Collect all inner comments that need redistribution
+      -- Skip nodes handled by overrides (HsIf, HsDo) to avoid double comments
+      parentInnerComs = Map.toList $ Map.mapMaybeWithKey (\k ann ->
+        if Map.member k skipKeys then Nothing
+        else let innerComs = [(com, dp) | (AnnComment com, dp) <- annsDP ann]
+             in if null innerComs then Nothing
+                else case Map.lookup k spanMap of
+                  Just (pStart, pEnd) -> Just (pStart, pEnd, innerComs)
+                  Nothing -> Nothing
+        ) anns
+      -- For each parent's inner comments, find the best child target
+      -- Children are annotations whose span is WITHIN the parent's span
+      allChildren = [(k, start, end) | (k, (start, end)) <- Map.toList spanMap]
+      assignments = List.concatMap (\(parentKey, (pStart, pEnd, coms)) ->
+        let children = List.sortOn (\(_, s, _) -> s)
+              [ (k, s, e) | (k, s, e) <- allChildren
+              , k /= parentKey
+              , s >= pStart && e <= pEnd
+              ]
+        in assignCommentsToChildren children coms
+        ) parentInnerComs
+      -- Group assignments by target key
+      patches = Map.fromListWith (++) assignments
+      -- Track which parents had comments successfully redistributed
+      parentKeys = Map.fromList [(pk, ()) | (pk, _) <- parentInnerComs]
+      -- Apply patches: add comments to children, remove from parents
+      patched = Map.mapWithKey (\k ann ->
+        let addComs = Map.findWithDefault [] k patches
+            -- Strip inner AnnComment entries from parents that had redistribution
+            strippedDP = if Map.member k parentKeys
+              then List.filter (\x -> case x of { (AnnComment _, _) -> False; _ -> True }) (annsDP ann)
+              else annsDP ann
+        in ann { annFollowingComments = annFollowingComments ann ++ addComs
+               , annsDP = strippedDP
+               }
+        ) anns
+  in patched
+  where
+    -- | Assign each inner comment to the child whose end is closest before
+    -- or at the comment's position. If no child qualifies, leave unassigned
+    -- (comment stays on parent as annsDP).
+    assignCommentsToChildren
+      :: [(AnnKey, (Int, Int), (Int, Int))]  -- sorted children
+      -> [(Comment, DeltaPos)]               -- inner comments
+      -> [(AnnKey, [(Comment, DeltaPos)])]   -- assignments (key, comments)
+    assignCommentsToChildren children coms =
+      mapMaybe (assignOneComment children) coms
+
+    assignOneComment
+      :: [(AnnKey, (Int, Int), (Int, Int))]
+      -> (Comment, DeltaPos)
+      -> Maybe (AnnKey, [(Comment, DeltaPos)])
+    assignOneComment children (com, _oldDP) =
+      case srcSpanToRealSpan (commentIdentifier com) of
+        Nothing -> Nothing
+        Just comSpan ->
+          let comPos = ss2pos comSpan
+              -- Find the child whose end is closest to (but before/at) comPos.
+              -- Sort by end position descending and take the first (closest end).
+              candidates = List.sortOn (\(_, e) -> (fst comPos - fst e, snd comPos - snd e))
+                [(k, e) | (k, _, e) <- children, e <= comPos]
+          in case candidates of
+            [] -> Nothing
+            ((bestKey, bestEnd) : _) ->
+              let dp = posToDP bestEnd comPos
+              in Just (bestKey, [(com, dp)])
 
 -- | Extract annotations for IE (import/export) list container and items.
 -- Handles both import lists (ideclImportList) and export lists (hsmodExports).
