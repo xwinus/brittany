@@ -37,6 +37,7 @@ import GHC.Hs
   , LMatch
   , LGRHS
   , AnnsIf(..)
+  , ExprLStmt
   )
 import GHC.Hs.ImpExp (ideclAnn, ideclExt)
 import GHC.Parser.Annotation (HasLoc(..))
@@ -67,7 +68,22 @@ extractAnnsFromModule :: ParsedSource -> Anns
 extractAnnsFromModule lmod =
   let mod' = unLoc lmod
       modAnns = extractModuleHeaderAnns lmod mod'
-      importAnns = extractImportAnns (hsmodImports mod')
+      -- Compute starting reference for imports: end of module header or
+      -- last prior comment (pragma), so import entry deltas are correct.
+      importPrevEnd = case hsmodAnn (hsmodExt mod') of
+        EpAnn anc _ cs ->
+          let ancSpan = epaLocationRealSrcSpan anc
+              headerEnd = ss2posEnd ancSpan
+              -- Also check prior comments (pragmas): the last one may be
+              -- later than the module header anchor.
+              priorEnds = [ ss2posEnd (epaLocationRealSrcSpan (EPTypes.commentLoc x))
+                          | lc <- priorComments cs
+                          , x <- EPUtils.tokComment lc
+                          ]
+          in if null priorEnds then headerEnd
+             else maximum (headerEnd : priorEnds)
+        _ -> (1, 1)
+      importAnns = extractImportAnns importPrevEnd (hsmodImports mod')
       exportAnns = case hsmodExports mod' of
         Nothing -> Map.empty
         Just llies -> extractIEListAnns llies
@@ -114,8 +130,8 @@ extractModuleHeaderAnns lmod mod' =
       in Map.singleton key ann
     _ -> Map.empty
 
-extractImportAnns :: [LImportDecl GhcPs] -> Anns
-extractImportAnns imports = mconcat $ snd $ List.mapAccumL extractOne (1, 1) imports
+extractImportAnns :: (Int, Int) -> [LImportDecl GhcPs] -> Anns
+extractImportAnns startRef imports = mconcat $ snd $ List.mapAccumL extractOne startRef imports
   where
     extractOne prevEnd limport =
       let idecl = unLoc limport
@@ -228,6 +244,8 @@ extractNestedEpAnns decls =
       extractLMatch = extractFromLocated
       extractLGRHS :: LGRHS GhcPs (LHsExpr GhcPs) -> [(AnnKey, RealSrcSpan, EpAnnComments)]
       extractLGRHS = extractFromLocated
+      extractLStmt :: ExprLStmt GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
+      extractLStmt = extractFromLocatedWithLoc
       extract :: SYB.GenericQ [(AnnKey, RealSrcSpan, EpAnnComments)]
       extract =
         (const []
@@ -236,6 +254,7 @@ extractNestedEpAnns decls =
           `SYB.extQ` extractLHsBind
           `SYB.extQ` extractLMatch
           `SYB.extQ` extractLGRHS
+          `SYB.extQ` extractLStmt
         )
       raw = SYB.everything (++) extract decls
       sorted = List.sortOn (\(_, sp, _) -> (SrcLoc.srcSpanStartLine sp, SrcLoc.srcSpanStartCol sp)) raw
@@ -247,6 +266,8 @@ extractNestedEpAnns decls =
       overrideExpr lexpr@(L loc expr) = case expr of
         HsIf xIf _ thenExpr elseExpr ->
           extractHsIfAnns lexpr loc xIf thenExpr elseExpr
+        HsDo _ _ (L _ stmts) ->
+          extractHsDoAnns lexpr loc stmts
         _ -> []
       overrideExtract :: SYB.GenericQ [(AnnKey, Annotation)]
       overrideExtract = const [] `SYB.extQ` overrideExpr
@@ -557,6 +578,125 @@ extractHsIfAnns lexpr locAnn annsIf thenExpr elseExpr =
           dp = if fst prev == comLine
                then DP (0, 0)
                else DP (max 1 (comLine - fst prev), 0)
+          nextPos = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+          bComment = Comment
+            { commentOrigin = Nothing
+            , commentIdentifier = realSpanToSrcSpan spanR
+            , commentContents = content
+            }
+      in (nextPos, (bComment, dp))
+
+-- | Redistribute inner comments from HsDo to child statement annotations.
+-- GHC 9.14 stores all comments on the location annotation (EpAnn AnnListItem)
+-- of the HsDo node. Comments between statements should appear before the
+-- nearest following statement.
+extractHsDoAnns
+  :: LHsExpr GhcPs
+  -> EpAnn AnnListItem  -- location annotation (has comments)
+  -> [ExprLStmt GhcPs]  -- statements in the do-block
+  -> [(AnnKey, Annotation)]
+extractHsDoAnns lexpr locAnn stmts =
+  let doKey = mkAnnKeyL lexpr
+  in case locAnn of
+    EpAnn locAnc _ locCs ->
+      let ancSpan = epaLocationRealSrcSpan locAnc
+          nodeStart = ss2pos ancSpan
+          nodeEnd = ss2posEnd ancSpan
+          -- Comments from location annotation
+          rawPriors = priorComments locCs
+          allComSpans = List.sortOn fst $ List.concatMap lepaToSpanAndContent rawPriors
+          -- Split: before node start (genuine prior) vs at/after node start (inner)
+          (genuinePriorSpans, innerComSpans) = List.partition
+            (\((line, _), _) -> line < fst nodeStart) allComSpans
+          -- Get statement positions (key, startPos)
+          stmtPosns = mapMaybe getStmtKeyAndPos stmts
+          -- Distribute inner comments to nearest following statement
+          assignments = distributeToStmts stmtPosns innerComSpans
+          -- Build HsDo override annotation: genuine priors only
+          genuinePriorComs = lepaToCommentsWithDP nodeStart
+            (List.filter (isBeforeNode nodeStart) rawPriors)
+          entryDelta = case genuinePriorSpans of
+            [] -> DP (0, 0)
+            _ -> let (_, (_, spanR)) = List.last genuinePriorSpans
+                     afterRef = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+                 in posToDP afterRef nodeStart
+          followComs = lepaToCommentsWithDP nodeEnd (getFollowingComments locCs)
+          doAnn = Ann
+            { annCapturedSpan = Nothing
+            , annSortKey = Nothing
+            , annsDP = []
+            , annFollowingComments = followComs
+            , annPriorComments = genuinePriorComs
+            , annEntryDelta = entryDelta
+            }
+          -- Build child annotations with redistributed comments
+          childAnns = List.concatMap (buildStmtAnn nodeStart) assignments
+      in [(doKey, doAnn)] ++ childAnns
+    _ -> []
+  where
+    isBeforeNode :: (Int, Int) -> GHC.LEpaComment -> Bool
+    isBeforeNode ns lc =
+      all (\((line, _), _) -> line < fst ns) (lepaToSpanAndContent lc)
+
+    getStmtKeyAndPos :: ExprLStmt GhcPs -> Maybe (AnnKey, (Int, Int))
+    getStmtKeyAndPos lstmt =
+      let key = mkAnnKeyL lstmt
+          srcSpan = getLocA lstmt
+      in case srcSpanToRealSpan srcSpan of
+        Just rsp -> Just (key, ss2pos rsp)
+        Nothing  -> Nothing
+
+    -- | For each inner comment, find the first statement that starts on or
+    -- after the comment's line. Group comments by target statement.
+    distributeToStmts
+      :: [(AnnKey, (Int, Int))]
+      -> [((Int, Int), (String, RealSrcSpan))]
+      -> [(AnnKey, (Int, Int), [((Int, Int), (String, RealSrcSpan))])]
+    distributeToStmts stmtPosns comSpans =
+      let assignComment comSpan@((comLine, _), _) =
+            case List.find (\(_, (stmtLine, _)) -> stmtLine >= comLine) stmtPosns of
+              Just (key, _) -> Just (key, comSpan)
+              Nothing -> Nothing
+          grouped = Map.fromListWith (++) [(k, [c]) | (k, c) <- mapMaybe assignComment comSpans]
+      in [ (key, pos, List.sortOn fst $ Map.findWithDefault [] key grouped)
+         | (key, pos) <- stmtPosns
+         , Map.member key grouped
+         ]
+
+    buildStmtAnn
+      :: (Int, Int)  -- nodeStart (do-expression position)
+      -> (AnnKey, (Int, Int), [((Int, Int), (String, RealSrcSpan))])
+      -> [(AnnKey, Annotation)]
+    buildStmtAnn doStart (key, stmtStart, comSpans) =
+      let -- Use do-expression's position as initial reference so first
+          -- comment gets a proper line delta (not DP(0,0)).
+          initRef = doStart
+          priorComs = snd $ List.mapAccumL (buildRelativeDP stmtStart) initRef comSpans
+          entryDelta = case comSpans of
+            [] -> DP (0, 0)
+            _ -> let (_, (_, spanR)) = List.last comSpans
+                     afterRef = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+                 in posToDP afterRef stmtStart
+      in [(key, Ann
+            { annCapturedSpan = Nothing
+            , annSortKey = Nothing
+            , annsDP = []
+            , annFollowingComments = []
+            , annPriorComments = priorComs
+            , annEntryDelta = entryDelta
+            })]
+
+    -- | Build a (Comment, DP) for a prior comment on a do-block statement.
+    -- For y > 0, x = col - 1 (absolute 0-indexed column). This works because
+    -- layoutMoveToCommentPos computes: column = indLevelLinger + x,
+    -- and indLevelLinger = 0 for top-level do-blocks (the outer indent level
+    -- before docSetBaseAndIndent pushes the new level).
+    buildRelativeDP
+      :: (Int, Int) -> (Int, Int)
+      -> ((Int, Int), (String, RealSrcSpan))
+      -> ((Int, Int), (Comment, DeltaPos))
+    buildRelativeDP _stmtStart prev ((comLine, comCol), (content, spanR)) =
+      let dp = posToDP prev (comLine, comCol)
           nextPos = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
           bComment = Comment
             { commentOrigin = Nothing
