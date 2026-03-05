@@ -949,6 +949,7 @@ layoutExpr' lexpr@(L _ expr) = do
     HsUntypedSplice{} -> do
       -- TODO
       briDocByExactInlineOnly "HsUntypedSplice{}" lexpr
+    HsHole{} -> docLit $ Text.pack "_"
     HsProc{} -> briDocByExactInlineOnly "HsProc{}" lexpr
     HsStatic{} -> briDocByExactInlineOnly "HsStatic{}" lexpr
     HsGetField{} -> briDocByExactInlineOnly "HsGetField{}" lexpr
