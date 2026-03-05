@@ -497,9 +497,16 @@ extractNestedEpAnns decls =
               (\((line, _), _) -> line == fst prevEnd && fst prevEnd /= fst nodeStart)
               sortedPriors
             Nothing -> ([], sortedPriors)
-          (genuinePriors, innerComments) = List.partition
+          (genuinePriors, atOrAfterStart) = List.partition
             (\((line, _), _) -> line < fst nodeStart)
             rest
+          -- Further split: comments on the nodeEnd line (same line as code end)
+          -- are trailing comments that should go to annFollowingComments with
+          -- DP relative to nodeEnd. True inner comments (between start and end
+          -- lines) go to annsDP.
+          (trailingSelf, innerComments) = List.partition
+            (\((line, _), _) -> line == fst nodeEnd)
+            atOrAfterStart
           -- Genuine prior comments (before node start)
           priorRef = case genuinePriors of
             ((pos, _) : _) -> pos
@@ -512,7 +519,9 @@ extractNestedEpAnns decls =
                  in posToDP afterRef nodeStart
           -- Inner comments → annsDP as AnnComment entries
           innerDP = snd $ List.mapAccumL buildInnerComDP nodeStart innerComments
-          followComs = lepaToCommentsWithDP nodeEnd (getFollowingComments cs)
+          -- Trailing-self comments (on same line as node end) → followingComments
+          trailingSelfComs = snd $ List.mapAccumL buildComDP' nodeEnd trailingSelf
+          followComs = trailingSelfComs ++ lepaToCommentsWithDP nodeEnd (getFollowingComments cs)
           -- Build trailing comments for previous node
           trailingComs = snd $ List.mapAccumL buildComDP' prevEnd trailingPrev
           trailingPatch = case prevKey of

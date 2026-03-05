@@ -338,7 +338,7 @@ layoutGrhs
   -> ToBriDocM ([BriDocNumbered], BriDocNumbered, LHsExpr GhcPs)
 layoutGrhs lgrhs@(L _ (GRHS _ guards body)) = do
   guardDocs <- sequence (map (layoutStmt . toL) guards)
-  bodyDoc <- layoutExpr (toL body)
+  bodyDoc <- docWrapNode (toL lgrhs) $ layoutExpr (toL body)
   return (guardDocs, bodyDoc, body)
 
 layoutPatternBind
