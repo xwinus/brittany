@@ -29,6 +29,7 @@ import GHC.Hs
   , AnnsModule
   , EpAnnHsCase
   , GhcPs, GrhsAnn, HsDecl, HsExpr, HsModule(..)
+  , HsLocalBindsLR(..)
   , LHsDecl, LHsExpr, LHsBind, LMatch, LGRHS, LHsType, LPat
   , StmtLR
   , hsmodDecls
@@ -308,16 +309,23 @@ tryEpAnnToSrcSpan epann = case epann of
 foldedAnnKeys :: Data.Data.Data ast => ast -> Set ExactPrint.AnnKey
 foldedAnnKeys ast = SYB.everything
   Set.union
-  (\x ->
+  (locatedKeys `SYB.extQ` hsLocalBindsKeys)
+  ast
+  where
+  locTyCon = SYB.typeRepTyCon (SYB.typeOf (L () ()))
+  locatedKeys x =
     if locTyCon /= SYB.typeRepTyCon (SYB.typeOf x)
       then Set.empty
       else
         case tryGetSrcSpanFromDynamic (SYB.gmapQi 0 toDyn x) of
           Nothing -> Set.empty
           Just l -> Set.singleton (SYB.gmapQi 1 (ExactPrint.mkAnnKey . L l) x)
-  )
-  ast
-  where locTyCon = SYB.typeRepTyCon (SYB.typeOf (L () ()))
+  hsLocalBindsKeys :: GHC.Hs.HsLocalBindsLR GhcPs GhcPs -> Set ExactPrint.AnnKey
+  hsLocalBindsKeys (GHC.Hs.HsValBinds (EpAnn anc _ _) _) = case anc of
+    EpaSpan (SrcLoc.RealSrcSpan rss _) ->
+      Set.singleton (ExactPrint.AnnKey [ExactPrint.realSpanToSrcSpan rss] (ExactPrint.CN "HsValBinds"))
+    _ -> Set.empty
+  hsLocalBindsKeys _ = Set.empty
 
 
 withTransformedAnns

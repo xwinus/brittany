@@ -122,9 +122,13 @@ transformToCommentedImport is = do
         )
       Just ann ->
         let
-          blanksBeforeImportDecl = deltaRow (annEntryDelta ann) - 1
+          rawBlanksBeforeImportDecl = deltaRow (annEntryDelta ann) - 1
           (newAccumulator, priorComments') =
             List.span ((== 0) . deltaRow . snd) (annPriorComments ann)
+          -- Adjust blanks: prior comments consume some of the delta rows
+          -- between the previous sibling and this import
+          priorCommentRows = sum $ map (max 1 . deltaRow . snd) priorComments'
+          blanksBeforeImportDecl = max 0 (rawBlanksBeforeImportDecl - priorCommentRows)
           go
             :: [(Comment, DeltaPos)]
             -> [(Comment, DeltaPos)]

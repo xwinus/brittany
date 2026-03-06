@@ -279,17 +279,23 @@ layoutBriDocM = \case
         when shouldAddSemicolonNewlines $ do
           [1 .. semiCount] `forM_` const layoutWriteNewline
       Just comments -> do
+        -- For multi-line following comments (y>0), x is absolute column
+        -- (0-indexed) but layoutMoveToCommentPos does indLevelLinger + x.
+        -- Compensate by subtracting indLevelLinger.
+        restState <- mGet
+        let indLinger = _lstate_indLevelLinger restState
         comments
           `forM_` \(ExactPrintCompat.Comment _ _ commentStr, ExactPrintCompat.DP (y, x)) ->
                     when (commentStr /= "(" && commentStr /= ")") $ do
                       let commentLines = Text.lines $ Text.pack commentStr
+                          adjustedX = if y > 0 then x - indLinger else x
                       case commentStr of
                         ('#' : _) -> layoutMoveToCommentPos y (-999) 1
                                    --  ^ evil hack for CPP
                         ")" -> pure ()
                                    --  ^ fixes the formatting of parens
                                    --    on the lhs of type alias defs
-                        _ -> layoutMoveToCommentPos y x (length commentLines)
+                        _ -> layoutMoveToCommentPos y adjustedX (length commentLines)
                       -- fixedX <- fixMoveToLineByIsNewline x
                       -- replicateM_ fixedX layoutWriteNewline
                       -- layoutMoveToIndentCol y

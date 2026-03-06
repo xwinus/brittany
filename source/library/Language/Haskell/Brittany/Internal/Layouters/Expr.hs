@@ -11,6 +11,7 @@ import qualified Data.Text as Text
 import GHC (GenLocated(L), RdrName(..), SrcSpan, unLoc)
 import GHC.Types.Name.Reader (RdrName(Exact))
 import GHC.Types.SrcLoc (noSrcSpan)
+import GHC.Parser.Annotation (EpAnn(..), EpaLocation(..))
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..))
 import qualified GHC.Data.FastString as FastString
 import GHC.Hs
@@ -35,6 +36,13 @@ import Language.Haskell.Brittany.Internal.Utils
 import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
 
 
+
+-- | Extract the SrcSpan from HsLocalBinds, using the EpAnn anchor if available.
+localBindsSpan :: HsLocalBindsLR GhcPs GhcPs -> SrcSpan
+localBindsSpan (HsValBinds (EpAnn anc _ _) _) = case anc of
+  EpaSpan ss -> ss
+  _ -> noSrcSpan
+localBindsSpan _ = noSrcSpan
 
 -- | True if the section operator is symbolic (e.g. +, -) and thus needs no backticks.
 isSymbolicSectionOp :: LHsExpr GhcPs -> ToBriDocM Bool
@@ -652,7 +660,8 @@ layoutExpr' lexpr@(L _ expr) = do
       expDoc1 <- docSharedWrapper layoutExpr' (toL exp1)
       -- We jump through some ugly hoops here to ensure proper sharing.
       hasComments <- hasAnyCommentsBelow lexpr
-      mBindDocs <- fmap (fmap pure) <$> layoutLocalBinds (L noSrcSpan binds)
+      let bindsSpan = localBindsSpan binds
+      mBindDocs <- fmap (fmap pure) <$> layoutLocalBinds (L bindsSpan binds)
       let
         ifIndentFreeElse :: a -> a -> a
         ifIndentFreeElse x y = case indentPolicy of

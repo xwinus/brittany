@@ -254,10 +254,7 @@ distributeModuleComments targets coms =
                 priorCDs = case rest of
                   ((nk, _, _) : _) | not (null priorForNext) ->
                     let sorted = List.sortOn fst priorForNext
-                        initRef = case sorted of
-                          ((pos, _) : _) -> pos
-                          [] -> (1, 1)
-                        cds = snd $ List.mapAccumL buildModComDP initRef sorted
+                        cds = snd $ List.mapAccumL buildModComDP end sorted
                     in [(nk, PriorCom, cds)]
                   _ -> []
             in trailingCDs ++ priorCDs ++ go rest remaining
