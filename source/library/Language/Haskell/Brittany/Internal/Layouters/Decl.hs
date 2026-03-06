@@ -59,7 +59,12 @@ layoutDecl d@(L loc decl) = case decl of
   InstD _ (TyFamInstD _ tfid) ->
     withTransformedAnns d $ docWrapNode d $ layoutTyFamInstDecl False d tfid
   InstD _ (ClsInstD _ inst) ->
-    withTransformedAnns d $ docWrapNode d $ layoutClsInst (L loc inst)
+    withTransformedAnns d $ do
+      followComments <- astFollowingComments d
+      docWrapNode d $ docSeq
+        [ layoutClsInst (L loc inst)
+        , docSeq [docLitS (" " ++ commentContents c) | (c, _) <- followComments]
+        ]
   InstD _ (DataFamInstD _ _) ->
     withTransformedAnns d $ do
       followComments <- astFollowingComments d
