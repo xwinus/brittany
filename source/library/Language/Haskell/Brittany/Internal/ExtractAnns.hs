@@ -114,10 +114,15 @@ extractAnnsFromModule lmod =
             in Just (mkAnnKeyL ldecl, ss2pos ancSpan, ss2posEnd ancSpan)
         ) (hsmodDecls mod')
       allTargets = List.sortOn (\(_, start, _) -> start) (importTargets ++ declTargets)
-      -- Get module header end position (where keyword) for comment splitting
+      -- Get module header positions for comment splitting
       modHeaderEndLine = case hsmodAnn (hsmodExt mod') of
         EpAnn _ an _ -> case am_where an of
           EpTok loc -> fst (ss2posEnd (epaLocationRealSrcSpan loc))
+          NoEpTok -> 0
+        _ -> 0
+      modKeywordLine = case hsmodAnn (hsmodExt mod') of
+        EpAnn _ an _ -> case am_mod an of
+          EpTok loc -> fst (ss2pos (epaLocationRealSrcSpan loc))
           NoEpTok -> 0
         _ -> 0
       -- Step 4: Distribute remaining module comments to child nodes
@@ -131,7 +136,12 @@ extractAnnsFromModule lmod =
             [] -> (before, [])
             _ -> (before, after)
         _ -> (modOwnComs0, [])
-      modOwnComs = trulyModComs
+      -- Further split: comments BEFORE module keyword are true priors,
+      -- comments between exports/module and where are following comments
+      (modPriorOwnComs, modFollowOwnComs) = case modKeywordLine of
+        0 -> (trulyModComs, [])
+        ml -> List.partition (\((l, _), _) -> l < ml) trulyModComs
+      modOwnComs = modPriorOwnComs
       afterWherePatches = case (afterWhereComs, allTargets) of
         (_:_, (firstK, _, _) : _) ->
           let cds = snd $ List.mapAccumL buildModComDP (modHeaderEndLine, 1) afterWhereComs
@@ -165,8 +175,18 @@ extractAnnsFromModule lmod =
         Nothing -> modAnnsRaw
         Just modAnn ->
           let ownPriors = snd $ List.mapAccumL buildModComDP (1, 1) modOwnComs
+              -- Comments between exports and 'where' become following comments
+              -- Use a reference point that gives correct DP relative to node end
+              ownFollows = case modFollowOwnComs of
+                [] -> []
+                coms ->
+                  -- For the first comment, compute DP from the export list end
+                  -- Use (line, col-1) as ref so same-line comments get DP (0, 1+)
+                  let ((firstLine, firstCol), _) = head coms
+                      ref = (firstLine, firstCol - 1)
+                  in snd $ List.mapAccumL buildModComDP ref coms
           in Map.singleton modKey (modAnn { annPriorComments = ownPriors
-                                          , annFollowingComments = [] })
+                                          , annFollowingComments = ownFollows })
       -- Step 8: Merge all annotations. declAnns' takes priority over
       -- nestedAnns for shared keys. Then do a second pass of inner comment
       -- redistribution for inner comments from declAnns' (which weren't
