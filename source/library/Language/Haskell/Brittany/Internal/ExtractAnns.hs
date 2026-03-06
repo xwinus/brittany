@@ -1130,7 +1130,14 @@ extractHsDoAnns lexpr locAnn stmtListAnn stmts =
             , annEntryDelta = entryDelta
             }
           -- Build child annotations with redistributed comments
-          childAnns = List.concatMap (buildStmtAnn nodeStart) assignments
+          -- Use previous statement's end as reference for prior comment DPs
+          stmtEnds = Map.fromList
+            [(k2, e1)
+            | ((_, _, e1), (k2, _, _)) <- zip stmtPosns (drop 1 stmtPosns)]
+          childAnns = List.concatMap (\a@(key, _, _, _, _) ->
+            let prevStmtEnd = Map.findWithDefault nodeStart key stmtEnds
+            in buildStmtAnn prevStmtEnd a
+            ) assignments
       in [(doKey, doAnn)] ++ childAnns
     _ -> []
   where
