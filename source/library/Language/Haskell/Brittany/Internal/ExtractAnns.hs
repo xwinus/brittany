@@ -29,6 +29,7 @@ import GHC.Hs
   , GRHS(..)
   , GrhsAnn
   , HsExpr(..)
+  , HsLocalBindsLR(..)
   , HsModule(..)
   , HsSigType
   , HsType
@@ -39,6 +40,7 @@ import GHC.Hs
   , LHsDecl
   , LHsExpr
   , LHsBind
+  , LHsLocalBinds
   , LHsSigType
   , LHsType
   , LMatch
@@ -515,6 +517,16 @@ extractNestedEpAnns decls =
       extractLTyFamInst = extractFromLocatedWithLoc
       extractLDataFamInst :: LDataFamInstDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
       extractLDataFamInst = extractFromLocatedWithLoc
+      -- Extract from HsLocalBindsLR extension field (EpAnn (AnnList ()))
+      -- which receives comments from redistributeIntraDeclComments
+      extractHsLocalBinds :: HsLocalBindsLR GhcPs GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
+      extractHsLocalBinds (HsValBinds (EpAnn anc _ cs) _) =
+        case anc of
+          EpaSpan (RealSrcSpan rss _) ->
+            let key = AnnKey [realSpanToSrcSpan rss] (CN "HsValBinds")
+            in [(key, rss, cs)]
+          _ -> []
+      extractHsLocalBinds _ = []
       extract :: SYB.GenericQ [(AnnKey, RealSrcSpan, EpAnnComments)]
       extract =
         (const []
@@ -529,6 +541,7 @@ extractNestedEpAnns decls =
           `SYB.extQ` extractLPat
           `SYB.extQ` extractLTyFamInst
           `SYB.extQ` extractLDataFamInst
+          `SYB.extQ` extractHsLocalBinds
         )
       raw = SYB.everything (++) extract decls
       sorted = List.sortOn (\(_, sp, _) -> (SrcLoc.srcSpanStartLine sp, SrcLoc.srcSpanStartCol sp)) raw
@@ -695,7 +708,7 @@ redistributeInnerComments spanMap skipKeys anns =
             -- For declaration-level parents (InstD, TyClD), inter-child
             -- comments are typically haddock for the next child (prior).
             -- For other parents, comments follow the previous child.
-            isDeclParent = unConName cn `elem` ["InstD", "TyClD"]
+            isDeclParent = unConName cn `elem` ["InstD", "TyClD", "HsValBinds"]
         in assignCommentsToChildren isDeclParent children coms
         ) parentInnerComs
       -- Group assignments by target key, separating prior vs following
@@ -1416,7 +1429,7 @@ extractGRHSAnns lgrhs xAnn body =
           -- Before-body comments become prior comments on the body expression
           -- Use absolute column (0-indexed) for comment x-position since we
           -- don't know the backend's indent level at this point
-          bodyPriorComs = snd $ List.mapAccumL buildAbsColDP nodeStart beforeBody
+          bodyPriorComs = snd $ List.mapAccumL (buildBodyRelDP bodyStart) nodeStart beforeBody
           bodyAnn = if null bodyPriorComs then Nothing
             else Just $ Ann
               { annCapturedSpan = Nothing
@@ -1439,19 +1452,20 @@ extractGRHSAnns lgrhs xAnn body =
             }
       in (nextPos, (AnnComment bComment, dp))
 
-    -- Build DP for prior comments using absolute column positioning.
-    -- For y > 0 (different line), x = comCol - 1 (0-indexed absolute column).
-    -- layoutMoveToCommentPos sets _lstate_addSepSpace = Just x, which
-    -- moveToY uses as the absolute column position.
-    buildAbsColDP
-      :: (Int, Int)
+    -- Build DP for prior comments on the body expression, relative to
+    -- the body start column. layoutMoveToCommentPos computes
+    -- addSepSpace = indLevelLinger + x, so x should be the offset from
+    -- the body column (which will be at indLevelLinger).
+    buildBodyRelDP
+      :: (Int, Int)  -- body start position
+      -> (Int, Int)  -- prev position (accumulator)
       -> ((Int, Int), (String, RealSrcSpan))
       -> ((Int, Int), (Comment, DeltaPos))
-    buildAbsColDP prev ((comLine, comCol), (content, spanR)) =
+    buildBodyRelDP bStart prev ((comLine, comCol), (content, spanR)) =
       let rawDp = posToDP prev (comLine, comCol)
           dp = case rawDp of
             DP (y, _x) | y > 0 ->
-              DP (y, comCol - 1)  -- absolute column (0-indexed)
+              DP (y, comCol - snd bStart)  -- relative to body column
             _ -> rawDp
           nextPos = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
           bComment = Comment

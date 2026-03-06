@@ -179,15 +179,20 @@ layoutBriDocM = \case
       Just [] -> moveToExactLocationAction
       Just priors -> do
         -- layoutResetSepSpace
+        -- When baseY > indLevelLinger (e.g. inside BDAddBaseY without
+        -- docSetIndentLevel), prior comment x must compensate for the gap
+        -- since layoutMoveToCommentPos uses indLevelLinger + x.
+        let baseYGap = max 0 (lstate_baseY state - _lstate_indLevelLinger state)
         priors
           `forM_` \(ExactPrintCompat.Comment _ _ commentStr, ExactPrintCompat.DP (y, x)) ->
                     when (commentStr /= "(" && commentStr /= ")") $ do
                       let commentLines = Text.lines $ Text.pack commentStr
+                          adjustedX = if y > 0 then x + baseYGap else x
                       case commentStr of
                         ('#' : _) ->
                           layoutMoveToCommentPos y (-999) (length commentLines)
                                    --  ^ evil hack for CPP
-                        _ -> layoutMoveToCommentPos y x (length commentLines)
+                        _ -> layoutMoveToCommentPos y adjustedX (length commentLines)
                       -- fixedX <- fixMoveToLineByIsNewline x
                       -- replicateM_ fixedX layoutWriteNewline
                       -- layoutMoveToIndentCol y
