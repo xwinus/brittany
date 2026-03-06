@@ -694,9 +694,9 @@ redistributeInnerComments spanMap skipKeys anns =
         in assignCommentsToChildren isDeclParent children coms
         ) parentInnerComs
       -- Group assignments by target key, separating prior vs following
-      followingPatches = Map.fromListWith (++)
+      followingPatches = Map.fromListWith (flip (++))
         [(k, coms) | (k, False, coms) <- assignments]
-      priorPatches = Map.fromListWith (++)
+      priorPatches = Map.fromListWith (flip (++))
         [(k, coms) | (k, True, coms) <- assignments]
       -- Track which parents had comments successfully redistributed
       parentKeys = Map.fromList [(pk, ()) | (pk, _) <- parentInnerComs]
@@ -808,7 +808,9 @@ extractIEListAnns llies@(L epann lies) =
               -- Distribute container's prior comments to IE items
               (ownPriors, priorFromPriors, followFromPriors) = distributeContainerCommentsToIE iePositions rawPriors
               (ownFollows, priorFromFollows, followFromFollows) = distributeContainerCommentsToIE iePositions rawFollows
-              ownPriorComs = snd $ List.mapAccumL buildModComDP ref ownPriors
+              -- Shift ref by 1 to account for "(" written before comments
+              ownPriorRef = (fst ref, snd ref + 1)
+              ownPriorComs = snd $ List.mapAccumL buildModComDP ownPriorRef ownPriors
               ownFollowComs = snd $ List.mapAccumL buildModComDP ref ownFollows
               ann = Ann Nothing Nothing [] ownFollowComs ownPriorComs (posToDP ref (ss2pos ancSpan))
           in (Map.singleton key ann, priorFromPriors ++ priorFromFollows, followFromPriors ++ followFromFollows)
