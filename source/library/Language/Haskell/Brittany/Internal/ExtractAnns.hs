@@ -747,24 +747,29 @@ redistributeInnerComments spanMap skipKeys anns =
 -- Handles both import lists (ideclImportList) and export lists (hsmodExports).
 extractIEListAnns :: GenLocated (EpAnn ann) [LIE GhcPs] -> Anns
 extractIEListAnns llies@(L epann lies) =
-  let containerAnns = case epann of
+  let -- Get IE item positions for comment redistribution
+      iePositions = mapMaybe (\lie -> case lie of
+        L (EpAnn anc _ _) _ ->
+          let sp = epaLocationRealSrcSpan anc
+          in Just (mkAnnKeyL lie, ss2pos sp, ss2posEnd sp)
+        _ -> Nothing
+        ) lies
+      -- Extract container comments and redistribute to IE items
+      (containerAnns, containerPriorPatches, containerFollowPatches) = case epann of
         EpAnn anc _ cs ->
           let ancSpan = epaLocationRealSrcSpan anc
               key = mkAnnKeyL llies
-              -- Use last IE item end as reference for prior comments,
-              -- so that DPs are relative to the previous item, not the
-              -- container start. This avoids extra blank lines.
-              lastIEEnd = case reverse lies of
-                (L (EpAnn a _ _) _ : _) -> ss2posEnd (epaLocationRealSrcSpan a)
-                _ -> ss2pos ancSpan
               ref = ss2pos ancSpan
               rawPriors = List.sortOn fst $ List.concatMap lepaToSpanAndContent (priorComments cs)
-              rawFollows = getFollowingComments cs
-              priorComs = snd $ List.mapAccumL buildModComDP lastIEEnd rawPriors
-              followComs = lepaToCommentsWithDP ref rawFollows
-              ann = Ann Nothing Nothing [] followComs priorComs (posToDP ref (ss2pos ancSpan))
-          in Map.singleton key ann
-        _ -> Map.empty
+              rawFollows = List.sortOn fst $ List.concatMap lepaToSpanAndContent (getFollowingComments cs)
+              -- Distribute container's prior comments to IE items
+              (ownPriors, priorFromPriors, followFromPriors) = distributeContainerCommentsToIE iePositions rawPriors
+              (ownFollows, priorFromFollows, followFromFollows) = distributeContainerCommentsToIE iePositions rawFollows
+              ownPriorComs = snd $ List.mapAccumL buildModComDP ref ownPriors
+              ownFollowComs = snd $ List.mapAccumL buildModComDP ref ownFollows
+              ann = Ann Nothing Nothing [] ownFollowComs ownPriorComs (posToDP ref (ss2pos ancSpan))
+          in (Map.singleton key ann, priorFromPriors ++ priorFromFollows, followFromPriors ++ followFromFollows)
+        _ -> (Map.empty, [], [])
       containerRef = case epann of
         EpAnn anc _ _ -> ss2pos (epaLocationRealSrcSpan anc)
         _ -> (1, 1)
@@ -773,9 +778,17 @@ extractIEListAnns llies@(L epann lies) =
       itemAnns = Map.fromList [(k, ann) | (k, ann, _) <- rawItems]
       trailingPatches = Map.fromListWith (++)
         [(pk, coms) | (_, _, Just (pk, coms)) <- rawItems]
-      mergedItems = Map.mapWithKey (\k ann -> case Map.lookup k trailingPatches of
-        Nothing -> ann
-        Just coms -> ann { annFollowingComments = annFollowingComments ann ++ coms }
+      -- Merge all patches
+      allFollowPatches = Map.fromListWith (++)
+        (trailingPatches' ++ containerFollowPatches)
+      allPriorPatches = Map.fromListWith (++) containerPriorPatches
+      trailingPatches' = Map.toList trailingPatches
+      mergedItems = Map.mapWithKey (\k ann ->
+        let fp = Map.findWithDefault [] k allFollowPatches
+            pp = Map.findWithDefault [] k allPriorPatches
+        in ann { annFollowingComments = annFollowingComments ann ++ fp
+               , annPriorComments = pp ++ annPriorComments ann
+               }
         ) itemAnns
   in containerAnns <> mergedItems
   where
@@ -838,6 +851,43 @@ extractIEListAnns llies@(L epann lies) =
             , commentContents = content
             }
       in (nextPos, (bComment, dp))
+
+-- | Distribute container comments to the nearest IE item.
+-- A comment between two items goes as a following comment on the previous item.
+-- Comments before the first item stay with the container.
+distributeContainerCommentsToIE
+  :: [(AnnKey, (Int, Int), (Int, Int))]  -- IE item (key, start, end)
+  -> [((Int, Int), (String, RealSrcSpan))]  -- sorted comments
+  -> ( [((Int, Int), (String, RealSrcSpan))]  -- own (container) comments
+     , [(AnnKey, [(Comment, DeltaPos)])]  -- prior patches
+     , [(AnnKey, [(Comment, DeltaPos)])]  -- following patches
+     )
+distributeContainerCommentsToIE iePositions comSpans =
+  case iePositions of
+    [] -> (comSpans, [], [])  -- no items, all comments stay with container
+    _ ->
+      let assignComment comSpan@((comLine, _comCol), _) =
+            -- Trailing: on same line as some item's end
+            case List.find (\(_, _, (endLine, _)) -> comLine == endLine) iePositions of
+              Just (key, _, endPos) -> Right (key, endPos, comSpan, True)
+              Nothing ->
+                -- Between items: assign as following on the previous item
+                case reverse $ takeWhile (\(_, _, (endLine, _)) -> endLine < comLine) iePositions of
+                  ((key, _, endPos) : _) -> Right (key, endPos, comSpan, True)
+                  _ ->
+                    -- Before first item: stays with container
+                    Left comSpan
+          results = map assignComment comSpans
+          ownComs = [c | Left c <- results]
+          followGroups = Map.fromListWith (++)
+            [(k, [(pos, c)]) | Right (k, pos, c, True) <- results]
+          buildPatches groups = do
+            (k, items) <- Map.toList groups
+            let sorted = List.sortOn (fst . snd) items
+                ref = fst (head sorted)
+                coms = snd $ List.mapAccumL buildModComDP ref (map snd sorted)
+            [(k, coms)]
+      in (ownComs, [], buildPatches followGroups)
 
 tryEpAnnFromLocation :: (Data l, Typeable l) => l -> Maybe (EpaLocation, EpAnnComments)
 tryEpAnnFromLocation loc =

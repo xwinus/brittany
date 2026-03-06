@@ -25,7 +25,7 @@ layoutModule lmod@(L _ mod') = case mod' of
     -- Implicit module Main
   HsModule{ hsmodName = Nothing, hsmodImports = imports } -> do
     commentedImports <- transformToCommentedImport imports
-    hasModuleComments <- hasAnyCommentsBelow lmod
+    hasModuleComments <- hasAnyCommentsPrior lmod
     -- groupify commentedImports `forM_` tellDebugMessShow
     docLines
       $ (if hasModuleComments then [docNodeAnnKW lmod Nothing docEmpty] else [])
