@@ -517,7 +517,7 @@ extractNestedSpanMap decls =
         `SYB.extQ` (extractFromLocatedWithLoc :: LHsExpr GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocated :: LHsDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocatedWithLoc :: LHsBind GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
-        `SYB.extQ` (extractFromLocated :: LMatch GhcPs (LHsExpr GhcPs) -> [(AnnKey, RealSrcSpan, EpAnnComments)])
+        `SYB.extQ` (extractFromLocatedWithLoc :: LMatch GhcPs (LHsExpr GhcPs) -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocated :: LGRHS GhcPs (LHsExpr GhcPs) -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocatedWithLoc :: ExprLStmt GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocatedWithLoc :: LHsType GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
