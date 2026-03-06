@@ -560,8 +560,8 @@ extractNestedEpAnns decls =
       -- so BDAnnotationPrior emits them before the correct subexpression.
       overrideExpr :: LHsExpr GhcPs -> [(AnnKey, Annotation)]
       overrideExpr lexpr@(L loc expr) = case expr of
-        HsIf xIf _ thenExpr elseExpr ->
-          extractHsIfAnns lexpr loc xIf thenExpr elseExpr
+        HsIf xIf condExpr thenExpr elseExpr ->
+          extractHsIfAnns lexpr loc xIf condExpr thenExpr elseExpr
         HsDo _ _ lstmts@(L stmtLoc stmts) ->
           extractHsDoAnns lexpr loc stmtLoc stmts
         _ -> []
@@ -1042,11 +1042,13 @@ extractHsIfAnns
   :: LHsExpr GhcPs
   -> EpAnn AnnListItem  -- location annotation (has comments)
   -> AnnsIf             -- extension annotation (has keyword positions)
+  -> LHsExpr GhcPs      -- condition-expression
   -> LHsExpr GhcPs      -- then-expression
   -> LHsExpr GhcPs      -- else-expression
   -> [(AnnKey, Annotation)]
-extractHsIfAnns lexpr locAnn annsIf thenExpr elseExpr =
+extractHsIfAnns lexpr locAnn annsIf condExpr thenExpr elseExpr =
   let ifKey = mkAnnKeyL lexpr
+      condKey = mkAnnKeyL condExpr
       thenKey = mkAnnKeyL thenExpr
       elseKey = mkAnnKeyL elseExpr
   in case locAnn of
@@ -1061,8 +1063,15 @@ extractHsIfAnns lexpr locAnn annsIf thenExpr elseExpr =
           rawPriors = priorComments locCs
           allComSpans = List.sortOn fst $ List.concatMap lepaToSpanAndContent rawPriors
           -- Split: before node start (genuine prior) vs at/after node start (inner)
-          (genuinePriorSpans, innerComSpans) = List.partition
+          (genuinePriorSpans, innerComSpans0) = List.partition
             (\((line, _), _) -> line < fst nodeStart) allComSpans
+          -- Comments on nodeStart line but before "then" keyword are condition
+          -- trailing comments → followingComments on HsIf, not inner
+          (condTrailingSpans, innerComSpans) = case thenPos of
+            Just tp -> List.partition
+              (\((line, _), _) -> line == fst nodeStart && line < fst tp)
+              innerComSpans0
+            Nothing -> ([], innerComSpans0)
           -- Classify inner comments by keyword position
           -- Between "then" and "else" → then-expression prior
           -- After "else" → else-expression prior
@@ -1075,6 +1084,10 @@ extractHsIfAnns lexpr locAnn annsIf thenExpr elseExpr =
             _ -> let (_, (_, spanR)) = List.last genuinePriorSpans
                      afterRef = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
                  in posToDP afterRef nodeStart
+          condEnd = case srcSpanToRealSpan (getLocA condExpr) of
+            Just rsp -> ss2posEnd rsp
+            Nothing -> nodeStart
+          condTrailingComs = snd $ List.mapAccumL buildModComDP condEnd condTrailingSpans
           followComs = lepaToCommentsWithDP nodeEnd (getFollowingComments locCs)
           ifAnn = Ann
             { annCapturedSpan = Nothing
@@ -1084,10 +1097,21 @@ extractHsIfAnns lexpr locAnn annsIf thenExpr elseExpr =
             , annPriorComments = genuinePriorComs
             , annEntryDelta = entryDelta
             }
+          -- Build condition annotation with trailing comments
+          condAnn = if null condTrailingComs then Nothing
+            else Just Ann
+              { annCapturedSpan = Nothing
+              , annSortKey = Nothing
+              , annsDP = []
+              , annFollowingComments = condTrailingComs
+              , annPriorComments = []
+              , annEntryDelta = DP (0, 0)
+              }
           -- Build child annotations with redistributed comments
           thenChildAnn = buildChildAnn thenPos thenComSpans thenExpr
           elseChildAnn = buildChildAnn elsePos elseComSpans elseExpr
       in [(ifKey, ifAnn)]
+         ++ maybe [] (\a -> [(condKey, a)]) condAnn
          ++ maybe [] (\a -> [(thenKey, a)]) thenChildAnn
          ++ maybe [] (\a -> [(elseKey, a)]) elseChildAnn
     _ -> []  -- EpAnnNotUsed; base extraction handles this
