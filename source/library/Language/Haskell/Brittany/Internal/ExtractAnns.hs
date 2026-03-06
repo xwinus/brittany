@@ -43,6 +43,8 @@ import GHC.Hs
   , LMatch
   , LPat
   , LGRHS
+  , LTyFamInstDecl
+  , LDataFamInstDecl
   , AnnsIf(..)
   , ExprLStmt
   )
@@ -473,13 +475,15 @@ extractNestedSpanMap decls =
       (const []
         `SYB.extQ` (extractFromLocatedWithLoc :: LHsExpr GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocated :: LHsDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
-        `SYB.extQ` (extractFromLocated :: LHsBind GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
+        `SYB.extQ` (extractFromLocatedWithLoc :: LHsBind GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocated :: LMatch GhcPs (LHsExpr GhcPs) -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocated :: LGRHS GhcPs (LHsExpr GhcPs) -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocatedWithLoc :: ExprLStmt GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocatedWithLoc :: LHsType GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocatedWithLoc :: LHsSigType GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocatedWithLoc :: LPat GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
+        `SYB.extQ` (extractFromLocatedWithLoc :: LTyFamInstDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
+        `SYB.extQ` (extractFromLocatedWithLoc :: LDataFamInstDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
       )
 
 -- | Traverse decls and nested AST (exprs, binds, stmts, etc.) to extract
@@ -506,6 +510,10 @@ extractNestedEpAnns decls =
       extractLHsSigType = extractFromLocatedWithLoc
       extractLPat :: LPat GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
       extractLPat = extractFromLocatedWithLoc
+      extractLTyFamInst :: LTyFamInstDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
+      extractLTyFamInst = extractFromLocatedWithLoc
+      extractLDataFamInst :: LDataFamInstDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
+      extractLDataFamInst = extractFromLocatedWithLoc
       extract :: SYB.GenericQ [(AnnKey, RealSrcSpan, EpAnnComments)]
       extract =
         (const []
@@ -518,6 +526,8 @@ extractNestedEpAnns decls =
           `SYB.extQ` extractLHsType
           `SYB.extQ` extractLHsSigType
           `SYB.extQ` extractLPat
+          `SYB.extQ` extractLTyFamInst
+          `SYB.extQ` extractLDataFamInst
         )
       raw = SYB.everything (++) extract decls
       sorted = List.sortOn (\(_, sp, _) -> (SrcLoc.srcSpanStartLine sp, SrcLoc.srcSpanStartCol sp)) raw
@@ -671,13 +681,17 @@ redistributeInnerComments spanMap skipKeys anns =
       -- For each parent's inner comments, find the best child target
       -- Children are annotations whose span is WITHIN the parent's span
       allChildren = [(k, start, end) | (k, (start, end)) <- Map.toList spanMap]
-      assignments = List.concatMap (\(parentKey, (pStart, pEnd, coms)) ->
+      assignments = List.concatMap (\(parentKey@(AnnKey _ cn), (pStart, pEnd, coms)) ->
         let children = List.sortOn (\(_, s, _) -> s)
               [ (k, s, e) | (k, s, e) <- allChildren
               , k /= parentKey
               , s >= pStart && e <= pEnd
               ]
-        in assignCommentsToChildren children coms
+            -- For declaration-level parents (InstD, TyClD), inter-child
+            -- comments are typically haddock for the next child (prior).
+            -- For other parents, comments follow the previous child.
+            isDeclParent = unConName cn `elem` ["InstD", "TyClD"]
+        in assignCommentsToChildren isDeclParent children coms
         ) parentInnerComs
       -- Group assignments by target key, separating prior vs following
       followingPatches = Map.fromListWith (++)
@@ -686,6 +700,14 @@ redistributeInnerComments spanMap skipKeys anns =
         [(k, coms) | (k, True, coms) <- assignments]
       -- Track which parents had comments successfully redistributed
       parentKeys = Map.fromList [(pk, ()) | (pk, _) <- parentInnerComs]
+      -- Create default annotations for target keys not already in anns
+      defaultAnn = Ann Nothing Nothing [] [] [] (DP (0,0))
+      newTargetKeys = Map.fromList
+        [ (k, defaultAnn)
+        | k <- Map.keys followingPatches ++ Map.keys priorPatches
+        , not (Map.member k anns)
+        ]
+      annsWithTargets = anns `Map.union` newTargetKeys
       -- Apply patches: add comments to children, remove from parents
       patched = Map.mapWithKey (\k ann ->
         let addFollow = Map.findWithDefault [] k followingPatches
@@ -703,24 +725,26 @@ redistributeInnerComments spanMap skipKeys anns =
                , annsDP = strippedDP
                , annEntryDelta = updatedDelta
                }
-        ) anns
+        ) annsWithTargets
   in patched
   where
     -- | Assign each inner comment to the child whose end is closest before
     -- or at the comment's position. If no child qualifies, leave unassigned
     -- (comment stays on parent as annsDP).
     assignCommentsToChildren
-      :: [(AnnKey, (Int, Int), (Int, Int))]  -- sorted children
+      :: Bool  -- ^ True for decl-level parents (prefer afterCandidates for non-same-line)
+      -> [(AnnKey, (Int, Int), (Int, Int))]  -- sorted children
       -> [(Comment, DeltaPos)]               -- inner comments
       -> [(AnnKey, Bool, [(Comment, DeltaPos)])]   -- (key, isPrior, comments)
-    assignCommentsToChildren children coms =
-      mapMaybe (assignOneComment children) coms
+    assignCommentsToChildren isDeclParent children coms =
+      mapMaybe (assignOneComment isDeclParent children) coms
 
     assignOneComment
-      :: [(AnnKey, (Int, Int), (Int, Int))]
+      :: Bool
+      -> [(AnnKey, (Int, Int), (Int, Int))]
       -> (Comment, DeltaPos)
       -> Maybe (AnnKey, Bool, [(Comment, DeltaPos)])
-    assignOneComment children (com, _oldDP) =
+    assignOneComment isDeclParent children (com, _oldDP) =
       case srcSpanToRealSpan (commentIdentifier com) of
         Nothing -> Nothing
         Just comSpan ->
@@ -732,16 +756,35 @@ redistributeInnerComments spanMap skipKeys anns =
               -- the first child that starts after the comment.
               afterCandidates = List.sortOn (\(_, s, _) -> s)
                 [(k, s, e) | (k, s, e) <- children, s > comPos]
-          in case candidates of
+              -- Same-line candidates: comment on same line as a child's end
+              sameLineCandidates = [(k, e) | (k, e) <- candidates, fst e == fst comPos]
+          in case sameLineCandidates of
             ((bestKey, bestEnd) : _) ->
+              -- Trailing comment on same line as child end
               let dp = posToDP bestEnd comPos
               in Just (bestKey, False, [(com, dp)])
-            [] -> case afterCandidates of
-              ((bestKey, _bestStart, _) : _) ->
-                -- Comment before first child: assign as prior comment
-                let dp = DP (1, snd comPos - snd _bestStart)
-                in Just (bestKey, True, [(com, dp)])
-              [] -> Nothing
+            [] | isDeclParent ->
+              -- For decl-level parents, prefer assigning to next child as prior
+              case afterCandidates of
+                ((bestKey, _bestStart, _) : _) ->
+                  let dp = DP (1, snd comPos - snd _bestStart)
+                  in Just (bestKey, True, [(com, dp)])
+                [] -> case candidates of
+                  ((bestKey, bestEnd) : _) ->
+                    let dp = posToDP bestEnd comPos
+                    in Just (bestKey, False, [(com, dp)])
+                  [] -> Nothing
+            [] ->
+              -- For other parents, prefer assigning to previous child as following
+              case candidates of
+                ((bestKey, bestEnd) : _) ->
+                  let dp = posToDP bestEnd comPos
+                  in Just (bestKey, False, [(com, dp)])
+                [] -> case afterCandidates of
+                  ((bestKey, _bestStart, _) : _) ->
+                    let dp = DP (1, snd comPos - snd _bestStart)
+                    in Just (bestKey, True, [(com, dp)])
+                  [] -> Nothing
 
 -- | Extract annotations for IE (import/export) list container and items.
 -- Handles both import lists (ideclImportList) and export lists (hsmodExports).
