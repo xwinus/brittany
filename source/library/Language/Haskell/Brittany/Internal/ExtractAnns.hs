@@ -497,7 +497,7 @@ extractNestedEpAnns decls =
       extractLHsDecl :: LHsDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
       extractLHsDecl = extractFromLocated
       extractLHsBind :: LHsBind GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractLHsBind = extractFromLocated
+      extractLHsBind = extractFromLocatedWithLoc
       extractLMatch :: LMatch GhcPs (LHsExpr GhcPs) -> [(AnnKey, RealSrcSpan, EpAnnComments)]
       extractLMatch = extractFromLocated
       extractLGRHS :: LGRHS GhcPs (LHsExpr GhcPs) -> [(AnnKey, RealSrcSpan, EpAnnComments)]
