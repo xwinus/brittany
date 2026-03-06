@@ -141,7 +141,25 @@ extractAnnsFromModule lmod =
           let ownPriors = snd $ List.mapAccumL buildModComDP (1, 1) modOwnComs
           in Map.singleton modKey (modAnn { annPriorComments = ownPriors
                                           , annFollowingComments = [] })
-  in modAnns <> importAnns' <> exportAnns <> declAnns' <> nestedAnns
+      -- Step 8: Merge all annotations. declAnns' takes priority over
+      -- nestedAnns for shared keys. Then do a second pass of inner comment
+      -- redistribution for inner comments from declAnns' (which weren't
+      -- processed by extractNestedEpAnns's redistribution pass).
+      merged = modAnns <> importAnns' <> exportAnns <> declAnns' <> nestedAnns
+      -- Build span map: nested spans + top-level decl spans
+      nestedSpans = extractNestedSpanMap (hsmodDecls mod')
+      declSpans = Map.fromList [(k, (s, e)) | (k, s, e) <- allTargets]
+      fullSpanMap = nestedSpans <> declSpans
+      -- Only process declAnns' keys with inner comments, and only those
+      -- where inner-to-child redistribution is safe (InstD, TyClD).
+      -- Skip all other keys to avoid disrupting existing comment placement.
+      declWithInner = Map.filterWithKey (\(AnnKey _ cn) ann ->
+        not (null [() | (AnnComment _, _) <- annsDP ann])
+        && unConName cn `elem` ["InstD", "TyClD"]
+        ) declAnns'
+      nonDeclKeys = Map.fromList
+        [(k, ()) | k <- Map.keys merged, not (Map.member k declWithInner)]
+  in redistributeInnerComments fullSpanMap nonDeclKeys merged
 
 -- | Redistribute intra-declaration comments from the module annotation to
 -- individual AST nodes. Uses ghc-exactprint's bottom-up traversal to claim
@@ -384,12 +402,12 @@ extractDeclAnns decls =
                   (\((line, _), _) -> line == fst prevEnd && fst prevEnd /= fst declStart)
                   allPriorSpans
                 Nothing -> ([], allPriorSpans)
-              -- Filter out inner comments (at/after declaration start).
-              -- These belong to nested nodes and will be handled by
-              -- extractNestedEpAnns. Including them here causes negative
-              -- entryDelta, placing comments on the same line as the decl.
+              -- Split prior comments: those before declaration start are true
+              -- priors, those at/after are inner (within the declaration body).
               actualPrior = List.filter
                 (\((line, _), _) -> line < fst declStart) rest
+              innerComs = List.filter
+                (\((line, _), _) -> line >= fst declStart) rest
               -- Actual prior comments: use first comment's own position as
               -- reference so it gets DP(0,0) = starts at cursor position.
               priorRef = case actualPrior of
@@ -403,6 +421,9 @@ extractDeclAnns decls =
                 _ -> let (_, (_, spanR)) = List.last actualPrior
                          afterRef = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
                      in posToDP afterRef declStart
+              -- Inner comments → annsDP as AnnComment entries so
+              -- redistributeInnerComments can push them to children
+              innerDP = snd $ List.mapAccumL buildInnerComDP declStart innerComs
               -- Following comments: relative to declaration end
               followComs = lepaToCommentsWithDP declEnd rawFollowing
               -- Build trailing comments for previous declaration
@@ -413,7 +434,7 @@ extractDeclAnns decls =
               ann = Ann
                 { annCapturedSpan = Nothing
                 , annSortKey = Nothing
-                , annsDP = []
+                , annsDP = innerDP
                 , annFollowingComments = followComs
                 , annPriorComments = priorComs
                 , annEntryDelta = entryDelta
@@ -429,6 +450,37 @@ extractDeclAnns decls =
             , commentContents = content
             }
       in (nextPos, (bComment, dp))
+
+    buildInnerComDP prev ((line, col), (content, spanR)) =
+      let dp = posToDP prev (line, col)
+          nextPos = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+          bComment = Comment
+            { commentOrigin = Nothing
+            , commentIdentifier = realSpanToSrcSpan spanR
+            , commentContents = content
+            }
+      in (nextPos, (AnnComment bComment, dp))
+
+-- | Extract span map for all nested nodes. Used for inner comment
+-- redistribution across the full annotation map.
+extractNestedSpanMap :: [LHsDecl GhcPs] -> Map.Map AnnKey ((Int, Int), (Int, Int))
+extractNestedSpanMap decls =
+  let raw = SYB.everything (++) extractAll decls
+  in Map.fromList [(k, (ss2pos sp, ss2posEnd sp)) | (k, sp, _) <- raw]
+  where
+    extractAll :: SYB.GenericQ [(AnnKey, RealSrcSpan, EpAnnComments)]
+    extractAll =
+      (const []
+        `SYB.extQ` (extractFromLocatedWithLoc :: LHsExpr GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
+        `SYB.extQ` (extractFromLocated :: LHsDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
+        `SYB.extQ` (extractFromLocated :: LHsBind GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
+        `SYB.extQ` (extractFromLocated :: LMatch GhcPs (LHsExpr GhcPs) -> [(AnnKey, RealSrcSpan, EpAnnComments)])
+        `SYB.extQ` (extractFromLocated :: LGRHS GhcPs (LHsExpr GhcPs) -> [(AnnKey, RealSrcSpan, EpAnnComments)])
+        `SYB.extQ` (extractFromLocatedWithLoc :: ExprLStmt GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
+        `SYB.extQ` (extractFromLocatedWithLoc :: LHsType GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
+        `SYB.extQ` (extractFromLocatedWithLoc :: LHsSigType GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
+        `SYB.extQ` (extractFromLocatedWithLoc :: LPat GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
+      )
 
 -- | Traverse decls and nested AST (exprs, binds, stmts, etc.) to extract
 -- EpAnn from every annotated node. Enables hasAnyCommentsBelow and comment
@@ -627,19 +679,29 @@ redistributeInnerComments spanMap skipKeys anns =
               ]
         in assignCommentsToChildren children coms
         ) parentInnerComs
-      -- Group assignments by target key
-      patches = Map.fromListWith (++) assignments
+      -- Group assignments by target key, separating prior vs following
+      followingPatches = Map.fromListWith (++)
+        [(k, coms) | (k, False, coms) <- assignments]
+      priorPatches = Map.fromListWith (++)
+        [(k, coms) | (k, True, coms) <- assignments]
       -- Track which parents had comments successfully redistributed
       parentKeys = Map.fromList [(pk, ()) | (pk, _) <- parentInnerComs]
       -- Apply patches: add comments to children, remove from parents
       patched = Map.mapWithKey (\k ann ->
-        let addComs = Map.findWithDefault [] k patches
+        let addFollow = Map.findWithDefault [] k followingPatches
+            addPrior = Map.findWithDefault [] k priorPatches
             -- Strip inner AnnComment entries from parents that had redistribution
             strippedDP = if Map.member k parentKeys
               then List.filter (\x -> case x of { (AnnComment _, _) -> False; _ -> True }) (annsDP ann)
               else annsDP ann
-        in ann { annFollowingComments = annFollowingComments ann ++ addComs
+            -- When adding prior comments, update entry delta to ensure a newline
+            -- between the last prior comment and the node content
+            updatedDelta = if null addPrior then annEntryDelta ann
+              else DP (1, 0)
+        in ann { annFollowingComments = annFollowingComments ann ++ addFollow
+               , annPriorComments = addPrior ++ annPriorComments ann
                , annsDP = strippedDP
+               , annEntryDelta = updatedDelta
                }
         ) anns
   in patched
@@ -650,28 +712,36 @@ redistributeInnerComments spanMap skipKeys anns =
     assignCommentsToChildren
       :: [(AnnKey, (Int, Int), (Int, Int))]  -- sorted children
       -> [(Comment, DeltaPos)]               -- inner comments
-      -> [(AnnKey, [(Comment, DeltaPos)])]   -- assignments (key, comments)
+      -> [(AnnKey, Bool, [(Comment, DeltaPos)])]   -- (key, isPrior, comments)
     assignCommentsToChildren children coms =
       mapMaybe (assignOneComment children) coms
 
     assignOneComment
       :: [(AnnKey, (Int, Int), (Int, Int))]
       -> (Comment, DeltaPos)
-      -> Maybe (AnnKey, [(Comment, DeltaPos)])
+      -> Maybe (AnnKey, Bool, [(Comment, DeltaPos)])
     assignOneComment children (com, _oldDP) =
       case srcSpanToRealSpan (commentIdentifier com) of
         Nothing -> Nothing
         Just comSpan ->
           let comPos = ss2pos comSpan
               -- Find the child whose end is closest to (but before/at) comPos.
-              -- Sort by end position descending and take the first (closest end).
               candidates = List.sortOn (\(_, e) -> (fst comPos - fst e, snd comPos - snd e))
                 [(k, e) | (k, _, e) <- children, e <= comPos]
+              -- Fallback: if no child ends before comment, assign as prior to
+              -- the first child that starts after the comment.
+              afterCandidates = List.sortOn (\(_, s, _) -> s)
+                [(k, s, e) | (k, s, e) <- children, s > comPos]
           in case candidates of
-            [] -> Nothing
             ((bestKey, bestEnd) : _) ->
               let dp = posToDP bestEnd comPos
-              in Just (bestKey, [(com, dp)])
+              in Just (bestKey, False, [(com, dp)])
+            [] -> case afterCandidates of
+              ((bestKey, _bestStart, _) : _) ->
+                -- Comment before first child: assign as prior comment
+                let dp = DP (1, snd comPos - snd _bestStart)
+                in Just (bestKey, True, [(com, dp)])
+              [] -> Nothing
 
 -- | Extract annotations for IE (import/export) list container and items.
 -- Handles both import lists (ideclImportList) and export lists (hsmodExports).
@@ -681,8 +751,18 @@ extractIEListAnns llies@(L epann lies) =
         EpAnn anc _ cs ->
           let ancSpan = epaLocationRealSrcSpan anc
               key = mkAnnKeyL llies
+              -- Use last IE item end as reference for prior comments,
+              -- so that DPs are relative to the previous item, not the
+              -- container start. This avoids extra blank lines.
+              lastIEEnd = case reverse lies of
+                (L (EpAnn a _ _) _ : _) -> ss2posEnd (epaLocationRealSrcSpan a)
+                _ -> ss2pos ancSpan
               ref = ss2pos ancSpan
-              ann = buildAnnotation ref ancSpan cs
+              rawPriors = List.sortOn fst $ List.concatMap lepaToSpanAndContent (priorComments cs)
+              rawFollows = getFollowingComments cs
+              priorComs = snd $ List.mapAccumL buildModComDP lastIEEnd rawPriors
+              followComs = lepaToCommentsWithDP ref rawFollows
+              ann = Ann Nothing Nothing [] followComs priorComs (posToDP ref (ss2pos ancSpan))
           in Map.singleton key ann
         _ -> Map.empty
       containerRef = case epann of

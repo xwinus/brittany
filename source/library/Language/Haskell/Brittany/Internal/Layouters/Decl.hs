@@ -32,7 +32,7 @@ import Language.Haskell.Syntax.Binds (RecordPatSynField(recordPatSynField))
 import GHC.Parser.Annotation (getLocA)
 import GHC.Types.SrcLoc (Located, SrcSpan, getLoc, noSrcSpan, unLoc)
 import Language.Haskell.Brittany.Internal.Config.Types
-import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey, mkAnnKey)
+import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey, mkAnnKey, Comment(..))
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.DataDecl
@@ -60,6 +60,12 @@ layoutDecl d@(L loc decl) = case decl of
     withTransformedAnns d $ docWrapNode d $ layoutTyFamInstDecl False d tfid
   InstD _ (ClsInstD _ inst) ->
     withTransformedAnns d $ docWrapNode d $ layoutClsInst (L loc inst)
+  InstD _ (DataFamInstD _ _) ->
+    withTransformedAnns d $ do
+      followComments <- astFollowingComments d
+      docSeq $ [briDocByExactNoComment d]
+        ++ [docLitS (" " ++ commentContents c)
+           | (c, _) <- followComments]
   _ -> briDocByExactNoComment d
 
 --------------------------------------------------------------------------------
@@ -918,7 +924,6 @@ layoutTyFamInstDecl inClass outerNode tfid = do
       _ -> Nothing
     pats = feqn_pats eqn
     typ = feqn_rhs eqn
-    innerNode = outerNode
   docWrapNodePrior outerNode $ do
     nameStr <- lrdrNameToTextAnn (toL name)
     needsParens <- hasAnnKeyword outerNode AnnOpenP
@@ -934,18 +939,14 @@ layoutTyFamInstDecl inClass outerNode tfid = do
           ([docLit (Text.pack "forall")] ++ processTyVarBndrsSingleline bndrDocs
           )
       lhs =
-        docWrapNode innerNode
-          . docSeq
+        docSeq
           $ [appSep instanceDoc]
           ++ [ makeForallDoc foralls | Just foralls <- [bndrsMay] ]
           ++ [ docParenL | needsParens ]
           ++ [appSep $ docWrapNode (toL name) $ docLit nameStr]
           ++ intersperse docSeparator (layoutHsTyPats pats)
           ++ [ docParenR | needsParens ]
-    hasComments <-
-      (||)
-      <$> hasAnyRegularCommentsConnected outerNode
-      <*> hasAnyRegularCommentsRest innerNode
+    hasComments <- hasAnyRegularCommentsConnectedNoFollowing outerNode
     typeDoc <- docSharedWrapper layoutType (toL typ)
     layoutLhsAndType hasComments lhs "=" typeDoc
 
@@ -1021,12 +1022,12 @@ layoutClsInst lcid@(L _ cid) = docLines
   layoutAndLocateTyFamInsts
     :: ToBriDocC (TyFamInstDecl GhcPs) (Located BriDocNumbered)
   layoutAndLocateTyFamInsts ltfid@(L loc tfid) =
-    L loc <$> layoutTyFamInstDecl True ltfid tfid
+    L loc <$> docWrapNode ltfid (layoutTyFamInstDecl True ltfid tfid)
 
   layoutAndLocateDataFamInsts
     :: ToBriDocC (DataFamInstDecl GhcPs) (Located BriDocNumbered)
   layoutAndLocateDataFamInsts ldfid@(L loc _) =
-    L loc <$> layoutDataFamInstDecl ldfid
+    L loc <$> docWrapNode ldfid (layoutDataFamInstDecl ldfid)
 
   -- | Send to ExactPrint then remove unecessary whitespace
   layoutDataFamInstDecl :: ToBriDoc DataFamInstDecl

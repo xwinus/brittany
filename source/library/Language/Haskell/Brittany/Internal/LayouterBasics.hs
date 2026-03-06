@@ -357,6 +357,14 @@ astAnn
   -> m (Maybe Annotation)
 astAnn ast = Map.lookup (ExactPrintCompat.mkAnnKey ast) <$> mAsk
 
+astFollowingComments
+  :: (Data ast, MonadMultiReader (Map AnnKey Annotation) m)
+  => GHC.Located ast
+  -> m [(ExactPrintCompat.Comment, ExactPrintCompat.DeltaPos)]
+astFollowingComments ast = astAnn ast <&> \case
+  Nothing -> []
+  Just ann -> ExactPrintCompat.annFollowingComments ann
+
 -- new BriDoc stuff
 
 allocateNode
