@@ -264,19 +264,16 @@ hasCommentsBetween
   -> AnnKeywordId
   -> AnnKeywordId
   -> ToBriDocM Bool
-hasCommentsBetween ast leftKey rightKey = do
+hasCommentsBetween ast _leftKey _rightKey = do
   mAnn <- astAnn ast
-  let
-    go1 [] = False
-    go1 ((ExactPrintCompat.G kw, _dp) : rest) | kw == leftKey = go2 rest
-    go1 (_ : rest) = go1 rest
-    go2 [] = False
-    go2 ((ExactPrintCompat.AnnComment _, _dp) : _rest) = True
-    go2 ((ExactPrintCompat.G kw, _dp) : _rest) | kw == rightKey = False
-    go2 (_ : rest) = go2 rest
   case mAnn of
     Nothing -> pure False
-    Just ann -> pure $ go1 $ ExactPrintCompat.annsDP ann
+    -- In GHC 9.14, annsDP has no G kw entries, only AnnComment entries.
+    -- Check if there are any AnnComment entries as a proxy.
+    Just ann -> pure $ any isComment $ ExactPrintCompat.annsDP ann
+ where
+  isComment (ExactPrintCompat.AnnComment _, _) = True
+  isComment _ = False
 
 -- | True if there are any comments that are connected to any node below (in AST
 --   sense) the given node

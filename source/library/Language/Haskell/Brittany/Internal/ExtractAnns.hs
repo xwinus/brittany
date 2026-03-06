@@ -49,6 +49,7 @@ import GHC.Hs
   , LTyFamInstDecl
   , LDataFamInstDecl
   , AnnsIf(..)
+  , AnnsModule(..)
   , ExprLStmt
   )
 import GHC.Hs.ImpExp (ideclAnn, ideclExt)
@@ -113,10 +114,30 @@ extractAnnsFromModule lmod =
             in Just (mkAnnKeyL ldecl, ss2pos ancSpan, ss2posEnd ancSpan)
         ) (hsmodDecls mod')
       allTargets = List.sortOn (\(_, start, _) -> start) (importTargets ++ declTargets)
+      -- Get module header end position (where keyword) for comment splitting
+      modHeaderEndLine = case hsmodAnn (hsmodExt mod') of
+        EpAnn _ an _ -> case am_where an of
+          EpTok loc -> fst (ss2posEnd (epaLocationRealSrcSpan loc))
+          NoEpTok -> 0
+        _ -> 0
       -- Step 4: Distribute remaining module comments to child nodes
       sortedModComs = List.sortOn fst (modPriorComments ++ modFollowingComments)
-      (modOwnComs, childComAssignments) = distributeModuleComments allTargets sortedModComs
-      childPriorPatches = Map.fromListWith (++)
+      (modOwnComs0, childComAssignments) = distributeModuleComments allTargets sortedModComs
+      -- Split modOwnComs: comments after 'where' should be prior on first child
+      (trulyModComs, afterWhereComs) = case allTargets of
+        ((firstK, _, _) : _) | modHeaderEndLine > 0 ->
+          let (before, after) = List.partition (\((l, _), _) -> l <= modHeaderEndLine) modOwnComs0
+          in case after of
+            [] -> (before, [])
+            _ -> (before, after)
+        _ -> (modOwnComs0, [])
+      modOwnComs = trulyModComs
+      afterWherePatches = case (afterWhereComs, allTargets) of
+        (_:_, (firstK, _, _) : _) ->
+          let cds = snd $ List.mapAccumL buildModComDP (modHeaderEndLine, 1) afterWhereComs
+          in Map.singleton firstK cds
+        _ -> Map.empty
+      childPriorPatches = Map.unionWith (++) afterWherePatches $ Map.fromListWith (++)
         [(k, coms) | (k, PriorCom, coms) <- childComAssignments]
       childFollowingPatches = Map.fromListWith (++)
         [(k, coms) | (k, FollowingCom, coms) <- childComAssignments]
@@ -772,7 +793,20 @@ redistributeInnerComments spanMap skipKeys anns =
               afterCandidates = List.sortOn (\(_, s, _) -> s)
                 [(k, s, e) | (k, s, e) <- children, s > comPos]
               -- Same-line candidates: comment on same line as a child's end
-              sameLineCandidates = [(k, e) | (k, e) <- candidates, fst e == fst comPos]
+              -- Among same-end candidates, prefer the one with latest start (smallest span)
+              sameLineCandidates0 = [(k, e) | (k, e) <- candidates, fst e == fst comPos]
+              sameLineCandidates = case sameLineCandidates0 of
+                [] -> []
+                cs -> let bestEnd = snd (head cs)
+                          sameEnd = [(k, e) | (k, e) <- cs, e == bestEnd]
+                      in case sameEnd of
+                        [_] -> sameEnd
+                        _ ->
+                          -- Multiple candidates with same end: pick the one with latest start (most specific)
+                          let withStart = [(k, e, s) | (k, s, _) <- children, (k2, e) <- sameEnd, k == k2]
+                          in case List.sortOn (\(_, _, s) -> (negate (fst s), negate (snd s))) withStart of
+                            ((k, e, _) : _) -> [(k, e)]
+                            [] -> sameEnd
           in case sameLineCandidates of
             ((bestKey, bestEnd) : _) ->
               -- Trailing comment on same line as child end

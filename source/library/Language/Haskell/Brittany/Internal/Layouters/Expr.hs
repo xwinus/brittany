@@ -425,10 +425,11 @@ layoutExpr' lexpr@(L _ expr) = do
             Missing _ -> (L noSrcSpan arg, Nothing)
       argDocs <- forM argExprs $ docSharedWrapper $ \(arg, exprM) ->
         docWrapNode arg $ maybe docEmpty layoutExpr' exprM
+      let argSubExprs = [ toL e | Present _ e <- args ]
       hasComments <-
         orM
           (hasCommentsBetween lexpr AnnOpenP AnnCloseP
-          : map (hasAnyCommentsBelow . L noSrcSpan) args
+          : map hasAnyCommentsBelow argSubExprs
           )
       let
         (openLit, closeLit) = case boxity of
