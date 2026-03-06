@@ -30,7 +30,7 @@ import GHC.Types.Name.Reader (rdrNameOcc)
 import Language.Haskell.Syntax.Basic (LexicalFixity(..))
 import Language.Haskell.Syntax.Binds (RecordPatSynField(recordPatSynField))
 import GHC.Parser.Annotation (getLocA)
-import GHC.Types.SrcLoc (Located, SrcSpan, getLoc, noSrcSpan, unLoc)
+import GHC.Types.SrcLoc (Located, RealSrcSpan, SrcSpan(..), getLoc, noSrcSpan, srcSpanStartLine, srcSpanEndLine, unLoc)
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey, mkAnnKey, Comment(..))
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
@@ -953,7 +953,15 @@ layoutTyFamInstDecl inClass outerNode tfid = do
           ++ [ docParenR | needsParens ]
     hasComments <- hasAnyRegularCommentsConnectedNoFollowing outerNode
     typeDoc <- docSharedWrapper layoutType (toL typ)
-    layoutLhsAndType hasComments lhs "=" typeDoc
+    -- If the decl spans multiple lines and has following comments, force multi-line
+    -- to avoid single-line layout putting comment before "=" on next line
+    followComments <- astFollowingComments outerNode
+    let hasFollowingComments = not (null followComments)
+        declSpansMultipleLines = case getLoc outerNode of
+          RealSrcSpan s _ -> srcSpanStartLine s /= srcSpanEndLine s
+          _ -> False
+        hasComments' = hasComments || (hasFollowingComments && declSpansMultipleLines)
+    layoutLhsAndType hasComments' lhs "=" typeDoc
 
 
 layoutHsTyPats pats = pats <&> \case
