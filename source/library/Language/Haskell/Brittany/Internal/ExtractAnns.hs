@@ -26,6 +26,7 @@ import GHC
   )
 import GHC.Hs
   ( GhcPs
+  , GRHS(..)
   , GrhsAnn
   , HsExpr(..)
   , HsModule(..)
@@ -153,11 +154,11 @@ extractAnnsFromModule lmod =
       declSpans = Map.fromList [(k, (s, e)) | (k, s, e) <- allTargets]
       fullSpanMap = nestedSpans <> declSpans
       -- Only process declAnns' keys with inner comments, and only those
-      -- where inner-to-child redistribution is safe (InstD, TyClD).
+      -- where inner-to-child redistribution is safe.
       -- Skip all other keys to avoid disrupting existing comment placement.
       declWithInner = Map.filterWithKey (\(AnnKey _ cn) ann ->
         not (null [() | (AnnComment _, _) <- annsDP ann])
-        && unConName cn `elem` ["InstD", "TyClD"]
+        && unConName cn `elem` ["InstD", "TyClD", "ValD", "SigD"]
         ) declAnns'
       nonDeclKeys = Map.fromList
         [(k, ()) | k <- Map.keys merged, not (Map.member k declWithInner)]
@@ -565,8 +566,12 @@ extractNestedEpAnns decls =
         HsDo _ _ lstmts@(L stmtLoc stmts) ->
           extractHsDoAnns lexpr loc stmtLoc stmts
         _ -> []
+      overrideGRHS :: LGRHS GhcPs (LHsExpr GhcPs) -> [(AnnKey, Annotation)]
+      overrideGRHS lgrhs@(L _loc (GRHS xgrhs _guards body)) =
+        extractGRHSAnns lgrhs xgrhs body
+      overrideGRHS _ = []
       overrideExtract :: SYB.GenericQ [(AnnKey, Annotation)]
-      overrideExtract = const [] `SYB.extQ` overrideExpr
+      overrideExtract = const [] `SYB.extQ` overrideExpr `SYB.extQ` overrideGRHS
       overrideAnns = Map.fromList $ SYB.everything (++) overrideExtract decls
   in overrideAnns <> redistributedAnns  -- overrideAnns wins for duplicate keys
   where
@@ -1341,6 +1346,112 @@ extractHsDoAnns lexpr locAnn stmtListAnn stmts =
           dp = case rawDp of
             DP (y, _x) | y > 0 ->
               DP (y, comCol - snd stmtStart)
+            _ -> rawDp
+          nextPos = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+          bComment = Comment
+            { commentOrigin = Nothing
+            , commentIdentifier = realSpanToSrcSpan spanR
+            , commentContents = content
+            }
+      in (nextPos, (bComment, dp))
+
+-- | Extract override annotations for GRHS nodes.
+-- Inner comments before the body expression should be prior comments on the
+-- body, not trailing comments emitted after it by BDAnnotationRest.
+extractGRHSAnns
+  :: LGRHS GhcPs (LHsExpr GhcPs)
+  -> EpAnn GrhsAnn       -- extension field annotation (has comments)
+  -> LHsExpr GhcPs       -- body expression
+  -> [(AnnKey, Annotation)]
+extractGRHSAnns lgrhs xAnn body =
+  let grhsKey = mkAnnKeyL lgrhs
+      bodyKey = mkAnnKeyL body
+  in case xAnn of
+    EpAnn locAnc _ locCs ->
+      let ancSpan = epaLocationRealSrcSpan locAnc
+          nodeStart = ss2pos ancSpan
+          nodeEnd = ss2posEnd ancSpan
+          -- Get body expression position
+          bodyStart = case srcSpanToRealSpan (getLocA body) of
+            Just rsp -> ss2pos rsp
+            Nothing -> nodeEnd
+          -- Collect all comments from location annotation
+          rawPriors = priorComments locCs
+          rawFollowing = getFollowingComments locCs
+          allPriorSpans = List.sortOn fst $ List.concatMap lepaToSpanAndContent rawPriors
+          allFollowSpans = List.sortOn fst $ List.concatMap lepaToSpanAndContent rawFollowing
+          allComSpans = List.sortOn fst (allPriorSpans ++ allFollowSpans)
+          -- Split: genuine prior (before GRHS start) vs inner (at/after start)
+          (genuinePriorSpans, innerComSpans) = List.partition
+            (\((line, _), _) -> line < fst nodeStart) allComSpans
+          -- Split inner: before body (to be prior on body) vs at/after body (trailing)
+          (beforeBody, atOrAfterBody) = List.partition
+            (\((line, _), _) -> line < fst bodyStart) innerComSpans
+          -- Further split at/after: same-line trailing vs true inner
+          bodyEnd = case srcSpanToRealSpan (getLocA body) of
+            Just rsp -> ss2posEnd rsp
+            Nothing -> nodeEnd
+          (sameLineTrailing, trueInner) = List.partition
+            (\((line, _), _) -> line == fst bodyEnd) atOrAfterBody
+          -- Build GRHS annotation
+          genuinePriorComs = lepaToCommentsWithDP nodeStart
+            (List.filter (\lc -> all (\((line, _), _) -> line < fst nodeStart) (lepaToSpanAndContent lc)) rawPriors)
+          entryDelta = case genuinePriorSpans of
+            [] -> DP (0, 0)
+            _ -> let (_, (_, spanR)) = List.last genuinePriorSpans
+                     afterRef = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+                 in posToDP afterRef nodeStart
+          -- True inner comments → annsDP for BDAnnotationRest
+          trailingDP = snd $ List.mapAccumL buildInnerComDP' nodeStart trueInner
+          -- Same-line trailing → followingComments with DP relative to bodyEnd
+          sameLineFollowComs = snd $ List.mapAccumL buildModComDP bodyEnd sameLineTrailing
+          grhsAnn = Ann
+            { annCapturedSpan = Nothing
+            , annSortKey = Nothing
+            , annsDP = trailingDP
+            , annFollowingComments = sameLineFollowComs
+            , annPriorComments = genuinePriorComs
+            , annEntryDelta = entryDelta
+            }
+          -- Before-body comments become prior comments on the body expression
+          -- Use absolute column (0-indexed) for comment x-position since we
+          -- don't know the backend's indent level at this point
+          bodyPriorComs = snd $ List.mapAccumL buildAbsColDP nodeStart beforeBody
+          bodyAnn = if null bodyPriorComs then Nothing
+            else Just $ Ann
+              { annCapturedSpan = Nothing
+              , annSortKey = Nothing
+              , annsDP = []
+              , annFollowingComments = []
+              , annPriorComments = bodyPriorComs
+              , annEntryDelta = DP (1, 0)
+              }
+      in [(grhsKey, grhsAnn)] ++ maybe [] (\a -> [(bodyKey, a)]) bodyAnn
+    _ -> []
+  where
+    buildInnerComDP' prev ((line, col), (content, spanR)) =
+      let dp = posToDP prev (line, col)
+          nextPos = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
+          bComment = Comment
+            { commentOrigin = Nothing
+            , commentIdentifier = realSpanToSrcSpan spanR
+            , commentContents = content
+            }
+      in (nextPos, (AnnComment bComment, dp))
+
+    -- Build DP for prior comments using absolute column positioning.
+    -- For y > 0 (different line), x = comCol - 1 (0-indexed absolute column).
+    -- layoutMoveToCommentPos sets _lstate_addSepSpace = Just x, which
+    -- moveToY uses as the absolute column position.
+    buildAbsColDP
+      :: (Int, Int)
+      -> ((Int, Int), (String, RealSrcSpan))
+      -> ((Int, Int), (Comment, DeltaPos))
+    buildAbsColDP prev ((comLine, comCol), (content, spanR)) =
+      let rawDp = posToDP prev (comLine, comCol)
+          dp = case rawDp of
+            DP (y, _x) | y > 0 ->
+              DP (y, comCol - 1)  -- absolute column (0-indexed)
             _ -> rawDp
           nextPos = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
           bComment = Comment

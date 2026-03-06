@@ -71,7 +71,7 @@ layoutDecl d@(L loc decl) = case decl of
       docSeq $ [briDocByExactNoComment d]
         ++ [docLitS (" " ++ commentContents c)
            | (c, _) <- followComments]
-  _ -> briDocByExactNoComment d
+  _ -> withTransformedAnns d $ docWrapNode d $ briDocByExactNoComment d
 
 --------------------------------------------------------------------------------
 -- Sig
