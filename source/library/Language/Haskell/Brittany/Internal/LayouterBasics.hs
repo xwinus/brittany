@@ -289,6 +289,19 @@ hasAnyRegularCommentsConnected :: Data ast => GHC.Located ast -> ToBriDocM Bool
 hasAnyRegularCommentsConnected ast =
   any isRegularComment <$> astConnectedComments ast
 
+-- | Like hasAnyRegularCommentsConnected but excludes annFollowingComments.
+-- Trailing comments at end-of-line don't prevent single-line layout.
+hasAnyRegularCommentsConnectedNoFollowing :: Data ast => GHC.Located ast -> ToBriDocM Bool
+hasAnyRegularCommentsConnectedNoFollowing ast = do
+  anns <- filterAnns ast <$> mAsk
+  let extractNoFollow ann =
+        ExactPrintCompat.annPriorComments ann
+          ++ (ExactPrintCompat.annsDP ann >>= \case
+               (ExactPrintCompat.AnnComment com, dp) -> [(com, dp)]
+               _ -> []
+             )
+  pure $ any isRegularComment $ extractNoFollow =<< Map.elems anns
+
 -- | Regular comments are comments that are actually "source code comments",
 -- i.e. things that start with "--" or "{-". In contrast to comment-annotations
 -- used by ghc-exactprint for capturing symbols (and their exact positioning).

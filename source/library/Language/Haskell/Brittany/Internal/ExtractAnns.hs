@@ -62,6 +62,7 @@ import GHC.Parser.Annotation
   , getLocA
   , NoEpAnns
   , priorComments
+  , SrcSpanAnnLW
   )
 import qualified GHC.Parser.Lexer
 import GHC.Types.SrcLoc (EpaLocation'(..), RealSrcSpan, SrcSpan(..))
@@ -499,8 +500,8 @@ extractNestedEpAnns decls =
       overrideExpr lexpr@(L loc expr) = case expr of
         HsIf xIf _ thenExpr elseExpr ->
           extractHsIfAnns lexpr loc xIf thenExpr elseExpr
-        HsDo _ _ (L _ stmts) ->
-          extractHsDoAnns lexpr loc stmts
+        HsDo _ _ lstmts@(L stmtLoc stmts) ->
+          extractHsDoAnns lexpr loc stmtLoc stmts
         _ -> []
       overrideExtract :: SYB.GenericQ [(AnnKey, Annotation)]
       overrideExtract = const [] `SYB.extQ` overrideExpr
@@ -817,18 +818,19 @@ extractFromLocated ln@(L loc x) =
         Nothing -> False
   in if null fromPayload && locOnly then maybe [] pure fromLoc else fromPayload
 
--- | Like extractFromLocated, but always tries the location annotation first.
--- GHC 9.14 stores comments on the location annotation (e.g., EpAnn AnnListItem
--- for expressions), not (only) in the payload's extension field.
+-- | Like extractFromLocated, but tries the location annotation first, then
+-- also checks payload extension fields. GHC 9.14 stores comments on both
+-- the location annotation (e.g., EpAnn AnnListItem for expressions) and on
+-- constructor extension fields (e.g., XHsDo). We merge comments from both.
 extractFromLocatedWithLoc
   :: (Data a, HasLoc l, HasLoc (GenLocated l a), Data l, Typeable l)
   => GenLocated l a
   -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-extractFromLocatedWithLoc ln@(L loc _) =
+extractFromLocatedWithLoc ln@(L loc x) =
   let key = mkAnnKeyL ln
-      -- Try the location annotation first (this is where comments live)
       safeEpaLoc (EpaSpan (RealSrcSpan rss _)) = Just rss
       safeEpaLoc _ = Nothing
+      -- Try location annotation
       fromLoc = case tryExtractEpAnnFields loc of
         Just (anc, cs) -> case safeEpaLoc anc of
           Just rss -> [(key, rss, cs)]
@@ -838,7 +840,21 @@ extractFromLocatedWithLoc ln@(L loc _) =
             Just rss -> [(key, rss, cs)]
             Nothing -> []
           Nothing -> []
-  in if null fromLoc then extractFromLocated ln else fromLoc
+      -- Also try payload extension fields (e.g., XHsDo, XHsIf)
+      fromPayload = catMaybes $ gmapQ
+        (\child -> do (anc, cs) <- tryExtractEpAnnFields child; rss <- safeEpaLoc anc; pure (key, rss, cs))
+        x
+      -- Merge: use location result as base, add any payload comments
+      merged = case (fromLoc, fromPayload) of
+        ([], []) -> []
+        ([], ps) -> ps
+        (ls, []) -> ls
+        ([(k, rss, locCs)], payloads) ->
+          let allPriors = priorComments locCs ++ List.concatMap (\(_, _, c) -> priorComments c) payloads
+              allFollows = getFollowingComments locCs ++ List.concatMap (\(_, _, c) -> getFollowingComments c) payloads
+          in [(k, rss, EpaCommentsBalanced allPriors allFollows)]
+        (ls, _) -> ls  -- multiple location results, just use those
+  in merged
 
 -- | Redistribute inner comments from HsIf to child expression annotations.
 -- GHC 9.14 stores all comments on the location annotation (EpAnn AnnListItem)
@@ -991,22 +1007,29 @@ extractHsIfAnns lexpr locAnn annsIf thenExpr elseExpr =
 extractHsDoAnns
   :: LHsExpr GhcPs
   -> EpAnn AnnListItem  -- location annotation (has comments)
+  -> SrcSpanAnnLW  -- statement list location annotation
   -> [ExprLStmt GhcPs]  -- statements in the do-block
   -> [(AnnKey, Annotation)]
-extractHsDoAnns lexpr locAnn stmts =
+extractHsDoAnns lexpr locAnn stmtListAnn stmts =
   let doKey = mkAnnKeyL lexpr
   in case locAnn of
     EpAnn locAnc _ locCs ->
       let ancSpan = epaLocationRealSrcSpan locAnc
           nodeStart = ss2pos ancSpan
           nodeEnd = ss2posEnd ancSpan
-          -- Comments from location annotation
-          rawPriors = priorComments locCs
-          allComSpans = List.sortOn fst $ List.concatMap lepaToSpanAndContent rawPriors
+          -- Comments from location annotation AND statement list annotation
+          stmtListCs = case stmtListAnn of
+            EpAnn _ _ cs -> cs
+            _ -> emptyComments
+          rawPriors = priorComments locCs ++ priorComments stmtListCs
+          rawFollowing = getFollowingComments locCs ++ getFollowingComments stmtListCs
+          allPriorSpans = List.sortOn fst $ List.concatMap lepaToSpanAndContent rawPriors
+          allFollowSpans = List.sortOn fst $ List.concatMap lepaToSpanAndContent rawFollowing
+          allComSpans = List.sortOn fst (allPriorSpans ++ allFollowSpans)
           -- Split: before node start (genuine prior) vs at/after node start (inner)
           (genuinePriorSpans, innerComSpans) = List.partition
             (\((line, _), _) -> line < fst nodeStart) allComSpans
-          -- Get statement positions (key, startPos)
+          -- Get statement positions (key, startPos, endPos)
           stmtPosns = mapMaybe getStmtKeyAndPos stmts
           -- Distribute inner comments to nearest following statement
           assignments = distributeToStmts stmtPosns innerComSpans
@@ -1018,12 +1041,11 @@ extractHsDoAnns lexpr locAnn stmts =
             _ -> let (_, (_, spanR)) = List.last genuinePriorSpans
                      afterRef = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
                  in posToDP afterRef nodeStart
-          followComs = lepaToCommentsWithDP nodeEnd (getFollowingComments locCs)
           doAnn = Ann
             { annCapturedSpan = Nothing
             , annSortKey = Nothing
             , annsDP = []
-            , annFollowingComments = followComs
+            , annFollowingComments = []
             , annPriorComments = genuinePriorComs
             , annEntryDelta = entryDelta
             }
@@ -1036,50 +1058,64 @@ extractHsDoAnns lexpr locAnn stmts =
     isBeforeNode ns lc =
       all (\((line, _), _) -> line < fst ns) (lepaToSpanAndContent lc)
 
-    getStmtKeyAndPos :: ExprLStmt GhcPs -> Maybe (AnnKey, (Int, Int))
+    getStmtKeyAndPos :: ExprLStmt GhcPs -> Maybe (AnnKey, (Int, Int), (Int, Int))
     getStmtKeyAndPos lstmt =
       let key = mkAnnKeyL lstmt
           srcSpan = getLocA lstmt
       in case srcSpanToRealSpan srcSpan of
-        Just rsp -> Just (key, ss2pos rsp)
+        Just rsp -> Just (key, ss2pos rsp, ss2posEnd rsp)
         Nothing  -> Nothing
 
-    -- | For each inner comment, find the first statement that starts on or
-    -- after the comment's line. Group comments by target statement.
+    -- | For each inner comment, find the target statement. Comments on the
+    -- same line as a statement's end and after it are trailing (following)
+    -- comments on that statement. Other inner comments are prior comments
+    -- on the first statement that starts on or after the comment's line.
     distributeToStmts
-      :: [(AnnKey, (Int, Int))]
+      :: [(AnnKey, (Int, Int), (Int, Int))]  -- (key, start, end)
       -> [((Int, Int), (String, RealSrcSpan))]
-      -> [(AnnKey, (Int, Int), [((Int, Int), (String, RealSrcSpan))])]
+      -> [(AnnKey, (Int, Int), (Int, Int), [((Int, Int), (String, RealSrcSpan))], [((Int, Int), (String, RealSrcSpan))])]
+      -- ^ (key, start, end, priorComs, followingComs)
     distributeToStmts stmtPosns comSpans =
-      let assignComment comSpan@((comLine, _), _) =
-            case List.find (\(_, (stmtLine, _)) -> stmtLine >= comLine) stmtPosns of
-              Just (key, _) -> Just (key, comSpan)
-              Nothing -> Nothing
-          grouped = Map.fromListWith (++) [(k, [c]) | (k, c) <- mapMaybe assignComment comSpans]
-      in [ (key, pos, List.sortOn fst $ Map.findWithDefault [] key grouped)
-         | (key, pos) <- stmtPosns
-         , Map.member key grouped
+      let assignComment comSpan@((comLine, comCol), _) =
+            -- First check: is this a trailing comment on some statement?
+            case List.find (\(_, _, (endLine, endCol)) ->
+                    comLine == endLine && comCol >= endCol) stmtPosns of
+              Just (key, _, _) -> Just (key, comSpan, True)  -- True = trailing
+              Nothing ->
+                -- Prior comment on next statement
+                case List.find (\(_, (stmtLine, _), _) -> stmtLine >= comLine) stmtPosns of
+                  Just (key, _, _) -> Just (key, comSpan, False)  -- False = prior
+                  Nothing -> Nothing
+          priorGrouped = Map.fromListWith (++)
+            [(k, [c]) | (k, c, False) <- mapMaybe assignComment comSpans]
+          followGrouped = Map.fromListWith (++)
+            [(k, [c]) | (k, c, True) <- mapMaybe assignComment comSpans]
+      in [ (key, pos, endPos, List.sortOn fst $ Map.findWithDefault [] key priorGrouped
+                             , List.sortOn fst $ Map.findWithDefault [] key followGrouped)
+         | (key, pos, endPos) <- stmtPosns
+         , Map.member key priorGrouped || Map.member key followGrouped
          ]
 
     buildStmtAnn
       :: (Int, Int)  -- nodeStart (do-expression position)
-      -> (AnnKey, (Int, Int), [((Int, Int), (String, RealSrcSpan))])
+      -> (AnnKey, (Int, Int), (Int, Int), [((Int, Int), (String, RealSrcSpan))], [((Int, Int), (String, RealSrcSpan))])
       -> [(AnnKey, Annotation)]
-    buildStmtAnn doStart (key, stmtStart, comSpans) =
+    buildStmtAnn doStart (key, stmtStart, stmtEnd, priorComSpans, followComSpans) =
       let -- Use do-expression's position as initial reference so first
           -- comment gets a proper line delta (not DP(0,0)).
           initRef = doStart
-          priorComs = snd $ List.mapAccumL (buildRelativeDP stmtStart) initRef comSpans
-          entryDelta = case comSpans of
+          priorComs = snd $ List.mapAccumL (buildRelativeDP stmtStart) initRef priorComSpans
+          followComs = snd $ List.mapAccumL (buildRelativeDP stmtStart) stmtEnd followComSpans
+          entryDelta = case priorComSpans of
             [] -> DP (0, 0)
-            _ -> let (_, (_, spanR)) = List.last comSpans
+            _ -> let (_, (_, spanR)) = List.last priorComSpans
                      afterRef = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
                  in posToDP afterRef stmtStart
       in [(key, Ann
             { annCapturedSpan = Nothing
             , annSortKey = Nothing
             , annsDP = []
-            , annFollowingComments = []
+            , annFollowingComments = followComs
             , annPriorComments = priorComs
             , annEntryDelta = entryDelta
             })]
