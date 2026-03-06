@@ -101,7 +101,7 @@ layoutType ltype = layoutType' (toL ltype)
           (docLines
             [ docCols
               ColTyOpPrefix
-              [ docWrapNodeRest ltype' $ docLit $ Text.pack " . "
+              [  docLit $ Text.pack " . "
               , docAddBaseY (BrIndentSpecial 3) $ contextDoc
               ]
             , docCols
@@ -139,7 +139,7 @@ layoutType ltype = layoutType' (toL ltype)
           (docSeq $ docLit (Text.pack "forall") : tyVarDocLineList)
           (docCols
             ColTyOpPrefix
-            [ docWrapNodeRest ltype $ docLit $ Text.pack " . "
+            [  docLit $ Text.pack " . "
             , maybeForceML $ return typeDoc
             ]
           )
@@ -160,7 +160,7 @@ layoutType ltype = layoutType' (toL ltype)
             )
           ++ [ docCols
                  ColTyOpPrefix
-                 [ docWrapNodeRest ltype $ docLit $ Text.pack " . "
+                 [  docLit $ Text.pack " . "
                  , maybeForceML $ return typeDoc
                  ]
              ]
@@ -231,7 +231,7 @@ layoutType ltype = layoutType' (toL ltype)
                (docNodeAnnKW ltype Nothing typeDoc1)
                (docCols
                  ColTyOpPrefix
-                 [ docWrapNodeRest ltype $ appSep $ docLit $ Text.pack "->"
+                 [  appSep $ docLit $ Text.pack "->"
                  , docAddBaseY (BrIndentSpecial 3) $ maybeForceML typeDoc2
                  ]
                )
@@ -240,14 +240,14 @@ layoutType ltype = layoutType' (toL ltype)
       typeDoc1 <- docSharedWrapper layoutType (toL typ1)
       docAlt
         [ docSeq
-          [ docWrapNodeRest ltype $ docLit $ Text.pack "("
+          [  docLit $ Text.pack "("
           , docForceSingleline typeDoc1
           , docLit $ Text.pack ")"
           ]
         , docPar
           (docCols
             ColTyOpPrefix
-            [ docWrapNodeRest ltype $ docParenLSep
+            [  docParenLSep
             , docAddBaseY (BrIndentSpecial 2) $ typeDoc1
             ]
           )
@@ -281,14 +281,14 @@ layoutType ltype = layoutType' (toL ltype)
       typeDoc1 <- docSharedWrapper layoutType (toL typ1)
       docAlt
         [ docSeq
-          [ docWrapNodeRest ltype $ docLit $ Text.pack "["
+          [ docLit $ Text.pack "["
           , docForceSingleline typeDoc1
           , docLit $ Text.pack "]"
           ]
         , docPar
           (docCols
             ColTyOpPrefix
-            [ docWrapNodeRest ltype $ docLit $ Text.pack "[ "
+            [ docLit $ Text.pack "[ "
             , docAddBaseY (BrIndentSpecial 2) $ typeDoc1
             ]
           )
@@ -315,13 +315,13 @@ layoutType ltype = layoutType' (toL ltype)
           docAlt
             [ docSeq
             $ [docLit $ Text.pack "("]
-            ++ docWrapNodeRest ltype commaDocs
+            ++ commaDocs
             ++ [end]
             , let line1 = docCols ColTyOpPrefix [docParenLSep, head docs]
               in
                 docPar
                   (docAddBaseY (BrIndentSpecial 2) $ line1)
-                  (docLines $ docWrapNodeRest ltype lines ++ [end])
+                  (docLines $ lines ++ [end])
             ]
         unboxedL = do
           docs <- docSharedWrapper layoutType `mapM` (map toL typs)
@@ -331,7 +331,7 @@ layoutType ltype = layoutType' (toL ltype)
           docAlt
             [ docSeq
             $ [start]
-            ++ docWrapNodeRest ltype (List.intersperse docCommaSep docs)
+            ++ List.intersperse docCommaSep docs
             ++ [end]
             , let
                 line1 = docCols ColTyOpPrefix [start, head docs]
@@ -407,7 +407,7 @@ layoutType ltype = layoutType' (toL ltype)
       typeDoc1 <- docSharedWrapper layoutType (toL typ1)
       docAlt
         [ docSeq
-          [ docWrapNodeRest ltype $ docLit $ Text.pack
+          [  docLit $ Text.pack
             ("?" ++ showSDocUnsafe (ftext ipName) ++ "::")
           , docForceSingleline typeDoc1
           ]
@@ -415,7 +415,7 @@ layoutType ltype = layoutType' (toL ltype)
           (docLit $ Text.pack ("?" ++ showSDocUnsafe (ftext ipName)))
           (docCols
             ColTyOpPrefix
-            [ docWrapNodeRest ltype $ docLit $ Text.pack ":: "
+            [  docLit $ Text.pack ":: "
             , docAddBaseY (BrIndentSpecial 2) typeDoc1
             ]
           )
@@ -447,12 +447,12 @@ layoutType ltype = layoutType' (toL ltype)
           then docLines
             [ docCols
               ColTyOpPrefix
-              [ docWrapNodeRest ltype $ docParenLSep
+              [  docParenLSep
               , docAddBaseY (BrIndentSpecial 3) $ typeDoc1
               ]
             , docCols
               ColTyOpPrefix
-              [ docWrapNodeRest ltype $ docLit $ Text.pack ":: "
+              [  docLit $ Text.pack ":: "
               , docAddBaseY (BrIndentSpecial 3) kindDoc1
               ]
             , (docLit $ Text.pack ")")
@@ -461,7 +461,7 @@ layoutType ltype = layoutType' (toL ltype)
             typeDoc1
             (docCols
               ColTyOpPrefix
-              [ docWrapNodeRest ltype $ docLit $ Text.pack ":: "
+              [  docLit $ Text.pack ":: "
               , docAddBaseY (BrIndentSpecial 3) kindDoc1
               ]
             )
