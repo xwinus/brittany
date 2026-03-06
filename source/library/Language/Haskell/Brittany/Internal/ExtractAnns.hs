@@ -1120,17 +1120,22 @@ extractHsDoAnns lexpr locAnn stmtListAnn stmts =
             , annEntryDelta = entryDelta
             })]
 
-    -- | Build a (Comment, DP) for a prior comment on a do-block statement.
-    -- For y > 0, x = col - 1 (absolute 0-indexed column). This works because
-    -- layoutMoveToCommentPos computes: column = indLevelLinger + x,
-    -- and indLevelLinger = 0 for top-level do-blocks (the outer indent level
-    -- before docSetBaseAndIndent pushes the new level).
+    -- | Build a (Comment, DP) for a comment on a do-block statement.
+    -- For y > 0 (different line), x = comCol - stmtCol (relative to statement
+    -- indent). layoutMoveToCommentPos computes: column = indLevelLinger + x.
+    -- After docSetBaseAndIndent, indLevelLinger matches the statement indent,
+    -- so the comment ends up at the correct absolute column.
+    -- For y = 0 (same line), x = col offset from prev position.
     buildRelativeDP
       :: (Int, Int) -> (Int, Int)
       -> ((Int, Int), (String, RealSrcSpan))
       -> ((Int, Int), (Comment, DeltaPos))
-    buildRelativeDP _stmtStart prev ((comLine, comCol), (content, spanR)) =
-      let dp = posToDP prev (comLine, comCol)
+    buildRelativeDP stmtStart prev ((comLine, comCol), (content, spanR)) =
+      let rawDp = posToDP prev (comLine, comCol)
+          dp = case rawDp of
+            DP (y, _x) | y > 0 ->
+              DP (y, comCol - snd stmtStart)
+            _ -> rawDp
           nextPos = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
           bComment = Comment
             { commentOrigin = Nothing

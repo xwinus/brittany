@@ -158,6 +158,7 @@ layoutBriDocM = \case
   BDPlain t -> do
     layoutWriteAppend t
   BDAnnotationPrior annKey bd -> do
+    layoutRemoveIndentLevelLinger
     state <- mGet
     let m = _lstate_comments state
     let
