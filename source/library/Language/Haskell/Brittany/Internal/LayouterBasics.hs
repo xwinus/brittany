@@ -348,6 +348,23 @@ hasAnnKeyword ast annKeyword = astAnn ast <&> \case
   hasK (ExactPrintCompat.G x, _) = x == annKeyword
   hasK _ = False
 
+-- | Check if there are any comments in the full annotation map whose source
+-- position falls within the given node's span. This finds comments that may
+-- be on parent list-spine nodes (like (:) cons cells) rather than on the
+-- node itself or its children.
+hasAnyCommentsWithinSpan :: Data ast => GHC.Located ast -> ToBriDocM Bool
+hasAnyCommentsWithinSpan ast = case GHC.srcSpanToRealSrcSpan (GHC.getLoc ast) of
+  Nothing -> pure False
+  Just rss -> do
+    allAnns <- (mAsk :: ToBriDocM ExactPrintCompat.Anns)
+    let allComments = extractAllComments =<< Map.elems allAnns
+        withinSpan (c, _) =
+          case ExactPrintCompat.srcSpanToRealSpan (ExactPrintCompat.commentIdentifier c) of
+            Nothing -> False
+            Just cRss -> GHC.realSrcSpanStart cRss >= GHC.realSrcSpanStart rss
+                      && GHC.realSrcSpanEnd cRss <= GHC.realSrcSpanEnd rss
+    pure $ any withinSpan allComments
+
 astAnn
   :: (Data ast, MonadMultiReader (Map AnnKey Annotation) m)
   => GHC.Located ast

@@ -400,7 +400,9 @@ layoutPatternBind funId binderDoc lmatch@(L _ match) = do
   mWhereDocs <- layoutLocalBinds (L noSrcSpan whereBinds)
   let mWhereArg = mWhereDocs <&> (,) (mkAnnKey (toL lmatch))
   let alignmentToken = if null pats then Nothing else funId
-  hasComments <- hasAnyCommentsBelow (toL lmatch)
+  hasComments <- case mWhereDocs of
+    Nothing -> hasAnyRegularCommentsConnectedNoFollowing (toL lmatch)
+    Just _  -> hasAnyCommentsBelow (toL lmatch)
   layoutPatternBindFinal
     alignmentToken
     binderDoc

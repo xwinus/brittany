@@ -53,6 +53,7 @@ layoutIE lie@(L _ ie) = docWrapNode lie $ case ie of
   IEThingWith _ x _ ns _ -> do
     hasComments <- orM
       (hasCommentsBetween lie AnnOpenP AnnCloseP
+      : hasAnyCommentsWithinSpan lie
       : hasAnyCommentsBelow (toL x)
       : map (hasAnyCommentsBelow . toL) ns
       )
