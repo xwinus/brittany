@@ -84,6 +84,7 @@ layoutWriteNewlineBlock = do
   mSet $ state
     { _lstate_curYOrAddNewline = Right 1
     , _lstate_addSepSpace = Just $ lstate_baseY state
+    , _lstate_commentCol = Nothing
     }
 
 -- layoutMoveToIndentCol :: ( MonadMultiState LayoutState m
@@ -300,7 +301,8 @@ layoutBaseYPushCur = do
         (Left i, Just j) -> layoutBaseYPushInternal (i + j)
         (Left i, Nothing) -> layoutBaseYPushInternal i
         (Right{}, _) -> layoutBaseYPushInternal $ lstate_baseY state
-    Just cCol -> layoutBaseYPushInternal cCol
+    Just cCol -> layoutBaseYPushInternal
+      (cCol + fromMaybe 0 (_lstate_addSepSpace state))
 
 layoutBaseYPop :: (MonadMultiState LayoutState m) => m ()
 layoutBaseYPop = do
