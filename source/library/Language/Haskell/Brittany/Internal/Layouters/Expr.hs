@@ -191,7 +191,8 @@ layoutExpr' lexpr@(L _ expr) = do
           _ -> docSeq
       headDoc <- docSharedWrapper layoutExpr' (toL headE)
       paramDocs <- docSharedWrapper layoutExpr' `mapM` (map toL paramEs)
-      hasComments <- hasAnyCommentsConnected (toL exp2)
+      hasComments <- orM
+        (map (hasAnyCommentsConnected . toL) (headE : paramEs))
       runFilteredAlternative $ do
         -- foo x y
         addAlternativeCond (not hasComments)

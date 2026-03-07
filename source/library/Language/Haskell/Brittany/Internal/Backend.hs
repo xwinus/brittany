@@ -193,9 +193,6 @@ layoutBriDocM = \case
                           layoutMoveToCommentPos y (-999) (length commentLines)
                                    --  ^ evil hack for CPP
                         _ -> layoutMoveToCommentPos y adjustedX (length commentLines)
-                      -- fixedX <- fixMoveToLineByIsNewline x
-                      -- replicateM_ fixedX layoutWriteNewline
-                      -- layoutMoveToIndentCol y
                       layoutWriteAppendMultiline commentLines
           -- mModify $ \s -> s { _lstate_curYOrAddNewline = Right 0 }
         moveToExactLocationAction
