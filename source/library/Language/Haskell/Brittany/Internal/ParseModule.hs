@@ -12,7 +12,7 @@ import qualified GHC.Driver.Session
 import qualified GHC.Paths as GHCPaths
 import qualified GHC.Types.SrcLoc
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (Anns)
-import Language.Haskell.Brittany.Internal.ExtractAnns (extractAnnsFromModule)
+import Language.Haskell.Brittany.Internal.ExtractAnns (extractAnnsFromModule, recoverMissingComments)
 import qualified Language.Haskell.GHC.ExactPrint.Parsers as ExactPrint
 
 -- | Parses a Haskell module. Although this nominally requires IO, it is
@@ -56,7 +56,8 @@ parseModule arguments1 filePath checkDynFlags string =
                     $ Exception.ErrorCall
                     $ "parse error"
                 Right parsedSource ->
-                  pure $ Right (extractAnnsFromModule parsedSource, parsedSource, dynFlagsResult)
+                  let parsedSource' = recoverMissingComments string filePath parsedSource
+                  in pure $ Right (extractAnnsFromModule parsedSource', parsedSource', dynFlagsResult)
     case result of
       Left (e :: Exception.SomeException) -> pure $ Left (show e)
       Right r -> pure r

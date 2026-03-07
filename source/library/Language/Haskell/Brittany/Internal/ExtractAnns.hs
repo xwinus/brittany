@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -6,7 +7,10 @@
 -- Traverses the AST to collect EpAnn from module, imports, decls, and
 -- nested expr/bind/stmt nodes, building the Map AnnKey Annotation format
 -- expected by layouters.
-module Language.Haskell.Brittany.Internal.ExtractAnns where
+module Language.Haskell.Brittany.Internal.ExtractAnns
+  ( extractAnnsFromModule
+  , recoverMissingComments
+  ) where
 
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import Data.Data (Data, gmapQ, gmapQi)
@@ -48,6 +52,7 @@ import GHC.Hs
   , LGRHS
   , LTyFamInstDecl
   , LDataFamInstDecl
+  , MatchGroup(..)
   , AnnsIf(..)
   , AnnsModule(..)
   , ExprLStmt
@@ -60,6 +65,8 @@ import GHC.Parser.Annotation
   , AnnListItem
   , EpAnn(..)
   , EpAnnComments(..)
+  , EpaComment(..)
+  , EpaCommentTok(..)
   , EpaLocation
   , EpToken(..)
   , emptyComments
@@ -70,6 +77,8 @@ import GHC.Parser.Annotation
   , priorComments
   , SrcSpanAnnLW
   )
+import qualified GHC.Data.FastString as FastString
+import qualified GHC.Data.Strict
 import qualified GHC.Parser.Lexer
 import GHC.Types.SrcLoc (EpaLocation'(..), RealSrcSpan, SrcSpan(..))
 import qualified GHC.Types.SrcLoc as SrcLoc
@@ -78,6 +87,82 @@ import Language.Haskell.Brittany.Internal.Prelude
 import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
 import qualified Language.Haskell.GHC.ExactPrint.Types as EPTypes
 import qualified Language.Haskell.GHC.ExactPrint.Utils as EPUtils
+
+-- | Recover comments from the source text that GHC 9.14's parser dropped.
+-- GHC 9.14's parser sometimes fails to capture trailing line comments
+-- (e.g., in multi-clause function definitions, pattern synonym where-clauses).
+-- This scans the source for line comments, compares with comments already
+-- in the parsed AST, and adds missing ones to the module annotation.
+recoverMissingComments :: String -> String -> ParsedSource -> ParsedSource
+recoverMissingComments src fp lmod@(L l p) =
+  let sourceComments = scanLineComments fp src
+      astComments = collectAstComments lmod
+      astPositions = Map.fromList [((SrcLoc.srcSpanStartLine sp, SrcLoc.srcSpanStartCol sp), ())
+                                  | sp <- astComments]
+      missing = [c | c <- sourceComments, not (Map.member (fst c) astPositions)]
+  in if null missing then lmod
+     else
+       let modAnn = hsmodAnn (hsmodExt p)
+       in case modAnn of
+         EpAnn anc an cs ->
+           let newComments = map mkLEpaComment' missing
+               cs' = EPUtils.workInComments cs newComments
+           in L l (p { hsmodExt = (hsmodExt p) { hsmodAnn = EpAnn anc an cs' }})
+         _ -> lmod
+  where
+    -- Scan source text for line comments (-- ...)
+    -- Handles string literals and block comments to avoid false positives.
+    scanLineComments :: String -> String -> [((Int, Int), String)]
+    scanLineComments _fp s = List.concatMap scanLine (zip [1..] (List.lines s))
+      where
+        scanLine (lineNum, lineStr) =
+          case findDashDash 1 False 0 lineStr of
+            Nothing -> []
+            Just (col, content) -> [((lineNum, col), content)]
+        -- Find -- outside of strings and block comments
+        findDashDash :: Int -> Bool -> Int -> String -> Maybe (Int, String)
+        findDashDash _ _ _ [] = Nothing
+        -- Inside string literal
+        findDashDash col True bc ('"':rest) = findDashDash (col+1) False bc rest
+        findDashDash col True bc ('\\':_:rest) = findDashDash (col+2) True bc rest
+        findDashDash col True bc (_:rest) = findDashDash (col+1) True bc rest
+        -- Block comment tracking
+        findDashDash col False bc ('{':'-':rest) | bc >= 0 = findDashDash (col+2) False (bc+1) rest
+        findDashDash col False bc ('-':'}':rest) | bc > 0 = findDashDash (col+2) False (bc-1) rest
+        findDashDash col False bc (_:rest) | bc > 0 = findDashDash (col+1) False bc rest
+        -- Normal code
+        findDashDash col False 0 ('"':rest) = findDashDash (col+1) True 0 rest
+        findDashDash col False 0 ('-':'-':rest)
+          -- Must not be a symbolic operator (e.g., -->, --+)
+          | null rest || not (isSymChar (head rest)) =
+            Just (col, "--" ++ rest)
+        findDashDash col False 0 (_:rest) = findDashDash (col+1) False 0 rest
+        findDashDash col False bc (_:rest) = findDashDash (col+1) False bc rest
+
+    isSymChar :: Char -> Bool
+    isSymChar c = c `elem` ("!#$%&*+./<=>?@\\^|-~:" :: String)
+
+    -- Collect all comment positions already in the AST by finding EpAnnComments
+    collectAstComments :: ParsedSource -> [RealSrcSpan]
+    collectAstComments ps =
+      let extract :: SYB.GenericQ [RealSrcSpan]
+          extract = const [] `SYB.extQ` extractFromComments
+      in SYB.everything (++) extract ps
+
+    extractFromComments :: EpAnnComments -> [RealSrcSpan]
+    extractFromComments cs =
+      [sp | L (EpaSpan (RealSrcSpan sp _)) _ <- priorComments cs ++ getFollowingComments cs]
+
+    mkLEpaComment' :: ((Int, Int), String) -> LEpaComment
+    mkLEpaComment' ((line, col), content) =
+      let endCol = col + length content
+          fs = FastString.mkFastString fp
+          startLoc = SrcLoc.mkRealSrcLoc fs line col
+          endLoc = SrcLoc.mkRealSrcLoc fs line endCol
+          rss = SrcLoc.mkRealSrcSpan startLoc endLoc
+          loc = EpaSpan (RealSrcSpan rss GHC.Data.Strict.Nothing)
+          comment = EpaComment (EpaLineComment content) rss
+      in L loc comment
 
 -- | Convert GHC 9.14 parsed module to brittany's Anns format.
 extractAnnsFromModule :: ParsedSource -> Anns
@@ -203,8 +288,14 @@ extractAnnsFromModule lmod =
         not (null [() | (AnnComment _, _) <- annsDP ann])
         && unConName cn `elem` ["InstD", "TyClD", "ValD", "SigD"]
         ) declAnns'
+      -- Also redistribute inner comments from MatchGroup annotations
+      nestedWithInner = Map.filterWithKey (\(AnnKey _ cn) ann ->
+        not (null [() | (AnnComment _, _) <- annsDP ann])
+        && unConName cn `elem` ["MatchGroup"]
+        ) nestedAnns
+      allWithInner = declWithInner <> nestedWithInner
       nonDeclKeys = Map.fromList
-        [(k, ()) | k <- Map.keys merged, not (Map.member k declWithInner)]
+        [(k, ()) | k <- Map.keys merged, not (Map.member k allWithInner)]
   in redistributeInnerComments fullSpanMap nonDeclKeys merged
 
 -- | Redistribute intra-declaration comments from the module annotation to
@@ -565,6 +656,19 @@ extractNestedEpAnns decls =
             in [(key, rss, cs)]
           _ -> []
       extractHsLocalBinds _ = []
+      -- Extract comments from MatchGroup's mg_alts wrapper (SrcSpanAnnLW).
+      -- ghc-exactprint may place comments on this AnnList (EpToken "where")
+      -- annotation which none of the standard extractors handle.
+      extractMatchGroup :: MatchGroup GhcPs (LHsExpr GhcPs) -> [(AnnKey, RealSrcSpan, EpAnnComments)]
+      extractMatchGroup (MG _ (L (EpAnn anc _ cs) _)) =
+        let coms = priorComments cs ++ getFollowingComments cs
+        in if null coms then []
+           else case anc of
+             EpaSpan (RealSrcSpan rss _) ->
+               let key = AnnKey [realSpanToSrcSpan rss] (CN "MatchGroup")
+               in [(key, rss, cs)]
+             _ -> []
+      extractMatchGroup _ = []
       extract :: SYB.GenericQ [(AnnKey, RealSrcSpan, EpAnnComments)]
       extract =
         (const []
@@ -580,6 +684,7 @@ extractNestedEpAnns decls =
           `SYB.extQ` extractLTyFamInst
           `SYB.extQ` extractLDataFamInst
           `SYB.extQ` extractHsLocalBinds
+          `SYB.extQ` extractMatchGroup
         )
       raw = SYB.everything (++) extract decls
       sorted = List.sortOn (\(_, sp, _) -> (SrcLoc.srcSpanStartLine sp, SrcLoc.srcSpanStartCol sp)) raw
