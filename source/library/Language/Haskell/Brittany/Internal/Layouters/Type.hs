@@ -41,6 +41,9 @@ layoutType ltype = layoutType' (toL ltype)
         NotPromoted -> docWrapNode (toL name) $ docLit t'
     HsForAllTy _ hsf (L _ (HsQualTy _ (L _ cntxts) typ2)) -> do
       let bndrs = getBinders hsf
+      let sep = case hsf of
+            HsForAllVis{}   -> " -> "
+            _               -> " . "
       typeDoc <- docSharedWrapper layoutType (toL typ2)
       tyVarDocs <- layoutTyVarBndrs bndrs
       cntxtDocs <- map toL cntxts `forM` docSharedWrapper layoutType
@@ -86,7 +89,7 @@ layoutType ltype = layoutType' (toL ltype)
             else
               let
                 open = docLit $ Text.pack "forall"
-                close = docLit $ Text.pack " . "
+                close = docLit $ Text.pack sep
               in docSeq ([open, docSeparator] ++ tyVarDocLineList ++ [close])
           , docForceSingleline contextDoc
           , docLit $ Text.pack " => "
@@ -101,7 +104,7 @@ layoutType ltype = layoutType' (toL ltype)
           (docLines
             [ docCols
               ColTyOpPrefix
-              [  docLit $ Text.pack " . "
+              [  docLit $ Text.pack sep
               , docAddBaseY (BrIndentSpecial 3) $ contextDoc
               ]
             , docCols
@@ -114,6 +117,9 @@ layoutType ltype = layoutType' (toL ltype)
         ]
     HsForAllTy _ hsf typ2 -> do
       let bndrs = getBinders hsf
+      let sep = case hsf of
+            HsForAllVis{}   -> " -> "
+            _               -> " . "
       typeDoc <- layoutType (toL typ2)
       tyVarDocs <- layoutTyVarBndrs bndrs
       let
@@ -122,14 +128,14 @@ layoutType ltype = layoutType' (toL ltype)
           _ -> id
       let tyVarDocLineList = processTyVarBndrsSingleline tyVarDocs
       docAlt
-        -- forall x . x
+        -- forall x . x  /  forall x -> x
         [ docSeq
           [ if null bndrs
             then docEmpty
             else
               let
                 open = docLit $ Text.pack "forall"
-                close = docLit $ Text.pack " . "
+                close = docLit $ Text.pack sep
               in docSeq ([open] ++ tyVarDocLineList ++ [close])
           , docForceSingleline $ return $ typeDoc
           ]
@@ -139,7 +145,7 @@ layoutType ltype = layoutType' (toL ltype)
           (docSeq $ docLit (Text.pack "forall") : tyVarDocLineList)
           (docCols
             ColTyOpPrefix
-            [  docLit $ Text.pack " . "
+            [  docLit $ Text.pack sep
             , maybeForceML $ return typeDoc
             ]
           )
@@ -160,7 +166,7 @@ layoutType ltype = layoutType' (toL ltype)
             )
           ++ [ docCols
                  ColTyOpPrefix
-                 [  docLit $ Text.pack " . "
+                 [  docLit $ Text.pack sep
                  , maybeForceML $ return typeDoc
                  ]
              ]

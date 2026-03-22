@@ -1,5 +1,8 @@
 packages: .
 
+-- Use GHC 9.14.1 explicitly (system GHC may differ)
+with-compiler: /home/nyc/.ghcup/ghc/9.14.1/bin/ghc
+
 -- Allow newer base, template-haskell, time, and containers for GHC 9.14
 allow-newer: base, template-haskell, time, containers
 

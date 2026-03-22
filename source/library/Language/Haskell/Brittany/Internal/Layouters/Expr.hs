@@ -17,6 +17,7 @@ import qualified GHC.Data.FastString as FastString
 import GHC.Hs
 import GHC.Hs.Type (FieldOcc(..), HsSigType(HsSig), HsWildCardBndrs(HsWC))
 import GHC.Types.SourceText (FractionalLit(..), IntegralLit(..), SourceText(..))
+import Language.Haskell.Syntax.Basic (FieldLabelString(..))
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified GHC.OldList as List
@@ -962,11 +963,30 @@ layoutExpr' lexpr@(L _ expr) = do
       briDocByExactInlineOnly "HsUntypedSplice{}" lexpr
     HsHole{} -> docLit $ Text.pack "_"
     HsProc{} -> briDocByExactInlineOnly "HsProc{}" lexpr
-    HsStatic{} -> briDocByExactInlineOnly "HsStatic{}" lexpr
-    HsGetField{} -> briDocByExactInlineOnly "HsGetField{}" lexpr
-    HsProjection{} -> briDocByExactInlineOnly "HsProjection{}" lexpr
+    HsStatic _ innerExpr -> do
+      innerDoc <- docSharedWrapper layoutExpr' (toL innerExpr)
+      docSeq
+        [ appSep $ docLit $ Text.pack "static"
+        , innerDoc
+        ]
+    HsGetField _ innerExpr (L _ (DotFieldOcc _ (L _ (FieldLabelString fieldFs)))) -> do
+      innerDoc <- docSharedWrapper layoutExpr' (toL innerExpr)
+      let fieldStr = FastString.unpackFS fieldFs
+      docSeq
+        [ innerDoc
+        , docLit $ Text.pack ("." ++ fieldStr)
+        ]
+    HsProjection _ flds -> do
+      let fieldStrs = NonEmpty.toList flds <&> \(DotFieldOcc _ (L _ (FieldLabelString fs))) ->
+                        FastString.unpackFS fs
+      docLit $ Text.pack ("(." ++ List.intercalate "." fieldStrs ++ ")")
     HsPragE{} -> briDocByExactInlineOnly "HsPragE{}" lexpr
-    HsEmbTy{} -> briDocByExactInlineOnly "HsEmbTy{}" lexpr
+    HsEmbTy _ wc -> do
+      typeDoc <- docSharedWrapper layoutType (toL $ hswc_body wc)
+      docSeq
+        [ appSep $ docLit $ Text.pack "type"
+        , typeDoc
+        ]
     XExpr _ -> briDocByExactInlineOnly "XExpr" lexpr
     _ -> briDocByExactInlineOnly "unknown HsExpr" lexpr
 
@@ -1118,6 +1138,8 @@ litBriDoc = \case
   HsWord64Prim _ i -> BDFLit $ Text.pack (show i)
   HsFloatPrim _ fl -> sourceTextLit (fl_text fl) ""
   HsDoublePrim _ fl -> sourceTextLit (fl_text fl) ""
+  HsMultilineString (SourceText t) _fs -> BDFLit $ Text.pack (FastString.unpackFS t)
+  HsMultilineString NoSourceText fs -> BDFLit $ Text.pack (FastString.unpackFS fs)
   _ -> error "litBriDoc: literal with no SourceText"
 
 sourceTextLit :: SourceText -> String -> BriDocFInt

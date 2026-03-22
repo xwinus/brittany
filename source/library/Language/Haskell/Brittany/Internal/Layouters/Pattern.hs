@@ -4,6 +4,7 @@
 module Language.Haskell.Brittany.Internal.Layouters.Pattern where
 
 import qualified Data.Foldable as Foldable
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import GHC (GenLocated(L), ol_val)
@@ -190,6 +191,23 @@ layoutPat lpat@(L _ pat) = docWrapNode (toL lpat) $ case pat of
           , return x1
           ]
         return $ x1' Seq.<| xR
+
+  EmbTyPat _ tyPat -> do
+      typeDoc <- docSharedWrapper layoutType (toL $ hstp_body tyPat)
+      singleDoc <- docSeq
+        [ appSep $ docLit $ Text.pack "type"
+        , typeDoc
+        ]
+      return $ Seq.singleton singleDoc
+
+  OrPat _ pats -> do
+      let patList = NonEmpty.toList pats
+      patDocs <- forM patList $ \p -> do
+        patDocSeq <- layoutPat p
+        colsWrapPat patDocSeq
+      singleDoc <- docSeq
+        $ List.intersperse (docLit $ Text.pack " ; ") (map return patDocs)
+      return $ Seq.singleton singleDoc
 
   _ -> return <$> briDocByExactInlineOnly "some unknown pattern" (toL lpat)
 
