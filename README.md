@@ -1,14 +1,23 @@
-# brittany [![Hackage version](https://img.shields.io/hackage/v/brittany.svg?label=Hackage)](https://hackage.haskell.org/package/brittany) [![Stackage version](https://www.stackage.org/package/brittany/badge/lts?label=Stackage)](https://www.stackage.org/package/brittany) [![Build Status](https://secure.travis-ci.org/lspitzner/brittany.svg?branch=master)](http://travis-ci.org/lspitzner/brittany)
+# brittany
 
-:warning:
-This project is effectively unmaintained!
-I ([@tfausak](https://github.com/tfausak)) would recommend switching to another formatter.
-At time of writing (2022-11-11), I would suggest [Ormolu](https://github.com/tweag/ormolu).
-Or if you prefer some configuration, I would suggest [Fourmolu](https://github.com/fourmolu/fourmolu).
+This fork revives development of the original
+[`lspitzner/brittany`](https://github.com/lspitzner/brittany) project. The
+current code is based on the GHC 9.14 forward port by
+[`NadiaYvette`](https://github.com/NadiaYvette/brittany).
+
+## Development status
+
+- The current development target is GHC 9.14.1 with ghc-exactprint 1.14.
+- Version 0.15.0.0 is unreleased and intended for development use.
+- The latest local test run reaches 491 passing and 11 pending tests before the
+  existing GHC 9.14 SIGSEGV workaround terminates the runner. The runner must
+  be hardened before all 547 fixture files can be reliably verified.
+- The pending cases concern comment layout and remain a known limitation.
+- Support for all GHC 9.14 language extensions has not yet been validated.
 
 haskell source code formatter
 
-![Output sample](https://github.com/lspitzner/brittany/raw/master/brittany-sample.gif)
+![Output sample](brittany-sample.gif)
 
 (see [more examples and comparisons](/doc/showcases))
 
@@ -55,7 +64,7 @@ log the size of the input, but _not_ the full input/output of requests.)
 
 # Other usage notes
 
-- Supports GHC version `9.0.x`.
+- The current development branch targets GHC `9.14.1`.
 - included in stackage with lts>=10.0 (or nightlies dating to >=2017-11-15)
 - config (file) documentation is lacking.
 - some config values can not be configured via commandline yet.
@@ -181,7 +190,8 @@ a good amount of high-level documentation at
 # License
 
 Copyright (C) 2016-2019 Lennart Spitzner\
-Copyright (C) 2019      PRODA LTD
+Copyright (C) 2019      PRODA LTD\
+Copyright (C) 2026      xwinus
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the

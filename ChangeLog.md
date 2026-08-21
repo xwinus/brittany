@@ -1,5 +1,13 @@
 # Revision history for brittany
 
+## 0.15.0.0 -- unreleased
+
+* Revived Brittany development under the xwinus fork.
+* Added support for GHC 9.14.1 and ghc-exactprint 1.14.
+* Added initial support for GHC 9.14 language extensions.
+* Known limitation: 11 comment-layout tests remain pending, and the current
+  SIGSEGV workaround prevents the runner from verifying every fixture.
+
 ## 0.14.0.0 -- November 2021
 
 * #357: Added support for GHC 9.0. Dropped support for all other versions of GHC.
