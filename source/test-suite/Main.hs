@@ -26,8 +26,7 @@ findProjectRoot dir = do
 -- deeper changes to the annotation pipeline.
 knownCommentFailures :: Set.Set String
 knownCommentFailures = Set.fromList
-  [ "Test38"   -- type sig same-line comments
-  , "Test63"   -- record field comments
+  [ "Test63"   -- record field comments
   , "Test64"   -- record and deriving comments
   , "Test65"   -- record field punctuation comments
   , "Test66"   -- deriving clause comments
@@ -35,13 +34,10 @@ knownCommentFailures = Set.fromList
   , "Test68"   -- existential constructor comment placement
   , "Test73"   -- commented-out record field
   , "Test170"  -- import sub-list comments
-  , "Test190"  -- type decl comments
-  , "Test192"  -- type tuple comments
   , "Test309"  -- multi-way if trailing comment column drift
   , "Test323"  -- let-in comment spacing drift
   , "Test329"  -- operator section comment spacing drift
   , "Test343"  -- record comment blank line multiplication
-  , "Test394"  -- type sig same-line comments (IndentPolicyLeft)
   , "Test487"  -- import sub-list comments (IndentPolicyLeft)
   , "Test537"  -- multi-way if trailing comment column drift (IndentPolicyLeft)
   ]

@@ -87,6 +87,19 @@ briDocByExactNoComment ast = do
     (printTreeWithCustom 100 (customLayouterF anns) ast)
   docExt ast anns False
 
+-- | Use caller-provided exact source for a node. This is needed when GHC keeps
+-- source comments on a parent node that is not part of the exact-printed AST.
+briDocByExactTextNoComment
+  :: Data ast
+  => Located ast
+  -> Text.Text
+  -> ToBriDocM BriDocNumbered
+briDocByExactTextNoComment ast exactText = allocateNode $ BDFExternal
+  (ExactPrintCompat.mkAnnKey ast)
+  (foldedAnnKeys ast)
+  False
+  (Text.dropWhileEnd (== '\n') $ Text.dropWhile (== '\n') exactText)
+
 -- | Use ExactPrint's output for this node, presuming that this output does
 -- not contain any newlines. If this property is not met, the semantics
 -- depend on the @econf_AllowRiskyExactPrintUse@ config flag.
