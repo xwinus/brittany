@@ -8,17 +8,31 @@ import qualified Test.Hspec as Hspec
 
 spec :: FilePath -> Hspec.Spec
 spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
-  derivingViaExample projectRoot "DerivingViaExpected.hs"
-  derivingViaExample projectRoot "DerivingViaEdge.hs"
+  Hspec.describe "DerivingVia" $ do
+    formattingExample projectRoot
+      "formats a basic clause without crashing"
+      "DerivingViaExpected.hs"
+    formattingExample projectRoot
+      "formats a multi-class parameterized clause"
+      "DerivingViaEdge.hs"
+    parseFailureExample projectRoot
+      "rejects malformed syntax"
+      "DerivingViaInvalid.hs"
 
-  Hspec.it "rejects malformed DerivingVia syntax" $ do
-    let fixture = fixturePath projectRoot "DerivingViaInvalid.hs"
-    Brittany.mainWith "brittany" (formatterArgs projectRoot fixture)
-      `Hspec.shouldThrow` isParseFailure
+  Hspec.describe "multiple-constructor data declarations" $ do
+    formattingExample projectRoot
+      "preserves all constructors"
+      "DataDeclMultipleExpected.hs"
+    formattingExample projectRoot
+      "preserves mixed constructors and deriving clauses"
+      "DataDeclMultipleEdge.hs"
+    parseFailureExample projectRoot
+      "rejects a malformed constructor"
+      "DataDeclMultipleInvalid.hs"
 
-derivingViaExample :: FilePath -> FilePath -> Hspec.SpecWith ()
-derivingViaExample projectRoot fixtureName =
-  Hspec.it ("formats " ++ fixtureName ++ " without crashing") $ do
+formattingExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
+formattingExample projectRoot description fixtureName =
+  Hspec.it description $ do
     let fixture = fixturePath projectRoot fixtureName
         output = FilePath.combine (FilePath.combine projectRoot "output") fixtureName
     expected <- readFile fixture
@@ -26,6 +40,13 @@ derivingViaExample projectRoot fixtureName =
     Brittany.mainWith "brittany" (formatterArgs projectRoot output)
     actual <- readFile output
     actual `Hspec.shouldBe` expected
+
+parseFailureExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
+parseFailureExample projectRoot description fixtureName =
+  Hspec.it description $ do
+    let fixture = fixturePath projectRoot fixtureName
+    Brittany.mainWith "brittany" (formatterArgs projectRoot fixture)
+      `Hspec.shouldThrow` isParseFailure
 
 fixturePath :: FilePath -> FilePath -> FilePath
 fixturePath projectRoot fixtureName =

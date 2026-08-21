@@ -9,8 +9,9 @@ current code is based on the GHC 9.14 forward port by
 
 - The current development target is GHC 9.14.1 with ghc-exactprint 1.14.
 - Version 0.15.0.0 is unreleased and intended for development use.
-- The test suite verifies all 547 golden fixtures and 3 focused regression
-  cases. The current result is 532 passing and 18 pending tests.
+- The test suite verifies all 547 golden fixtures and 6 focused regression
+  cases. The current result is 535 passing and 18 pending tests.
+- Test runs reparse formatted output to verify its syntactic validity.
 - The pending cases concern comment layout and remain a known limitation.
 - Support for all GHC 9.14 language extensions has not yet been validated.
 

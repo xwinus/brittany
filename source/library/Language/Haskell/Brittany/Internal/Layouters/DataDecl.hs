@@ -66,7 +66,8 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
 
   -- data MyData = MyData ..
   -- data MyData = MyData { .. }
-    DataTypeCons _ (lcons : _) ->
+    DataTypeCons _ (_ : _ : _) -> briDocByExactNoComment ltycl
+    DataTypeCons _ [lcons] ->
       (case lcons of
         (L _ (ConDeclH98 _ext consName _hasExt qvars mRhsContext details _conDoc))
           -> docWrapNode ltycl do

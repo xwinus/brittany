@@ -7,6 +7,9 @@
 * Added initial support for GHC 9.14 language extensions.
 * Fixed a segmentation fault when formatting `DerivingVia` clauses with the
   GHC 9.14 AST.
+* Preserved multi-constructor data declarations through an exactprint fallback
+  instead of silently dropping every constructor after the first.
+* Re-enabled output syntax validation for the GHC 9.14 test suite.
 * Replaced the SIGSEGV workaround with a standard Hspec runner that verifies
   every fixture and reports failures normally.
 * Known limitation: 18 comment-layout tests remain pending.

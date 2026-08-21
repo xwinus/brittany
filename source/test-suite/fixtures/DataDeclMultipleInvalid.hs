@@ -1,0 +1,3 @@
+data Broken
+  = First
+  | Second {
