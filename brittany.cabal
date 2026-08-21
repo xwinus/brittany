@@ -25,6 +25,7 @@ extra-doc-files:
   README.md
   doc/implementation/*.md
 extra-source-files:
+  cabal.project
   data/brittany.yaml
   data/*.hs
   source/test-suite/fixtures/*.hs

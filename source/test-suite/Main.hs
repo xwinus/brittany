@@ -52,6 +52,7 @@ main = Hspec.hspec $ do
   Hspec.runIO $ Directory.setCurrentDirectory projectRoot
   let dataDir = FilePath.combine projectRoot "data"
       outputDir = FilePath.combine projectRoot "output"
+  Hspec.runIO $ Directory.createDirectoryIfMissing True outputDir
   entries <- Hspec.runIO $ Directory.listDirectory dataDir
   Monad.forM_ (List.sort entries) $ \entry ->
     case FilePath.stripExtension "hs" entry of
