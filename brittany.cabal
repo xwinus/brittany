@@ -140,6 +140,7 @@ library
     Paths_brittany
   other-modules:
     Language.Haskell.Brittany.Internal.CommentUtils
+    Language.Haskell.Brittany.Internal.ExactSource
 
 executable brittany
   import: executable

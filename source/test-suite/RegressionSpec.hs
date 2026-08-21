@@ -47,6 +47,17 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       actual <- readFile output
       actual `Hspec.shouldBe` expected
 
+  Hspec.describe "type declaration comments" $ do
+    idempotentFormattingExample projectRoot
+      "preserves comments in a type signature"
+      "TypeCommentsExpected.hs"
+    idempotentFormattingExample projectRoot
+      "preserves comments in a tuple type synonym"
+      "TypeCommentsEdge.hs"
+    parseFailureExample projectRoot
+      "rejects a malformed commented type synonym"
+      "TypeCommentsInvalid.hs"
+
 formattingExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
 formattingExample projectRoot description fixtureName =
   Hspec.it description $ do
@@ -57,6 +68,20 @@ formattingExample projectRoot description fixtureName =
     Brittany.mainWith "brittany" (formatterArgs projectRoot output)
     actual <- readFile output
     actual `Hspec.shouldBe` expected
+
+idempotentFormattingExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
+idempotentFormattingExample projectRoot description fixtureName =
+  Hspec.it description $ do
+    let fixture = fixturePath projectRoot fixtureName
+        output = outputPath projectRoot fixtureName
+    expected <- readFile fixture
+    Directory.copyFile fixture output
+    Brittany.mainWith "brittany" (formatterArgs projectRoot output)
+    firstPass <- readFile output
+    firstPass `Hspec.shouldBe` expected
+    Brittany.mainWith "brittany" (formatterArgs projectRoot output)
+    secondPass <- readFile output
+    secondPass `Hspec.shouldBe` firstPass
 
 parseFailureExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
 parseFailureExample projectRoot description fixtureName =
