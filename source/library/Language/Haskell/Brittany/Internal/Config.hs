@@ -64,8 +64,9 @@ staticDefaultConfig = Config
   , _conf_errorHandling = ErrorHandlingConfig
     { _econf_produceOutputOnErrors = coerce False
     , _econf_Werror = coerce False
-    , _econf_ExactPrintFallback = coerce ExactPrintFallbackModeInline
+    , _econf_ExactPrintFallback = coerce ExactPrintFallbackModeRisky
     , _econf_omit_output_valid_check = coerce False
+    , _econf_omit_unused_comment_check = coerce False
     }
   , _conf_preprocessor = PreProcessorConfig
     { _ppconf_CPPMode = coerce CPPModeAbort
@@ -119,6 +120,7 @@ cmdlineConfigParser = do
   outputOnErrors <- addSimpleBoolFlag "" ["output-on-errors"] (flagHelp $ parDoc "even when there are errors, produce output (or try to to the degree possible)")
   wError <- addSimpleBoolFlag "" ["werror"] (flagHelp $ parDoc "treat warnings as errors")
   omitValidCheck <- addSimpleBoolFlag "" ["omit-output-check"] (flagHelp $ parDoc "omit checking if the output is syntactically valid (debugging)")
+  omitUnusedCommentCheck <- addSimpleBoolFlag "" ["omit-unused-comment-check"] (flagHelp $ parDoc "omit reporting unprocessed comments as errors (debugging)")
 
   roundtripOnly <- addSimpleBoolFlag "" ["exactprint-only"] (flagHelp $ parDoc "do not reformat, but exclusively use exactprint to roundtrip (debugging)")
 
@@ -166,6 +168,7 @@ cmdlineConfigParser = do
       , _econf_Werror = wrapLast $ falseToNothing wError
       , _econf_ExactPrintFallback = mempty
       , _econf_omit_output_valid_check = wrapLast $ falseToNothing omitValidCheck
+      , _econf_omit_unused_comment_check = wrapLast $ falseToNothing omitUnusedCommentCheck
       }
     , _conf_preprocessor = PreProcessorConfig { _ppconf_CPPMode = mempty, _ppconf_hackAroundIncludes = mempty }
     , _conf_forward = ForwardOptions { _options_ghc = [ optionsGhc & List.unwords & CmdArgs.splitArgs | not $ null optionsGhc ] }

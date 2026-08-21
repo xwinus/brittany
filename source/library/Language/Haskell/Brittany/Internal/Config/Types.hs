@@ -160,6 +160,7 @@ data CErrorHandlingConfig f = ErrorHandlingConfig
     -- may be cases where the output is syntactically/semantically valid but
     -- has different semantics than the code pre-transformation.
   , _econf_omit_output_valid_check :: f (Semigroup.Last Bool)
+  , _econf_omit_unused_comment_check :: f (Semigroup.Last Bool)
   }
   deriving Generic
 

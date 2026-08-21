@@ -1,35 +1,38 @@
 cabal-version: 2.2
 
 name:                 brittany
-version:              0.14.0.2
+version:              0.15.0.0
 synopsis:             Haskell source code formatter
 description:
-  See <https://github.com/lspitzner/brittany/blob/master/README.md the README>.
+  See <https://github.com/xwinus/brittany/blob/master/README.md the README>.
   .
-  If you are interested in the implementation, have a look at <https://github.com/lspitzner/brittany/blob/master/doc/implementation/theory.md this document>;
+  If you are interested in the implementation, have a look at <https://github.com/xwinus/brittany/blob/master/doc/implementation/theory.md this document>;
   .
-  The implementation is documented in more detail <https://github.com/lspitzner/brittany/blob/master/doc/implementation/index.md here>.
+  The implementation is documented in more detail <https://github.com/xwinus/brittany/blob/master/doc/implementation/index.md here>.
 license:              AGPL-3.0-only
 license-file:         LICENSE
 author:               Lennart Spitzner
-maintainer:           Lennart Spitzner <hexagoxel@hexagoxel.de>
+maintainer:           xwinus
 copyright:            Copyright (C) 2016-2019 Lennart Spitzner
                       Copyright (C) 2019 PRODA LTD
+                      Copyright (C) 2026 xwinus
 category:             Language
 build-type:           Simple
-homepage:             https://github.com/lspitzner/brittany/
-bug-reports:          https://github.com/lspitzner/brittany/issues
+homepage:             https://github.com/xwinus/brittany/
+bug-reports:          https://github.com/xwinus/brittany/issues
 extra-doc-files:
   ChangeLog.md
   README.md
   doc/implementation/*.md
 extra-source-files:
+  cabal.project
   data/brittany.yaml
   data/*.hs
+  source/test-suite/fixtures/*.hs
 
 source-repository head
   type: git
-  location: https://github.com/lspitzner/brittany.git
+  location: https://github.com/xwinus/brittany.git
 
 flag pedantic
   default: False
@@ -38,33 +41,34 @@ flag pedantic
 
 common library
   build-depends:
-    , aeson ^>= 2.0.1
-    , base ^>= 4.15.0
+    , aeson ^>= 2.2
+    , base ^>= 4.22.0
     , butcher ^>= 1.3.3
-    , bytestring ^>= 0.10.12
+    , bytestring ^>= 0.12
     , cmdargs ^>= 0.10.21
-    , containers ^>= 0.6.4
+    , containers ^>= 0.8
     , czipwith ^>= 1.0.1
     , data-tree-print ^>= 0.1.0
-    , deepseq ^>= 1.4.5
+    , deepseq ^>= 1.5
     , directory ^>= 1.3.6
-    , extra ^>= 1.7.10
-    , filepath ^>= 1.4.2
-    , ghc ^>= 9.0.1
-    , ghc-boot ^>= 9.0.1
-    , ghc-boot-th ^>= 9.0.1
-    , ghc-exactprint ^>= 0.6.4
+    , extra ^>= 1.8
+    , filepath ^>= 1.5
+    , ghc ^>= 9.14
+    , ghc-boot ^>= 9.14
+    , ghc-boot-th ^>= 9.14
+    , ghc-exactprint ^>= 1.14.0
+    , ghc-paths ^>= 0.1.0
     , monad-memo ^>= 0.5.3
-    , mtl ^>= 2.2.2
+    , mtl ^>= 2.3
     , multistate ^>= 0.8.0
     , pretty ^>= 1.1.3
     , random ^>= 1.2.1
     , safe ^>= 0.3.19
     , semigroups ^>= 0.19.2
-    , strict ^>= 0.4.0
+    , strict ^>= 0.5
     , syb ^>= 0.7.2
-    , text ^>= 1.2.5
-    , transformers ^>= 0.5.6
+    , text ^>= 2.1
+    , transformers ^>= 0.6
     , uniplate ^>= 1.6.13
     , yaml ^>= 0.11.7
   default-language: Haskell2010
@@ -108,7 +112,9 @@ library
     Language.Haskell.Brittany.Internal.Config
     Language.Haskell.Brittany.Internal.Config.Types
     Language.Haskell.Brittany.Internal.Config.Types.Instances
+    Language.Haskell.Brittany.Internal.ExactPrintCompat
     Language.Haskell.Brittany.Internal.ExactPrintUtils
+    Language.Haskell.Brittany.Internal.ExtractAnns
     Language.Haskell.Brittany.Internal.LayouterBasics
     Language.Haskell.Brittany.Internal.Layouters.DataDecl
     Language.Haskell.Brittany.Internal.Layouters.Decl
@@ -132,6 +138,8 @@ library
     Language.Haskell.Brittany.Internal.Utils
     Language.Haskell.Brittany.Main
     Paths_brittany
+  other-modules:
+    Language.Haskell.Brittany.Internal.CommentUtils
 
 executable brittany
   import: executable
@@ -143,7 +151,8 @@ test-suite brittany-test-suite
   import: executable
 
   build-depends:
-    , hspec ^>= 2.8.3
+    , hspec >= 2.8.3
   hs-source-dirs: source/test-suite
   main-is: Main.hs
+  other-modules: RegressionSpec
   type: exitcode-stdio-1.0

@@ -1,9 +1,16 @@
 packages: .
 
 allow-newer:
+    base
+    , template-haskell
+    , time
+    , containers
     -- https://github.com/lspitzner/butcher/issues/7
     , butcher:base
     -- https://github.com/lspitzner/data-tree-print/pull/2
     , data-tree-print:base
     -- https://github.com/lspitzner/multistate/pull/8
     , multistate:base
+    , czipwith:template-haskell
+    , indexed-traversable:containers
+    , aeson:template-haskell

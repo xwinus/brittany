@@ -6,32 +6,33 @@ module Language.Haskell.Brittany.Internal.Layouters.Module where
 import qualified Data.Maybe
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
-import GHC (AnnKeywordId(..), GenLocated(L), moduleNameString, unLoc)
-import GHC.Hs
+import GHC (GenLocated(L), moduleNameString, unLoc)
+import GHC.Hs hiding (DeltaPos)
 import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), Annotation(..), Comment(commentContents), DeltaPos(..), deltaRow)
 import Language.Haskell.Brittany.Internal.LayouterBasics
-import Language.Haskell.Brittany.Internal.Layouters.IE
+import Language.Haskell.Brittany.Internal.Layouters.IE (layoutLLIEs, SortItemsFlag(KeepItemsUnsorted), toL)
 import Language.Haskell.Brittany.Internal.Layouters.Import
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
-import Language.Haskell.GHC.ExactPrint as ExactPrint
-import Language.Haskell.GHC.ExactPrint.Types
-  (DeltaPos(..), commentContents, deltaRow)
 
 
 
-layoutModule :: ToBriDoc' HsModule
+layoutModule :: ToBriDoc' (HsModule GhcPs)
 layoutModule lmod@(L _ mod') = case mod' of
     -- Implicit module Main
-  HsModule _ Nothing _ imports _ _ _ -> do
+  HsModule{ hsmodName = Nothing, hsmodImports = imports } -> do
     commentedImports <- transformToCommentedImport imports
+    hasModuleComments <- hasAnyCommentsPrior lmod
     -- groupify commentedImports `forM_` tellDebugMessShow
-    docLines (commentedImportsToDoc <$> sortCommentedImports commentedImports)
+    docLines
+      $ (if hasModuleComments then [docNodeAnnKW lmod Nothing docEmpty] else [])
+      ++ (commentedImportsToDoc <$> sortCommentedImports commentedImports)
     -- sortedImports <- sortImports imports
     -- docLines $ [layoutImport y i | (y, i) <- sortedImports]
-  HsModule _ (Just n) les imports _ _ _ -> do
+  HsModule{ hsmodName = Just n, hsmodExports = les, hsmodImports = imports } -> do
     commentedImports <- transformToCommentedImport imports
     -- groupify commentedImports `forM_` tellDebugMessShow
     -- sortedImports <- sortImports imports
@@ -50,9 +51,9 @@ layoutModule lmod@(L _ mod') = case mod' of
             addAlternativeCond allowSingleLine $ docForceSingleline $ docSeq
               [ appSep $ docLit $ Text.pack "module"
               , appSep $ docLit tn
-              , docWrapNode lmod $ appSep $ case les of
+              , appSep $ case les of
                 Nothing -> docEmpty
-                Just x -> layoutLLIEs True KeepItemsUnsorted x
+                Just x -> docWrapNode lmod $ layoutLLIEs True KeepItemsUnsorted (toL x)
               , docSeparator
               , docLit $ Text.pack "where"
               ]
@@ -60,9 +61,9 @@ layoutModule lmod@(L _ mod') = case mod' of
               [ docAddBaseY BrIndentRegular $ docPar
                   (docSeq [appSep $ docLit $ Text.pack "module", docLit tn])
                   (docSeq
-                    [ docWrapNode lmod $ case les of
+                    [ case les of
                       Nothing -> docEmpty
-                      Just x -> layoutLLIEs False KeepItemsUnsorted x
+                      Just x -> docWrapNode lmod $ layoutLLIEs False KeepItemsUnsorted (toL x)
                     , docSeparator
                     , docLit $ Text.pack "where"
                     ]
@@ -98,7 +99,8 @@ instance Show ImportStatementRecord where
 transformToCommentedImport
   :: [LImportDecl GhcPs] -> ToBriDocM [CommentedImport]
 transformToCommentedImport is = do
-  nodeWithAnnotations <- is `forM` \i@(L _ rawImport) -> do
+  let isLoc = map toL is
+  nodeWithAnnotations <- isLoc `forM` \i@(L _ rawImport) -> do
     annotionMay <- astAnn i
     pure (annotionMay, rawImport)
   let
@@ -120,9 +122,13 @@ transformToCommentedImport is = do
         )
       Just ann ->
         let
-          blanksBeforeImportDecl = deltaRow (annEntryDelta ann) - 1
+          rawBlanksBeforeImportDecl = deltaRow (annEntryDelta ann) - 1
           (newAccumulator, priorComments') =
             List.span ((== 0) . deltaRow . snd) (annPriorComments ann)
+          -- Adjust blanks: prior comments consume some of the delta rows
+          -- between the previous sibling and this import
+          priorCommentRows = sum $ map (max 1 . deltaRow . snd) priorComments'
+          blanksBeforeImportDecl = max 0 (rawBlanksBeforeImportDecl - priorCommentRows)
           go
             :: [(Comment, DeltaPos)]
             -> [(Comment, DeltaPos)]
@@ -145,7 +151,7 @@ transformToCommentedImport is = do
           ++ replicate (blanksBeforeImportDecl + initialBlanks) EmptyLine
           ++ [ ImportStatement ImportStatementRecord
                  { commentsBefore = beforeComments
-                 , commentsAfter = accConnectedComm
+                 , commentsAfter = accConnectedComm ++ annFollowingComments ann
                  , importStatement = decl
                  }
              ]

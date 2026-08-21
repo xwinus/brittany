@@ -1,105 +1,115 @@
 name: CI
+
 on:
   pull_request:
-    branches:
-      - main
-      - master
   push:
     branches:
-      - main
       - master
-  release:
-    types:
-      - created
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GHC_VERSION: 9.14.1
+  CABAL_VERSION: 3.16.1.0
+  EXPECTED_TEST_SUMMARY: 556 examples, 0 failures, 18 pending
+
 jobs:
   build:
+    name: Build and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { os: macos-11, ghc: 9.0.1, cabal: 3.6.2.0 }
-          - { os: ubuntu-20.04, ghc: 9.0.1, cabal: 3.6.2.0 }
-          - { os: windows-2019, ghc: 9.0.1, cabal: 3.6.2.0, ext: .exe }
-    runs-on: ${{ matrix.os }}
+        os:
+          - ubuntu-latest
+          - macos-latest
+
     steps:
-      - uses: actions/checkout@v2
-      - run: mkdir artifact
-      - run: mkdir artifact/${{ matrix.os }}
-      - id: setup-haskell
-        uses: haskell/actions/setup@v1
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Haskell
+        id: setup-haskell
+        uses: haskell-actions/setup@v2.11.0
         with:
-          ghc-version: ${{ matrix.ghc }}
-          cabal-version: ${{ matrix.cabal }}
-      - run: cabal configure --enable-tests --flags pedantic --jobs
-      - run: cabal freeze
-      - run: cat cabal.project.freeze
-      - uses: actions/cache@v2
+          ghc-version: ${{ env.GHC_VERSION }}
+          cabal-version: ${{ env.CABAL_VERSION }}
+
+      - name: Cache Cabal store
+        uses: actions/cache@v6
         with:
           path: ${{ steps.setup-haskell.outputs.cabal-store }}
-          key: ${{ matrix.os }}-${{ matrix.ghc }}-${{ matrix.cabal }}-${{ hashFiles('cabal.project.freeze') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-ghc-${{ steps.setup-haskell.outputs.ghc-version }}-${{ hashFiles('brittany.cabal', 'cabal.project') }}
           restore-keys: |
-            ${{ matrix.os }}-${{ matrix.ghc }}-${{ matrix.cabal }}-
-            ${{ matrix.os }}-${{ matrix.ghc }}-
-      - run: cabal build
-      - run: cabal install --installdir artifact/${{ matrix.os }} --install-method copy
-      - run: cabal test --test-show-details direct
-      - run: cabal check
-      - run: cabal sdist --output-dir artifact/${{ matrix.os }}
-      - uses: svenstaro/upx-action@v2
-        with:
-          file: artifact/${{ matrix.os }}/brittany${{ matrix.ext }}
-      - uses: actions/upload-artifact@v2
-        with:
-          path: artifact
-          name: brittany-${{ github.sha }}
+            ${{ runner.os }}-${{ runner.arch }}-ghc-${{ steps.setup-haskell.outputs.ghc-version }}-
 
-  release:
-    needs: build
-    if: github.event_name == 'release'
-    runs-on: ubuntu-20.04
+      - name: Check package metadata
+        run: cabal check
+
+      - name: Build
+        run: cabal build all
+
+      - name: Run full test suite
+        run: |
+          cabal test all \
+            --test-show-details=direct \
+            --test-options='--format=progress --no-color' 2>&1 | tee test-output.log
+          grep -F "$EXPECTED_TEST_SUMMARY" test-output.log
+
+  source-distribution:
+    name: Test source distribution
+    runs-on: ubuntu-latest
+
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
 
-      - uses: actions/checkout@v2
-
-      - uses: actions/download-artifact@v2
+      - name: Set up Haskell
+        id: setup-haskell
+        uses: haskell-actions/setup@v2.11.0
         with:
-          name: brittany-${{ github.sha }}
-          path: artifact
+          ghc-version: ${{ env.GHC_VERSION }}
+          cabal-version: ${{ env.CABAL_VERSION }}
 
-      - uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Cache Cabal store
+        uses: actions/cache@v6
         with:
-          asset_content_type: application/octet-stream
-          asset_name: brittany-${{ github.event.release.tag_name }}-ubuntu
-          asset_path: artifact/ubuntu-20.04/brittany
-          upload_url: ${{ github.event.release.upload_url }}
+          path: ${{ steps.setup-haskell.outputs.cabal-store }}
+          key: ${{ runner.os }}-${{ runner.arch }}-ghc-${{ steps.setup-haskell.outputs.ghc-version }}-${{ hashFiles('brittany.cabal', 'cabal.project') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-ghc-${{ steps.setup-haskell.outputs.ghc-version }}-
 
-      - uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          asset_content_type: application/octet-stream
-          asset_name: brittany-${{ github.event.release.tag_name }}-macos
-          asset_path: artifact/macos-11/brittany
-          upload_url: ${{ github.event.release.upload_url }}
+      - name: Create source distribution
+        run: cabal sdist
 
-      - uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          asset_content_type: application/octet-stream
-          asset_name: brittany-${{ github.event.release.tag_name }}-windows.exe
-          asset_path: artifact/windows-2019/brittany.exe
-          upload_url: ${{ github.event.release.upload_url }}
+      - name: Unpack source distribution
+        id: unpack
+        run: |
+          archive=$(find dist-newstyle/sdist -maxdepth 1 -name 'brittany-*.tar.gz' -print -quit)
+          test -n "$archive"
+          mkdir unpacked
+          tar -xzf "$archive" -C unpacked
+          package_dir=$(find "$PWD/unpacked" -mindepth 1 -maxdepth 1 -type d -print -quit)
+          test -n "$package_dir"
+          echo "package_dir=$package_dir" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          asset_content_type: application/gzip
-          asset_name: brittany-${{ github.event.release.tag_name }}.tar.gz
-          asset_path: artifact/ubuntu-20.04/brittany-${{ github.event.release.tag_name }}.tar.gz
-          upload_url: ${{ github.event.release.upload_url }}
+      - name: Check packaged metadata
+        working-directory: ${{ steps.unpack.outputs.package_dir }}
+        run: cabal check
 
-      - run: cabal upload --publish --username '${{ secrets.HACKAGE_USERNAME }}' --password '${{ secrets.HACKAGE_PASSWORD }}' artifact/ubuntu-20.04/brittany-${{ github.event.release.tag_name }}.tar.gz
+      - name: Build packaged sources
+        working-directory: ${{ steps.unpack.outputs.package_dir }}
+        run: cabal build all
+
+      - name: Test packaged sources
+        working-directory: ${{ steps.unpack.outputs.package_dir }}
+        run: |
+          cabal test all \
+            --test-show-details=direct \
+            --test-options='--format=progress --no-color' 2>&1 | tee test-output.log
+          grep -F "$EXPECTED_TEST_SUMMARY" test-output.log

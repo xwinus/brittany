@@ -32,16 +32,24 @@ import qualified GHC hiding (parseModule)
 import GHC (GenLocated(L))
 import qualified GHC.Driver.Session as GHC
 import GHC.Hs
+import GHC.Parser.Annotation (getLocA)
+import GHC.Types.SrcLoc (unLoc)
 import qualified GHC.LanguageExtensions.Type as GHC
 import qualified GHC.OldList as List
-import GHC.Parser.Annotation (AnnKeywordId(..))
+import Language.Haskell.Brittany.Internal.ExactPrintCompat
+  ( AnnConName(..), AnnKey(..), AnnKeywordId(..), Anns, Annotation(..)
+  , Comment(..), KeywordId(..), mkAnnKey
+  )
+import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as EP
 import GHC.Types.SrcLoc (SrcSpan)
 import Language.Haskell.Brittany.Internal.Backend
 import Language.Haskell.Brittany.Internal.BackendUtils
+import Language.Haskell.Brittany.Internal.CommentUtils (collectCommentContents)
 import Language.Haskell.Brittany.Internal.Config
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.LayouterBasics
+import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import Language.Haskell.Brittany.Internal.Layouters.Decl
 import Language.Haskell.Brittany.Internal.Layouters.Module
 import Language.Haskell.Brittany.Internal.Prelude
@@ -66,22 +74,21 @@ data InlineConfigTarget
     | InlineConfigTargetBinding String
 
 extractCommentConfigs
-  :: ExactPrint.Anns
+  :: Anns
   -> TopLevelDeclNameMap
   -> Either (String, String) (CConfig Maybe, PerItemConfig)
 extractCommentConfigs anns (TopLevelDeclNameMap declNameMap) = do
   let
     commentLiness =
       [ ( k
-        , [ x
-          | (ExactPrint.Comment x _ _, _) <-
-            (ExactPrint.annPriorComments ann
-            ++ ExactPrint.annFollowingComments ann
+        , [ commentContents c
+          | (c, _) <-
+            (annPriorComments ann
+            ++ annFollowingComments ann
             )
           ]
-        ++ [ x
-           | (ExactPrint.AnnComment (ExactPrint.Comment x _ _), _) <-
-             ExactPrint.annsDP ann
+        ++ [ commentContents c
+           | (AnnComment c, _) <- annsDP ann
            ]
         )
       | (k, ann) <- Map.toList anns
@@ -218,9 +225,9 @@ extractCommentConfigs anns (TopLevelDeclNameMap declNameMap) = do
 
 
 getTopLevelDeclNameMap :: GHC.ParsedSource -> TopLevelDeclNameMap
-getTopLevelDeclNameMap (L _ (HsModule _ _name _exports _ decls _ _)) =
+getTopLevelDeclNameMap (L _ (HsModule _ _name _exports _ decls)) =
   TopLevelDeclNameMap $ Map.fromList
-    [ (ExactPrint.mkAnnKey decl, name)
+    [ (mkAnnKey (toL decl), name)
     | decl <- decls
     , (name : _) <- [getDeclBindingNames decl]
     ]
@@ -324,7 +331,7 @@ parsePrintModule configWithDebugs inputText = runExceptT $ do
 pPrintModule
   :: Config
   -> PerItemConfig
-  -> ExactPrint.Anns
+  -> Anns
   -> GHC.ParsedSource
   -> ([BrittanyError], TextL.Text)
 pPrintModule conf inlineConf anns parsedModule =
@@ -348,18 +355,29 @@ pPrintModule conf inlineConf anns parsedModule =
       else
         trace ("---- DEBUGMESSAGES ---- ")
           . foldr (seq . join trace) id debugStrings
-  in tracer $ (errs, Text.Builder.toLazyText out)
+    -- When we fell back to exactprint for any node, use exactPrint for the
+    -- whole module to preserve pragmas and structure (emptyAnns loses these).
+    -- Don't treat ErrorUnknownNode as fatal when we used this fallback.
+    hasUnknownNode = any (\case { ErrorUnknownNode{} -> True; _ -> False }) errs
+    fallbackOutput = TextL.pack $ ExactPrint.exactPrint parsedModule
+    errs' = if hasUnknownNode
+      then filter (\case { ErrorUnknownNode{} -> False; _ -> True }) errs
+      else errs
+  in tracer $
+    if hasUnknownNode
+      then (errs', fallbackOutput)
+      else (errs, Text.Builder.toLazyText out)
   -- unless () $ do
   --
   --   debugStrings `forM_` \s ->
   --     trace s $ return ()
 
--- | Additionally checks that the output compiles again, appending an error
--- if it does not.
+-- | Additionally checks that the output parses and preserves every source
+-- comment, appending errors when either invariant fails.
 pPrintModuleAndCheck
   :: Config
   -> PerItemConfig
-  -> ExactPrint.Anns
+  -> Anns
   -> GHC.ParsedSource
   -> IO ([BrittanyError], TextL.Text)
 pPrintModuleAndCheck conf inlineConf anns parsedModule = do
@@ -370,10 +388,23 @@ pPrintModuleAndCheck conf inlineConf anns parsedModule = do
     "output"
     (\_ -> return $ Right ())
     (TextL.unpack output)
-  let
-    errs' = errs ++ case parseResult of
-      Left{} -> [ErrorOutputCheck]
-      Right{} -> []
+  let omitCommentCheck =
+        conf
+          & _conf_errorHandling
+          .> _econf_omit_unused_comment_check
+          .> confUnpack
+      checkErrors = case parseResult of
+        Left{} -> [ErrorOutputCheck]
+        Right (_, outputModule, _) ->
+          if omitCommentCheck
+            then []
+            else
+              [ ErrorUnusedComment
+                  $ "Comment missing from formatted output: " ++ show commentText
+              | commentText <- collectCommentContents parsedModule
+                  List.\\ collectCommentContents outputModule
+              ]
+      errs' = errs ++ checkErrors
   return (errs', output)
 
 
@@ -452,26 +483,41 @@ parsePrintModuleTests conf filename input = do
 --           Left $ "pretty printing error(s):\n" ++ List.unlines errStrs
 --         else return $ TextL.toStrict $ Text.Builder.toLazyText out
 
-toLocal :: Config -> ExactPrint.Anns -> PPMLocal a -> PPM a
+toLocal :: Config -> Anns -> PPMLocal a -> PPM a
 toLocal conf anns m = do
   (x, write) <-
     lift $ MultiRWSS.runMultiRWSTAW (conf :+: anns :+: HNil) HNil $ m
   MultiRWSS.mGetRawW >>= \w -> MultiRWSS.mPutRawW (w `mappend` write)
   pure x
 
-ppModule :: GenLocated SrcSpan HsModule -> PPM ()
-ppModule lmod@(L _loc _m@(HsModule _ _name _exports _ decls _ _)) = do
+ppModule :: GenLocated SrcSpan (HsModule GhcPs) -> PPM ()
+ppModule lmod@(L _loc _m@(HsModule _ _name _exports _ decls)) = do
   defaultAnns <- do
     anns <- mAsk
-    let annKey = ExactPrint.mkAnnKey lmod
+    let annKey = mkAnnKey lmod
     let annMap = Map.findWithDefault Map.empty annKey anns
-    let isEof = (== ExactPrint.AnnEofPos)
-    let overAnnsDP f a = a { ExactPrint.annsDP = f $ ExactPrint.annsDP a }
-    pure $ fmap (overAnnsDP . filter $ isEof . fst) annMap
+    let isEof = (== AnnEofPos)
+    let overAnnsDP f a = a { annsDP = f $ annsDP a }
+    -- Clear comments from all annotations in defaultAnns. These are
+    -- module-level annotations that leak into every declaration's
+    -- _lstate_comments; comments on them are either already emitted by
+    -- ppPreamble or belong to a specific declaration (not the module).
+    -- Without clearing, they produce spurious ErrorUnusedComment.
+    let clearComments a = a
+          { annPriorComments = []
+          , annFollowingComments = []
+          }
+    pure $ fmap (clearComments . overAnnsDP (filter $ isEof . fst)) annMap
 
   post <- ppPreamble lmod
-  decls `forM_` \decl -> do
-    let declAnnKey = ExactPrint.mkAnnKey decl
+  -- After preamble with explicit module header, add newline to separate from
+  -- first declaration (layoutModule ends at "where" without trailing newline).
+  when (Data.Maybe.isJust _name) $ mTell (Text.Builder.fromString "\n")
+  let toL x = L (getLocA x) (unLoc x)
+  forM_ (zip [0 ..] decls) $ \(i, decl) -> do
+    when (i > 0) $ mTell (Text.Builder.fromString "\n")
+    let decl' = toL decl
+    let declAnnKey = mkAnnKey decl'
     let declBindingNames = getDeclBindingNames decl
     inlineConf <- mAsk
     let mDeclConf = Map.lookup declAnnKey $ _icd_perKey inlineConf
@@ -479,7 +525,9 @@ ppModule lmod@(L _loc _m@(HsModule _ _name _exports _ decls _ _)) = do
       mBindingConfs =
         declBindingNames <&> \n -> Map.lookup n $ _icd_perBinding inlineConf
     filteredAnns <- mAsk <&> \annMap ->
-      Map.union defaultAnns $ Map.findWithDefault Map.empty declAnnKey annMap
+      -- Declaration-specific annotations take priority over defaults
+      -- (defaultAnns has comments cleared to avoid ErrorUnusedComment)
+      Map.union (Map.findWithDefault Map.empty declAnnKey annMap) defaultAnns
 
     traceIfDumpConf
         "bridoc annotations filtered/transformed"
@@ -495,54 +543,57 @@ ppModule lmod@(L _loc _m@(HsModule _ _name _exports _ decls _ _)) = do
     let exactprintOnly = config' & _conf_roundtrip_exactprint_only & confUnpack
     toLocal config' filteredAnns $ do
       bd <- if exactprintOnly
-        then briDocMToPPM $ briDocByExactNoComment decl
+        then briDocMToPPM $ briDocByExactNoComment decl'
         else do
-          (r, errs, debugs) <- briDocMToPPMInner $ layoutDecl decl
+          (r, errs, debugs) <- briDocMToPPMInner $ layoutDecl decl'
           mTell debugs
           mTell errs
           if null errs
             then pure r
-            else briDocMToPPM $ briDocByExactNoComment decl
+            else briDocMToPPM $ briDocByExactNoComment decl'
       layoutBriDoc bd
 
   let
     finalComments = filter
       (fst .> \case
-        ExactPrint.AnnComment{} -> True
+        AnnComment{} -> True
         _ -> False
       )
       post
   post `forM_` \case
-    (ExactPrint.AnnComment (ExactPrint.Comment cmStr _ _), l) -> do
+    (AnnComment c, l) -> do
       ppmMoveToExactLoc l
-      mTell $ Text.Builder.fromString cmStr
-    (ExactPrint.AnnEofPos, (ExactPrint.DP (eofZ, eofX))) ->
+      mTell $ Text.Builder.fromString (commentContents c)
+    (AnnEofPos, (EP.DP (eofZ, eofX))) ->
       let
-        folder (acc, _) (kw, ExactPrint.DP (y, x)) = case kw of
-          ExactPrint.AnnComment cm | span <- ExactPrint.commentIdentifier cm ->
-            ( acc + y + GHC.srcSpanEndLine span - GHC.srcSpanStartLine span
-            , x + GHC.srcSpanEndCol span - GHC.srcSpanStartCol span
-            )
+        folder (acc, _) (kw, EP.DP (y, x)) = case kw of
+          AnnComment cm | span <- commentIdentifier cm ->
+            case EP.srcSpanToRealSpan span of
+              Just rspan ->
+                ( acc + y + GHC.srcSpanEndLine rspan - GHC.srcSpanStartLine rspan
+                , x + GHC.srcSpanEndCol rspan - GHC.srcSpanStartCol rspan
+                )
+              Nothing -> (acc + y, x)
           _ -> (acc + y, x)
         (cmY, cmX) = foldl' folder (0, 0) finalComments
-      in ppmMoveToExactLoc $ ExactPrint.DP (eofZ - cmY, eofX - cmX)
+      in ppmMoveToExactLoc $ EP.DP (eofZ - cmY, eofX - cmX)
     _ -> return ()
 
 getDeclBindingNames :: LHsDecl GhcPs -> [String]
-getDeclBindingNames (L _ decl) = case decl of
+getDeclBindingNames ldecl = case unLoc ldecl of
   SigD _ (TypeSig _ ns _) -> ns <&> \(L _ n) -> Text.unpack (rdrNameToText n)
-  ValD _ (FunBind _ (L _ n) _ _) -> [Text.unpack $ rdrNameToText n]
+  ValD _ (FunBind _ (L _ n) _) -> [Text.unpack $ rdrNameToText n]
   _ -> []
 
 
 -- Prints the information associated with the module annotation
 -- This includes the imports
 ppPreamble
-  :: GenLocated SrcSpan HsModule
-  -> PPM [(ExactPrint.KeywordId, ExactPrint.DeltaPos)]
+  :: GenLocated SrcSpan (HsModule GhcPs)
+  -> PPM [(KeywordId, EP.DeltaPos)]
 ppPreamble lmod@(L loc m@HsModule{}) = do
   filteredAnns <- mAsk <&> \annMap ->
-    Map.findWithDefault Map.empty (ExactPrint.mkAnnKey lmod) annMap
+    Map.findWithDefault Map.empty (mkAnnKey (toL lmod)) annMap
     -- Since ghc-exactprint adds annotations following (implicit)
     -- modules to both HsModule and the elements in the module
     -- this can cause duplication of comments. So strip
@@ -555,14 +606,14 @@ ppPreamble lmod@(L loc m@HsModule{}) = do
 
   let
     (filteredAnns', post) =
-      case Map.lookup (ExactPrint.mkAnnKey lmod) filteredAnns of
+      case Map.lookup (mkAnnKey (toL lmod)) filteredAnns of
         Nothing -> (filteredAnns, [])
         Just mAnn ->
           let
-            modAnnsDp = ExactPrint.annsDP mAnn
-            isWhere (ExactPrint.G AnnWhere) = True
+            modAnnsDp = annsDP mAnn
+            isWhere (G AnnWhere) = True
             isWhere _ = False
-            isEof (ExactPrint.AnnEofPos) = True
+            isEof (AnnEofPos) = True
             isEof _ = False
             whereInd = List.findIndex (isWhere . fst) modAnnsDp
             eofInd = List.findIndex (isEof . fst) modAnnsDp
@@ -571,22 +622,47 @@ ppPreamble lmod@(L loc m@HsModule{}) = do
               (Just i, Nothing) -> List.splitAt (i + 1) modAnnsDp
               (Nothing, Just _i) -> ([], modAnnsDp)
               (Just i, Just j) -> List.splitAt (min (i + 1) j) modAnnsDp
-            mAnn' = mAnn { ExactPrint.annsDP = pre }
+            mAnn' = mAnn { annsDP = pre }
             filteredAnns'' =
-              Map.insert (ExactPrint.mkAnnKey lmod) mAnn' filteredAnns
+              Map.insert (mkAnnKey (toL lmod)) mAnn' filteredAnns
           in (filteredAnns'', post')
   traceIfDumpConf
       "bridoc annotations filtered/transformed"
       _dconf_dump_annotations
     $ annsDoc filteredAnns'
 
+  -- Emit module prior comments (LANGUAGE pragmas, brittany config, etc.)
+  -- first; layoutModule and processDefault don't include them. Our
+  -- ExtractAnns puts these in annPriorComments.
+  let modKey = mkAnnKey (toL lmod)
+  let modPriorComments = maybe [] annPriorComments (Map.lookup modKey filteredAnns)
+  forM_ (zip [0::Int ..] modPriorComments) $
+    \(idx, (c, dp)) -> do
+      -- For comments after the first, the DP accounts for the newline we
+      -- added after the previous comment, so subtract 1 row.
+      let dp' = if idx > 0
+            then case dp of
+              EP.DP (y, x) | y > 0 -> EP.DP (y - 1, x)
+              _ -> dp
+            else dp
+      ppmMoveToExactLoc dp'
+      mTell $ Text.Builder.fromString (commentContents c)
+      mTell $ Text.Builder.fromString "\n"
+
+  -- Clear the prior comments we just emitted from the annotation map
+  -- so layoutBriDoc doesn't re-output them via BDAnnotationPrior.
+  let clearModPriorComments anns = case Map.lookup modKey anns of
+        Nothing -> anns
+        Just ann -> Map.insert modKey (ann { annPriorComments = [] }) anns
+      filteredAnns'' = clearModPriorComments filteredAnns'
+
   if shouldReformatPreamble
-    then toLocal config filteredAnns' $ withTransformedAnns lmod $ do
+    then toLocal config filteredAnns'' $ withTransformedAnns lmod $ do
       briDoc <- briDocMToPPM $ layoutModule lmod
       layoutBriDoc briDoc
-    else
+    else do
       let emptyModule = L loc m { hsmodDecls = [] }
-      in MultiRWSS.withMultiReader filteredAnns' $ processDefault emptyModule
+      MultiRWSS.withMultiReader filteredAnns'' $ processDefault emptyModule
   return post
 
 _sigHead :: Sig GhcPs -> String
@@ -597,8 +673,8 @@ _sigHead = \case
 
 _bindHead :: HsBind GhcPs -> String
 _bindHead = \case
-  FunBind _ fId _ [] -> "FunBind " ++ (Text.unpack $ lrdrNameToText $ fId)
-  PatBind _ _pat _ ([], []) -> "PatBind smth"
+  FunBind _ fId _ -> "FunBind " ++ (Text.unpack $ lrdrNameToText $ fId)
+  PatBind _ _ _ _ -> "PatBind smth"
   _ -> "unknown bind"
 
 
@@ -647,7 +723,7 @@ layoutBriDoc briDoc = do
     -- simpl <- mGet <&> transformToSimple
     -- return simpl
 
-  anns :: ExactPrint.Anns <- mAsk
+  anns :: Anns <- mAsk
 
   let
     state = LayoutState
@@ -669,16 +745,19 @@ layoutBriDoc briDoc = do
   let
     remainingComments =
       [ c
-      | (ExactPrint.AnnKey _ con, elemAnns) <- Map.toList
+      | (AnnKey _ con, elemAnns) <- Map.toList
         (_lstate_comments state')
     -- With the new import layouter, we manually process comments
     -- without relying on the backend to consume the comments out of
     -- the state/map. So they will end up here, and we need to ignore
     -- them.
-      , ExactPrint.unConName con /= "ImportDecl"
+      , unConName con /= "ImportDecl"
       , c <- extractAllComments elemAnns
       ]
-  remainingComments
-    `forM_` (fst .> show .> ErrorUnusedComment .> (: []) .> mTell)
+  config <- mAsk
+  unless
+    (config & _conf_errorHandling & _econf_omit_unused_comment_check & confUnpack)
+    $ remainingComments
+      `forM_` (fst .> show .> ErrorUnusedComment .> (: []) .> mTell)
 
   return $ ()

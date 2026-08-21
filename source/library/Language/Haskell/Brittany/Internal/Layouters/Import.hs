@@ -7,10 +7,14 @@ import qualified Data.Text as Text
 import GHC (GenLocated(L), Located, moduleNameString, unLoc)
 import GHC.Hs
 import GHC.Types.Basic
+import qualified GHC.Data.FastString as FastString
+import GHC.Types.PkgQual (RawPkgQual(..))
+import GHC.Types.SourceText (SourceText(..), StringLiteral(..))
 import GHC.Unit.Types (IsBootInterface(..))
+import Language.Haskell.Syntax.ImpExp (ImportListInterpretation(EverythingBut))
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.LayouterBasics
-import Language.Haskell.Brittany.Internal.Layouters.IE
+import Language.Haskell.Brittany.Internal.Layouters.IE (layoutLLIEs, layoutAnnAndSepLLIEs, toL, SortItemsFlag(ShouldSortItems))
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
@@ -19,26 +23,39 @@ import Language.Haskell.Brittany.Internal.Types
 
 prepPkg :: SourceText -> String
 prepPkg rawN = case rawN of
-  SourceText n -> n
+  SourceText n -> FastString.unpackFS n
   -- This would be odd to encounter and the
   -- result will most certainly be wrong
   NoSourceText -> ""
 prepModName :: Located e -> e
 prepModName = unLoc
 
+pkgToSourceText :: RawPkgQual -> Maybe SourceText
+pkgToSourceText (RawPkgQual (StringLiteral st _ _)) = Just st
+pkgToSourceText NoRawPkgQual = Nothing
+
 layoutImport :: ImportDecl GhcPs -> ToBriDocM BriDocNumbered
 layoutImport importD = case importD of
-  ImportDecl _ _ (L _ modName) pkg src safe q False mas mllies -> do
+  ImportDecl
+    { ideclName = lmodName
+    , ideclPkgQual = pkg
+    , ideclSource = src
+    , ideclSafe = safe
+    , ideclQualified = q
+    , ideclAs = mas
+    , ideclImportList = mllies
+    } -> do
     importCol <- mAsk <&> _conf_layout .> _lconfig_importColumn .> confUnpack
     importAsCol <-
       mAsk <&> _conf_layout .> _lconfig_importAsColumn .> confUnpack
     indentPolicy <- mAsk <&> _conf_layout .> _lconfig_indentPolicy .> confUnpack
     let
+      modName = unLoc lmodName
       compact = indentPolicy /= IndentPolicyFree
       modNameT = Text.pack $ moduleNameString modName
-      pkgNameT = Text.pack . prepPkg . sl_st <$> pkg
-      masT = Text.pack . moduleNameString . prepModName <$> mas
-      hiding = maybe False fst mllies
+      pkgNameT = Text.pack . prepPkg <$> pkgToSourceText pkg
+      masT = Text.pack . moduleNameString . unLoc <$> mas
+      hiding = maybe False (== EverythingBut) (fst <$> mllies)
       minQLength = length "import qualified "
       qLengthReal =
         let
@@ -76,29 +93,30 @@ layoutImport importD = case importD of
       bindingsD = case mllies of
         Nothing -> docEmpty
         Just (_, llies) -> do
-          hasComments <- hasAnyCommentsBelow llies
+          let llies' = toL llies
+          hasComments <- hasAnyCommentsBelow llies'
           if compact
             then docAlt
               [ docSeq
                 [ hidDoc
-                , docForceSingleline $ layoutLLIEs True ShouldSortItems llies
+                , docForceSingleline $ layoutLLIEs True ShouldSortItems llies'
                 ]
               , let
                   makeParIfHiding = if hiding
                     then docAddBaseY BrIndentRegular . docPar hidDoc
                     else id
-                in makeParIfHiding (layoutLLIEs True ShouldSortItems llies)
+                in makeParIfHiding (layoutLLIEs True ShouldSortItems llies')
               ]
             else do
-              ieDs <- layoutAnnAndSepLLIEs ShouldSortItems llies
-              docWrapNodeRest llies
+              ieDs <- layoutAnnAndSepLLIEs ShouldSortItems llies'
+              docWrapNodeRest llies'
                 $ docEnsureIndent (BrIndentSpecial hidDocCol)
                 $ case ieDs of
                   -- ..[hiding].( )
                     [] -> if hasComments
                       then docPar
                         (docSeq
-                          [hidDoc, docParenLSep, docWrapNode llies docEmpty]
+                          [hidDoc, docParenLSep, docWrapNode llies' docEmpty]
                         )
                         (docEnsureIndent
                           (BrIndentSpecial hidDocColDiff)

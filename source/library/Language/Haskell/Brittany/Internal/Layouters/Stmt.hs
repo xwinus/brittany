@@ -6,9 +6,11 @@ module Language.Haskell.Brittany.Internal.Layouters.Stmt where
 
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
-import GHC (GenLocated(L))
+import GHC (GenLocated(L), unLoc)
 import GHC.Hs
+import GHC.Types.SrcLoc (noSrcSpan)
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.Decl
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
@@ -26,10 +28,10 @@ layoutStmt lstmt@(L _ stmt) = do
     mAsk <&> _conf_layout .> _lconfig_indentAmount .> confUnpack
   docWrapNode lstmt $ case stmt of
     LastStmt _ body Nothing _ -> do
-      layoutExpr body
+      layoutExpr (toL body)
     BindStmt _ lPat expr -> do
       patDoc <- fmap return $ colsWrapPat =<< layoutPat lPat
-      expDoc <- docSharedWrapper layoutExpr expr
+      expDoc <- docSharedWrapper layoutExpr (toL expr)
       docAlt
         [ docCols
           ColBindStmt
@@ -49,7 +51,7 @@ layoutStmt lstmt@(L _ stmt) = do
     LetStmt _ binds -> do
       let isFree = indentPolicy == IndentPolicyFree
       let indentFourPlus = indentAmount >= 4
-      layoutLocalBinds binds >>= \case
+      layoutLocalBinds (L noSrcSpan binds) >>= \case
         Nothing -> docLit $ Text.pack "let"
           -- i just tested the above, and it is indeed allowed. heh.
         Just [] -> docLit $ Text.pack "let" -- this probably never happens
@@ -101,7 +103,7 @@ layoutStmt lstmt@(L _ stmt) = do
       addAlternativeCond (indentPolicy == IndentPolicyFree) $ docSeq
         [ docLit (Text.pack "rec")
         , docSeparator
-        , docSetBaseAndIndent $ docLines $ layoutStmt <$> stmts
+        , docSetBaseAndIndent $ docLines $ layoutStmt . toL <$> unLoc stmts
         ]
       -- rec
       --   stmt1
@@ -109,8 +111,8 @@ layoutStmt lstmt@(L _ stmt) = do
       --   stmt3
       addAlternative $ docAddBaseY BrIndentRegular $ docPar
         (docLit (Text.pack "rec"))
-        (docLines $ layoutStmt <$> stmts)
+        (docLines $ layoutStmt . toL <$> unLoc stmts)
     BodyStmt _ expr _ _ -> do
-      expDoc <- docSharedWrapper layoutExpr expr
+      expDoc <- docSharedWrapper layoutExpr (toL expr)
       docAddBaseY BrIndentRegular $ expDoc
     _ -> briDocByExactInlineOnly "some unknown statement" lstmt

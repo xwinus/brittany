@@ -1,5 +1,21 @@
 # Revision history for brittany
 
+## 0.15.0.0 -- unreleased
+
+* Revived Brittany development under the xwinus fork.
+* Added support for GHC 9.14.1 and ghc-exactprint 1.14.
+* Added initial support for GHC 9.14 language extensions.
+* Fixed a segmentation fault when formatting `DerivingVia` clauses with the
+  GHC 9.14 AST.
+* Preserved multi-constructor data declarations through an exactprint fallback
+  instead of silently dropping every constructor after the first.
+* Re-enabled output syntax validation for the GHC 9.14 test suite.
+* Re-enabled the unused-comment check so comment loss fails formatting instead
+  of silently producing incomplete output.
+* Replaced the SIGSEGV workaround with a standard Hspec runner that verifies
+  every fixture and reports failures normally.
+* Known limitation: 18 comment-layout tests remain pending.
+
 ## 0.14.0.0 -- November 2021
 
 * #357: Added support for GHC 9.0. Dropped support for all other versions of GHC.
