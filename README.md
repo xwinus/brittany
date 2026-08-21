@@ -9,9 +9,8 @@ current code is based on the GHC 9.14 forward port by
 
 - The current development target is GHC 9.14.1 with ghc-exactprint 1.14.
 - Version 0.15.0.0 is unreleased and intended for development use.
-- The latest local test run reaches 491 passing and 11 pending tests before the
-  existing GHC 9.14 SIGSEGV workaround terminates the runner. The runner must
-  be hardened before all 547 fixture files can be reliably verified.
+- The test suite verifies all 547 golden fixtures and 3 focused regression
+  cases. The current result is 532 passing and 18 pending tests.
 - The pending cases concern comment layout and remain a known limitation.
 - Support for all GHC 9.14 language extensions has not yet been validated.
 

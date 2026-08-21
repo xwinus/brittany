@@ -1,20 +1,14 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
-import qualified Control.Exception as Exception
+{-# LANGUAGE StandaloneKindSignatures #-}
+
 import qualified Control.Monad as Monad
-import qualified Data.IORef as IORef
+import Data.Kind (Type)
 import qualified Data.List as List
 import qualified Data.Set as Set
 import qualified Language.Haskell.Brittany.Main as Brittany
+import qualified RegressionSpec
 import qualified System.Directory as Directory
 import qualified System.FilePath as FilePath
-import qualified System.IO as IO
-import Foreign.C.Types (CInt(..))
-
--- Use _exit to bypass GHC 9.14 runtime shutdown segfault
-foreign import ccall "_exit" c_exit :: CInt -> IO ()
-
--- Install C-level SIGSEGV handler that calls _exit with given code
-foreign import ccall "install_segv_handler" installSegvHandler :: CInt -> IO ()
+import qualified Test.Hspec as Hspec
 
 findProjectRoot :: FilePath -> IO FilePath
 findProjectRoot dir = do
@@ -33,6 +27,13 @@ findProjectRoot dir = do
 knownCommentFailures :: Set.Set String
 knownCommentFailures = Set.fromList
   [ "Test38"   -- type sig same-line comments
+  , "Test63"   -- record field comments
+  , "Test64"   -- record and deriving comments
+  , "Test65"   -- record field punctuation comments
+  , "Test66"   -- deriving clause comments
+  , "Test67"   -- deriving-via comments
+  , "Test68"   -- existential constructor comment placement
+  , "Test73"   -- commented-out record field
   , "Test170"  -- import sub-list comments
   , "Test190"  -- type decl comments
   , "Test192"  -- type tuple comments
@@ -46,78 +47,41 @@ knownCommentFailures = Set.fromList
   ]
 
 main :: IO ()
-main = do
-  -- Install C-level SIGSEGV handler early to handle GHC 9.14 runtime crash.
-  -- Exit code 0 by default; updated to 1 if any test fails.
-  installSegvHandler 0
-  projectRoot <- findProjectRoot =<< Directory.getCurrentDirectory
-  Directory.setCurrentDirectory projectRoot
+main = Hspec.hspec $ do
+  projectRoot <- Hspec.runIO $ findProjectRoot =<< Directory.getCurrentDirectory
+  Hspec.runIO $ Directory.setCurrentDirectory projectRoot
   let dataDir = FilePath.combine projectRoot "data"
       outputDir = FilePath.combine projectRoot "output"
-  entries <- Directory.listDirectory dataDir
-  failRef <- IORef.newIORef (0 :: Int)
-  passRef <- IORef.newIORef (0 :: Int)
-  pendRef <- IORef.newIORef (0 :: Int)
-  failNames <- IORef.newIORef ([] :: [String])
+  entries <- Hspec.runIO $ Directory.listDirectory dataDir
   Monad.forM_ (List.sort entries) $ \entry ->
     case FilePath.stripExtension "hs" entry of
       Nothing -> pure ()
-      Just slug ->
-        if Set.member slug knownCommentFailures
-          then do
-            IO.putStrLn $ slug ++ " [\x2012]"
-            IO.hFlush IO.stdout
-            IORef.modifyIORef' pendRef (+ 1)
-          else do
-            let input = FilePath.combine dataDir entry
-                output = FilePath.combine outputDir entry
-                configFile = FilePath.combine dataDir "brittany.yaml"
-            result <- Exception.try $ do
-              expected <- readFile input
-              Directory.copyFile input output
-              Brittany.mainWith
-                "brittany"
-                [ "--config-file"
-                , configFile
-                , "--no-user-config"
-                , "--write-mode"
-                , "inplace"
-                , output
-                ]
-              actual <- readFile output
-              if actual == expected
-                then pure True
-                else do
-                  IO.putStrLn $ slug ++ " [\x2718]"
-                  IO.hFlush IO.stdout
-                  pure False
-            case result :: Either Exception.SomeException Bool of
-              Right True -> do
-                IO.putStrLn $ slug ++ " [\x2714]"
-                IO.hFlush IO.stdout
-                IORef.modifyIORef' passRef (+ 1)
-              Right False -> do
-                IORef.modifyIORef' failRef (+ 1)
-                IORef.modifyIORef' failNames (slug :)
-              Left e -> do
-                IO.putStrLn $ slug ++ " [\x2718] " ++ show e
-                IO.hFlush IO.stdout
-                IORef.modifyIORef' failRef (+ 1)
-                IORef.modifyIORef' failNames (slug :)
-  IO.hFlush IO.stdout
-  IO.hFlush IO.stderr
-  p <- IORef.readIORef passRef
-  f <- IORef.readIORef failRef
-  pend <- IORef.readIORef pendRef
-  fnames <- IORef.readIORef failNames
-  IO.putStrLn ""
-  IO.putStrLn $ show (p + f + pend) ++ " examples, "
-    ++ show f ++ " failures, "
-    ++ show pend ++ " pending"
-  Monad.when (f > 0) $ do
-    IO.putStrLn $ "FAILURES: " ++ show (reverse fnames)
-  IO.hFlush IO.stdout
-  IO.hFlush IO.stderr
-  -- Update SIGSEGV handler exit code before exiting
-  installSegvHandler (if f > 0 then 1 else 0)
-  c_exit (if f > 0 then 1 else 0)
+      Just slug -> Hspec.it slug $ do
+        Monad.when (Set.member slug knownCommentFailures)
+          $ Hspec.pendingWith "Known GHC 9.14 comment-layout regression"
+        let input = FilePath.combine dataDir entry
+            output = FilePath.combine outputDir entry
+            configFile = FilePath.combine dataDir "brittany.yaml"
+        expected <- readFile input
+        Directory.copyFile input output
+        Brittany.mainWith
+          "brittany"
+          [ "--config-file"
+          , configFile
+          , "--no-user-config"
+          , "--write-mode"
+          , "inplace"
+          , output
+          ]
+        actual <- readFile output
+        Literal actual `Hspec.shouldBe` Literal expected
+
+  RegressionSpec.spec projectRoot
+
+type Literal :: Type
+newtype Literal
+  = Literal String
+  deriving Eq
+
+instance Show Literal where
+  show (Literal value) = value

@@ -8,9 +8,7 @@ import qualified Data.Data
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
 import GHC (GenLocated(L), Located, unLoc)
-import qualified GHC
 import GHC.Hs
-import GHC.Hs.Type (HsSigType(HsSig))
 import GHC.Types.SrcLoc (noSrcSpan)
 import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.Config.Types
@@ -21,7 +19,6 @@ import Language.Haskell.Brittany.Internal.Layouters.Type
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
-import Unsafe.Coerce (unsafeCoerce)
 
 
 
@@ -288,10 +285,17 @@ derivingClauseDoc (L _ (HsDerivingClause _ext mStrategy lTys)) =
     (L _ (StockStrategy _)) -> (docLitS " stock", docEmpty)
     (L _ (AnyclassStrategy _)) -> (docLitS " anyclass", docEmpty)
     (L _ (NewtypeStrategy _)) -> (docLitS " newtype", docEmpty)
-    lVia@(L _ (ViaStrategy viaType)) ->
+    lVia@(L _ (ViaStrategy (XViaStrategyPs _ viaType))) ->
       ( docEmpty
-      , docSeq [docWrapNode (toL lVia) $ docLitS " via", docSeparator, layoutType (unsafeCoerce viaType)]
+      , docSeq
+        [ docWrapNode (toL lVia) $ docLitS " via"
+        , docSeparator
+        , layoutSigType viaType
+        ]
       )
+
+  layoutSigType :: LHsSigType GhcPs -> ToBriDocM BriDocNumbered
+  layoutSigType (L _ (HsSig _ _ body)) = layoutType (toL body)
 
 docDeriving :: ToBriDocM BriDocNumbered
 docDeriving = docLitS "deriving"

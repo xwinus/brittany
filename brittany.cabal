@@ -27,6 +27,7 @@ extra-doc-files:
 extra-source-files:
   data/brittany.yaml
   data/*.hs
+  source/test-suite/fixtures/*.hs
 
 source-repository head
   type: git
@@ -147,8 +148,8 @@ test-suite brittany-test-suite
   import: executable
 
   build-depends:
-    , unix
+    , hspec >= 2.8.3
   hs-source-dirs: source/test-suite
-  c-sources: source/test-suite/segv_handler.c
   main-is: Main.hs
+  other-modules: RegressionSpec
   type: exitcode-stdio-1.0

@@ -5,8 +5,11 @@
 * Revived Brittany development under the xwinus fork.
 * Added support for GHC 9.14.1 and ghc-exactprint 1.14.
 * Added initial support for GHC 9.14 language extensions.
-* Known limitation: 11 comment-layout tests remain pending, and the current
-  SIGSEGV workaround prevents the runner from verifying every fixture.
+* Fixed a segmentation fault when formatting `DerivingVia` clauses with the
+  GHC 9.14 AST.
+* Replaced the SIGSEGV workaround with a standard Hspec runner that verifies
+  every fixture and reports failures normally.
+* Known limitation: 18 comment-layout tests remain pending.
 
 ## 0.14.0.0 -- November 2021
 
