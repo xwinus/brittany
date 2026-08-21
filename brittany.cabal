@@ -137,6 +137,8 @@ library
     Language.Haskell.Brittany.Internal.Utils
     Language.Haskell.Brittany.Main
     Paths_brittany
+  other-modules:
+    Language.Haskell.Brittany.Internal.CommentUtils
 
 executable brittany
   import: executable

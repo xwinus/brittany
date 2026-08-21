@@ -3,8 +3,6 @@ conf_layout:
   lconfig_importAsColumn: 60
   lconfig_importColumn: 60
 
-# Omit unused comment check: annotation extraction doesn't yet align with
-# layout consumption; unprocessed comments would otherwise fail tests.
 conf_errorHandling:
   econf_omit_output_valid_check: false
-  econf_omit_unused_comment_check: true
+  econf_omit_unused_comment_check: false

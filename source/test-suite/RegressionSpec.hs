@@ -30,11 +30,28 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects a malformed constructor"
       "DataDeclMultipleInvalid.hs"
 
+  Hspec.describe "comment preservation" $ do
+    formattingExample projectRoot
+      "preserves a top-level comment"
+      "CommentPreservationExpected.hs"
+    formattingExample projectRoot
+      "preserves a trailing expression comment"
+      "CommentPreservationEdge.hs"
+    Hspec.it "rejects output that would lose a record field comment" $ do
+      let fixture = fixturePath projectRoot "CommentPreservationLost.hs"
+          output = outputPath projectRoot "CommentPreservationLost.hs"
+      expected <- readFile fixture
+      Directory.copyFile fixture output
+      Brittany.mainWith "brittany" (formatterArgs projectRoot output)
+        `Hspec.shouldThrow` isFormattingFailure
+      actual <- readFile output
+      actual `Hspec.shouldBe` expected
+
 formattingExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
 formattingExample projectRoot description fixtureName =
   Hspec.it description $ do
     let fixture = fixturePath projectRoot fixtureName
-        output = FilePath.combine (FilePath.combine projectRoot "output") fixtureName
+        output = outputPath projectRoot fixtureName
     expected <- readFile fixture
     Directory.copyFile fixture output
     Brittany.mainWith "brittany" (formatterArgs projectRoot output)
@@ -54,6 +71,10 @@ fixturePath projectRoot fixtureName =
     (FilePath.combine projectRoot "source/test-suite/fixtures")
     fixtureName
 
+outputPath :: FilePath -> FilePath -> FilePath
+outputPath projectRoot fixtureName =
+  FilePath.combine (FilePath.combine projectRoot "output") fixtureName
+
 formatterArgs :: FilePath -> FilePath -> [String]
 formatterArgs projectRoot input =
   [ "--config-file"
@@ -66,3 +87,6 @@ formatterArgs projectRoot input =
 
 isParseFailure :: Exit.ExitCode -> Bool
 isParseFailure exitCode = exitCode == Exit.ExitFailure 60
+
+isFormattingFailure :: Exit.ExitCode -> Bool
+isFormattingFailure exitCode = exitCode == Exit.ExitFailure 70

@@ -44,6 +44,7 @@ import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as EP
 import GHC.Types.SrcLoc (SrcSpan)
 import Language.Haskell.Brittany.Internal.Backend
 import Language.Haskell.Brittany.Internal.BackendUtils
+import Language.Haskell.Brittany.Internal.CommentUtils (collectCommentContents)
 import Language.Haskell.Brittany.Internal.Config
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
@@ -371,8 +372,8 @@ pPrintModule conf inlineConf anns parsedModule =
   --   debugStrings `forM_` \s ->
   --     trace s $ return ()
 
--- | Additionally checks that the output compiles again, appending an error
--- if it does not.
+-- | Additionally checks that the output parses and preserves every source
+-- comment, appending errors when either invariant fails.
 pPrintModuleAndCheck
   :: Config
   -> PerItemConfig
@@ -387,10 +388,23 @@ pPrintModuleAndCheck conf inlineConf anns parsedModule = do
     "output"
     (\_ -> return $ Right ())
     (TextL.unpack output)
-  let
-    errs' = errs ++ case parseResult of
-      Left{} -> [ErrorOutputCheck]
-      Right{} -> []
+  let omitCommentCheck =
+        conf
+          & _conf_errorHandling
+          .> _econf_omit_unused_comment_check
+          .> confUnpack
+      checkErrors = case parseResult of
+        Left{} -> [ErrorOutputCheck]
+        Right (_, outputModule, _) ->
+          if omitCommentCheck
+            then []
+            else
+              [ ErrorUnusedComment
+                  $ "Comment missing from formatted output: " ++ show commentText
+              | commentText <- collectCommentContents parsedModule
+                  List.\\ collectCommentContents outputModule
+              ]
+      errs' = errs ++ checkErrors
   return (errs', output)
 
 
