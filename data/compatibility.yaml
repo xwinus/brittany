@@ -1,0 +1,311 @@
+schema-version: 1
+
+# Support modes are conservative. Follow-up issues promote exact-source entries
+# to native only after their AST paths have dedicated regression coverage.
+features:
+  - name: Haskell2010
+    kind: edition
+    support: native
+    tracking-issue: 13
+  - name: GHC2021
+    kind: edition
+    support: native
+    tracking-issue: 13
+  - name: GHC2024
+    kind: edition
+    support: native
+    tracking-issue: 13
+  - name: BangPatterns
+    kind: extension
+    support: exact-source
+    tracking-issue: 17
+  - name: CPP
+    kind: extension
+    support: unsupported
+    tracking-issue: 18
+  - name: DatatypeContexts
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
+  - name: DerivingVia
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
+  - name: ExistentialQuantification
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
+  - name: ExplicitNamespaces
+    kind: extension
+    support: exact-source
+    tracking-issue: 14
+  - name: ForeignFunctionInterface
+    kind: extension
+    support: unsupported
+    tracking-issue: 18
+  - name: GADTs
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
+  - name: ImplicitParams
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
+  - name: KindSignatures
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
+  - name: LambdaCase
+    kind: extension
+    support: exact-source
+    tracking-issue: 17
+  - name: MagicHash
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
+  - name: MultiWayIf
+    kind: extension
+    support: exact-source
+    tracking-issue: 17
+  - name: MultilineStrings
+    kind: extension
+    support: exact-source
+    tracking-issue: 17
+  - name: NamedDefaults
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
+  - name: OrPatterns
+    kind: extension
+    support: exact-source
+    tracking-issue: 17
+  - name: OverloadedLabels
+    kind: extension
+    support: exact-source
+    tracking-issue: 17
+  - name: OverloadedRecordDot
+    kind: extension
+    support: exact-source
+    tracking-issue: 15
+  - name: PatternSynonyms
+    kind: extension
+    support: exact-source
+    tracking-issue: 17
+  - name: QuasiQuotes
+    kind: extension
+    support: exact-source
+    tracking-issue: 18
+  - name: RankNTypes
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
+  - name: RecordWildCards
+    kind: extension
+    support: exact-source
+    tracking-issue: 15
+  - name: RecursiveDo
+    kind: extension
+    support: exact-source
+    tracking-issue: 17
+  - name: RequiredTypeArguments
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
+  - name: ScopedTypeVariables
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
+  - name: StarIsType
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
+  - name: StaticPointers
+    kind: extension
+    support: exact-source
+    tracking-issue: 17
+  - name: TemplateHaskell
+    kind: extension
+    support: exact-source
+    tracking-issue: 18
+  - name: TypeApplications
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
+  - name: TypeFamilies
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
+  - name: TypeFamilyDependencies
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
+  - name: UnboxedTuples
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
+  - name: ViewPatterns
+    kind: extension
+    support: exact-source
+    tracking-issue: 17
+
+cases:
+  - name: formats a Haskell2010 module with comments
+    kind: expected
+    fixture: source/test-suite/fixtures/CompatibilityHaskell2010Expected.hs
+    features: [Haskell2010]
+    expected-result: formats
+  - name: formats a GHC2021 module idempotently
+    kind: expected
+    fixture: source/test-suite/fixtures/CompatibilityGHC2021Expected.hs
+    features: [GHC2021]
+    expected-result: formats
+  - name: preserves comments at a GHC2024 syntax boundary
+    kind: edge
+    fixture: source/test-suite/fixtures/CompatibilityGHC2024Edge.hs
+    features: [GHC2024]
+    expected-result: formats
+  - name: rejects malformed input under GHC2024
+    kind: malformed
+    fixture: source/test-suite/fixtures/CompatibilityGHC2024Invalid.hs
+    features: [GHC2024]
+    expected-result: parse-failure
+  - name: classifies bang patterns
+    kind: expected
+    fixture: data/Test172.hs
+    features: [BangPatterns]
+    expected-result: formats
+  - name: classifies legacy datatype contexts
+    kind: expected
+    fixture: data/Test51.hs
+    features: [DatatypeContexts]
+    expected-result: formats
+  - name: classifies deriving via
+    kind: edge
+    fixture: source/test-suite/fixtures/DeclarationCommentsEdge.hs
+    features: [DerivingVia]
+    expected-result: formats
+  - name: classifies existential quantification
+    kind: expected
+    fixture: data/Test60.hs
+    features: [ExistentialQuantification]
+    expected-result: formats
+  - name: classifies namespaces and pattern synonyms
+    kind: expected
+    fixture: data/Test237.hs
+    features: [ExplicitNamespaces, PatternSynonyms]
+    expected-result: formats
+  - name: rejects unsafe foreign declaration comments
+    kind: unsupported
+    fixture: source/test-suite/fixtures/CommentPreservationForeignLost.hs
+    features: [ForeignFunctionInterface]
+    expected-result: formatting-failure
+  - name: classifies GADTs and type family dependencies
+    kind: edge
+    fixture: source/test-suite/fixtures/FamilyCommentsEdge.hs
+    features: [GADTs, TypeFamilies, TypeFamilyDependencies]
+    expected-result: formats
+  - name: classifies implicit parameters
+    kind: expected
+    fixture: data/Test233.hs
+    features: [ImplicitParams]
+    expected-result: formats
+  - name: classifies rank-n types and kind signatures
+    kind: edge
+    fixture: data/Test318.hs
+    features: [RankNTypes, KindSignatures]
+    expected-result: formats
+  - name: classifies lambda case
+    kind: expected
+    fixture: data/Test232.hs
+    features: [LambdaCase]
+    expected-result: formats
+  - name: classifies magic hash and unboxed tuples
+    kind: edge
+    fixture: data/Test254.hs
+    features: [MagicHash, UnboxedTuples]
+    expected-result: formats
+  - name: classifies multi-way if comments
+    kind: edge
+    fixture: source/test-suite/fixtures/ExpressionCommentsExpected.hs
+    features: [MultiWayIf]
+    expected-result: formats
+  - name: classifies multiline strings
+    kind: edge
+    fixture: data/Test544.hs
+    features: [MultilineStrings]
+    expected-result: formats
+  - name: classifies named defaults
+    kind: expected
+    fixture: data/Test547.hs
+    features: [NamedDefaults]
+    expected-result: formats
+  - name: classifies or-patterns
+    kind: edge
+    fixture: data/Test543.hs
+    features: [OrPatterns]
+    expected-result: formats
+  - name: classifies overloaded labels
+    kind: expected
+    fixture: data/Test259.hs
+    features: [OverloadedLabels]
+    expected-result: formats
+  - name: classifies overloaded record dot
+    kind: edge
+    fixture: data/Test541.hs
+    features: [OverloadedRecordDot]
+    expected-result: formats
+  - name: classifies quasiquotes
+    kind: edge
+    fixture: data/Test255.hs
+    features: [QuasiQuotes]
+    expected-result: formats
+  - name: classifies record wildcards
+    kind: expected
+    fixture: data/Test312.hs
+    features: [RecordWildCards]
+    expected-result: formats
+  - name: classifies recursive do
+    kind: edge
+    fixture: data/Test235.hs
+    features: [RecursiveDo]
+    expected-result: formats
+  - name: classifies required type arguments
+    kind: edge
+    fixture: data/Test546.hs
+    features: [RequiredTypeArguments]
+    expected-result: formats
+  - name: classifies scoped type variables
+    kind: expected
+    fixture: data/Test31.hs
+    features: [ScopedTypeVariables]
+    expected-result: formats
+  - name: classifies star kinds
+    kind: expected
+    fixture: data/Test182.hs
+    features: [StarIsType]
+    expected-result: formats
+  - name: classifies static pointers
+    kind: edge
+    fixture: data/Test545.hs
+    features: [StaticPointers]
+    expected-result: formats
+  - name: classifies template Haskell
+    kind: edge
+    fixture: data/Test322.hs
+    features: [TemplateHaskell]
+    expected-result: formats
+  - name: classifies visible type applications
+    kind: expected
+    fixture: data/Test307.hs
+    features: [TypeApplications]
+    expected-result: formats
+  - name: classifies view patterns
+    kind: expected
+    fixture: data/Test248.hs
+    features: [ViewPatterns]
+    expected-result: formats
+  - name: rejects unsupported CPP input
+    kind: unsupported
+    fixture: source/test-suite/fixtures/CompatibilityCppUnsupported.hs
+    features: [CPP]
+    expected-result: parse-failure
