@@ -69,6 +69,17 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects a malformed commented import list"
       "ImportCommentsInvalid.hs"
 
+  Hspec.describe "expression comments" $ do
+    idempotentFormattingExample projectRoot
+      "preserves comments around a multi-way if guard"
+      "ExpressionCommentsExpected.hs"
+    idempotentFormattingExample projectRoot
+      "preserves comments in let bindings and operator chains"
+      "ExpressionCommentsEdge.hs"
+    parseFailureExample projectRoot
+      "rejects a malformed commented multi-way if"
+      "ExpressionCommentsInvalid.hs"
+
 formattingExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
 formattingExample projectRoot description fixtureName =
   Hspec.it description $ do

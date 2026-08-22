@@ -141,6 +141,7 @@ library
   other-modules:
     Language.Haskell.Brittany.Internal.CommentUtils
     Language.Haskell.Brittany.Internal.ExactSource
+    Language.Haskell.Brittany.Internal.ExpressionComments
 
 executable brittany
   import: executable
