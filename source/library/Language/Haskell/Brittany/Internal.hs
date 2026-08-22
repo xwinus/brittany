@@ -47,7 +47,7 @@ import Language.Haskell.Brittany.Internal.BackendUtils
 import Language.Haskell.Brittany.Internal.CommentUtils (collectCommentContents)
 import Language.Haskell.Brittany.Internal.Config
 import Language.Haskell.Brittany.Internal.Config.Types
-import Language.Haskell.Brittany.Internal.ExactSource (declarationSourceSlice)
+import Language.Haskell.Brittany.Internal.ExactSource (nodeSourceSlice)
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
@@ -530,7 +530,7 @@ ppModule lmod@(L _loc _m@(HsModule _ _name _exports _ decls)) = do
       -- Declaration-specific annotations take priority over defaults
       -- (defaultAnns has comments cleared to avoid ErrorUnusedComment)
       Map.union (Map.findWithDefault Map.empty declAnnKey annMap) defaultAnns
-    let exactDeclText = declarationSourceSlice exactSource decl' filteredAnns
+    let exactDeclText = nodeSourceSlice exactSource decl' filteredAnns
 
     traceIfDumpConf
         "bridoc annotations filtered/transformed"
@@ -662,7 +662,8 @@ ppPreamble lmod@(L loc m@HsModule{}) = do
 
   if shouldReformatPreamble
     then toLocal config filteredAnns'' $ withTransformedAnns lmod $ do
-      briDoc <- briDocMToPPM $ layoutModule lmod
+      let exactSource = Text.pack $ ExactPrint.exactPrint lmod
+      briDoc <- briDocMToPPM $ layoutModuleWithExactText exactSource lmod
       layoutBriDoc briDoc
     else do
       let emptyModule = L loc m { hsmodDecls = [] }
