@@ -34,6 +34,9 @@ import GHC.Types.SrcLoc (Located, RealSrcSpan, SrcSpan(..), getLoc, noSrcSpan, s
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey, mkAnnKey, Comment(..))
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
+import Language.Haskell.Brittany.Internal.ExpressionComments
+  ( commentSensitiveExpressions
+  )
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.DataDecl
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
@@ -56,9 +59,7 @@ layoutDeclWithExactText :: Maybe Text.Text -> ToBriDoc HsDecl
 layoutDeclWithExactText exactText d@(L loc decl) = case decl of
   SigD _ sig@TypeSig{} -> layoutExactWhenCommented d $ layoutSig (L loc sig)
   SigD _ sig -> withTransformedAnns d $ docWrapNode d $ layoutSig (L loc sig)
-  ValD _ bind -> withTransformedAnns d $ docWrapNode d $ layoutBind (L loc bind) >>= \case
-    Left ns -> docLines $ return <$> ns
-    Right n -> return n
+  ValD _ bind -> layoutValueDeclaration d bind
   TyClD _ tycl@SynDecl{} -> layoutExactWhenCommented d $ layoutTyCl (L loc tycl)
   TyClD _ tycl -> withTransformedAnns d $ docWrapNode d $ layoutTyCl (L loc tycl)
   InstD _ (TyFamInstD _ tfid) ->
@@ -78,13 +79,27 @@ layoutDeclWithExactText exactText d@(L loc decl) = case decl of
            | (c, _) <- followComments]
   _ -> withTransformedAnns d $ docWrapNode d $ briDocByExactNoComment d
  where
+  layoutValueDeclaration declaration bind = do
+    hasSensitiveComments <- orM
+      $ hasAnyRegularCommentsConnected
+      <$> commentSensitiveExpressions declaration
+    if hasSensitiveComments
+      then layoutExact declaration exactText
+      else withTransformedAnns declaration
+        $ docWrapNode declaration
+        $ layoutBind (L loc bind) >>= \case
+          Left ns -> docLines $ return <$> ns
+          Right n -> return n
+
   layoutExactWhenCommented declaration formatted = do
     hasComments <- hasAnyRegularCommentsConnected declaration
     if hasComments
-      then case exactText of
-        Just source -> briDocByExactTextNoComment declaration source
-        Nothing -> briDocByExactNoComment declaration
+      then layoutExact declaration exactText
       else withTransformedAnns declaration $ docWrapNode declaration formatted
+
+  layoutExact declaration source = case source of
+    Just text -> briDocByExactTextNoComment declaration text
+    Nothing -> briDocByExactNoComment declaration
 
 --------------------------------------------------------------------------------
 -- Sig

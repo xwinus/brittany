@@ -33,11 +33,7 @@ knownCommentFailures = Set.fromList
   , "Test67"   -- deriving-via comments
   , "Test68"   -- existential constructor comment placement
   , "Test73"   -- commented-out record field
-  , "Test309"  -- multi-way if trailing comment column drift
-  , "Test323"  -- let-in comment spacing drift
-  , "Test329"  -- operator section comment spacing drift
   , "Test343"  -- record comment blank line multiplication
-  , "Test537"  -- multi-way if trailing comment column drift (IndentPolicyLeft)
   ]
 
 main :: IO ()
