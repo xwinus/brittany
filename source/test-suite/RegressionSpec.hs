@@ -37,9 +37,12 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
     formattingExample projectRoot
       "preserves a trailing expression comment"
       "CommentPreservationEdge.hs"
-    Hspec.it "rejects output that would lose a class method comment" $ do
-      let fixture = fixturePath projectRoot "CommentPreservationLost.hs"
-          output = outputPath projectRoot "CommentPreservationLost.hs"
+    idempotentFormattingExample projectRoot
+      "preserves a class method comment"
+      "CommentPreservationLost.hs"
+    Hspec.it "rejects output that would lose a type family equation comment" $ do
+      let fixture = fixturePath projectRoot "CommentPreservationFamilyLost.hs"
+          output = outputPath projectRoot "CommentPreservationFamilyLost.hs"
       expected <- readFile fixture
       Directory.copyFile fixture output
       Brittany.mainWith "brittany" (formatterArgs projectRoot output)
@@ -90,6 +93,17 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
     parseFailureExample projectRoot
       "rejects a malformed commented record declaration"
       "DeclarationCommentsInvalid.hs"
+
+  Hspec.describe "class and instance declaration comments" $ do
+    idempotentFormattingExample projectRoot
+      "preserves comments before class and instance methods"
+      "ClassInstanceCommentsExpected.hs"
+    idempotentFormattingExample projectRoot
+      "preserves comments around associated types and default methods"
+      "ClassInstanceCommentsEdge.hs"
+    parseFailureExample projectRoot
+      "rejects a malformed commented class method signature"
+      "ClassInstanceCommentsInvalid.hs"
 
 formattingExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
 formattingExample projectRoot description fixtureName =

@@ -63,13 +63,15 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
   TyClD _ tycl@SynDecl{} -> layoutExactWhenCommented d $ layoutTyCl (L loc tycl)
   TyClD _ tycl@DataDecl{} ->
     layoutExactWhenCommented d $ layoutTyCl (L loc tycl)
+  TyClD _ tycl@ClassDecl{} ->
+    layoutExactWhenCommented d $ layoutTyCl (L loc tycl)
   TyClD _ tycl -> withTransformedAnns d $ docWrapNode d $ layoutTyCl (L loc tycl)
   InstD _ (TyFamInstD _ tfid) ->
     withTransformedAnns d $ docWrapNode d $ layoutTyFamInstDecl False d tfid
   InstD _ (ClsInstD _ inst) ->
-    withTransformedAnns d $ do
+    layoutExactWhenCommented d $ do
       followComments <- astFollowingComments d
-      docWrapNode d $ docSeq
+      docSeq
         [ layoutClsInst (L loc inst)
         , docSeq [docLitS (" " ++ commentContents c) | (c, _) <- followComments]
         ]
