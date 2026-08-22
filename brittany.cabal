@@ -23,10 +23,12 @@ bug-reports:          https://github.com/xwinus/brittany/issues
 extra-doc-files:
   ChangeLog.md
   README.md
+  doc/compatibility.md
   doc/implementation/*.md
 extra-source-files:
   cabal.project
   data/brittany.yaml
+  data/compatibility.yaml
   data/*.hs
   source/test-suite/fixtures/*.hs
 
@@ -156,5 +158,8 @@ test-suite brittany-test-suite
     , hspec >= 2.8.3
   hs-source-dirs: source/test-suite
   main-is: Main.hs
-  other-modules: RegressionSpec
+  other-modules:
+    CompatibilityMatrix
+    CompatibilitySpec
+    RegressionSpec
   type: exitcode-stdio-1.0

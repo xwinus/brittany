@@ -1,6 +1,7 @@
 {-# LANGUAGE StandaloneKindSignatures #-}
 
 import qualified Control.Monad as Monad
+import qualified CompatibilitySpec
 import Data.Kind (Type)
 import qualified Data.List as List
 import qualified Data.Set as Set
@@ -55,6 +56,7 @@ main = Hspec.hspec $ do
         Literal actual `Hspec.shouldBe` Literal expected
 
   RegressionSpec.spec projectRoot
+  CompatibilitySpec.spec projectRoot
 
 type Literal :: Type
 newtype Literal
