@@ -60,14 +60,9 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
   SigD _ sig@TypeSig{} -> layoutExactWhenCommented d $ layoutSig (L loc sig)
   SigD _ sig -> withTransformedAnns d $ docWrapNode d $ layoutSig (L loc sig)
   ValD _ bind -> layoutValueDeclaration d bind
-  TyClD _ tycl@SynDecl{} -> layoutExactWhenCommented d $ layoutTyCl (L loc tycl)
-  TyClD _ tycl@DataDecl{} ->
-    layoutExactWhenCommented d $ layoutTyCl (L loc tycl)
-  TyClD _ tycl@ClassDecl{} ->
-    layoutExactWhenCommented d $ layoutTyCl (L loc tycl)
-  TyClD _ tycl -> withTransformedAnns d $ docWrapNode d $ layoutTyCl (L loc tycl)
+  TyClD _ tycl -> layoutExactWhenCommented d $ layoutTyCl (L loc tycl)
   InstD _ (TyFamInstD _ tfid) ->
-    withTransformedAnns d $ docWrapNode d $ layoutTyFamInstDecl False d tfid
+    layoutExactWhenCommented d $ layoutTyFamInstDecl False d tfid
   InstD _ (ClsInstD _ inst) ->
     layoutExactWhenCommented d $ do
       followComments <- astFollowingComments d
@@ -76,7 +71,7 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
         , docSeq [docLitS (" " ++ commentContents c) | (c, _) <- followComments]
         ]
   InstD _ (DataFamInstD _ _) ->
-    withTransformedAnns d $ do
+    layoutExactOrCommented d $ withTransformedAnns d $ do
       followComments <- astFollowingComments d
       docSeq $ [briDocByExactNoComment d]
         ++ [docLitS (" " ++ commentContents c)
@@ -99,11 +94,16 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
           Right n -> return n
 
   layoutExactWhenCommented declaration formatted = do
+    layoutExactOrCommented declaration
+      $ withTransformedAnns declaration
+      $ docWrapNode declaration formatted
+
+  layoutExactOrCommented declaration formatted = do
     hasConnectedComments <- hasAnyRegularCommentsConnected declaration
     let hasComments = hasSourceComments || hasConnectedComments
     if hasComments
       then layoutExact declaration exactText
-      else withTransformedAnns declaration $ docWrapNode declaration formatted
+      else formatted
 
   layoutExact declaration source = case source of
     Just text -> briDocByExactTextNoComment declaration text
