@@ -495,7 +495,7 @@ toLocal conf anns m = do
   pure x
 
 ppModule :: GenLocated SrcSpan (HsModule GhcPs) -> PPM ()
-ppModule lmod@(L _loc _m@(HsModule _ _name _exports _ decls)) = do
+ppModule lmod@(L _loc _m@(HsModule _ _name _exports imports decls)) = do
   let exactSource = Text.pack $ ExactPrint.exactPrint lmod
   let sourceCommentPositions = collectCommentPositions lmod
   defaultAnns <- do
@@ -516,9 +516,12 @@ ppModule lmod@(L _loc _m@(HsModule _ _name _exports _ decls)) = do
     pure $ fmap (clearComments . overAnnsDP (filter $ isEof . fst)) annMap
 
   post <- ppPreamble lmod
-  -- After preamble with explicit module header, add newline to separate from
-  -- first declaration (layoutModule ends at "where" without trailing newline).
-  when (Data.Maybe.isJust _name) $ mTell (Text.Builder.fromString "\n")
+  -- The preamble renderer does not terminate a module header or final import.
+  -- Exact-source declarations do not carry the usual annotation-based move,
+  -- so provide the separator explicitly before the first declaration.
+  when
+    (not (null decls) && (Data.Maybe.isJust _name || not (null imports)))
+    $ mTell (Text.Builder.fromString "\n")
   let toL x = L (getLocA x) (unLoc x)
   forM_ (zip [0 ..] decls) $ \(i, decl) -> do
     when (i > 0) $ mTell (Text.Builder.fromString "\n")

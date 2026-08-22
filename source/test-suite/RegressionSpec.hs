@@ -40,9 +40,12 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
     idempotentFormattingExample projectRoot
       "preserves a class method comment"
       "CommentPreservationLost.hs"
-    Hspec.it "rejects output that would lose a type family equation comment" $ do
-      let fixture = fixturePath projectRoot "CommentPreservationFamilyLost.hs"
-          output = outputPath projectRoot "CommentPreservationFamilyLost.hs"
+    idempotentFormattingExample projectRoot
+      "preserves a type family equation comment"
+      "CommentPreservationFamilyLost.hs"
+    Hspec.it "rejects output that would lose a foreign declaration comment" $ do
+      let fixture = fixturePath projectRoot "CommentPreservationForeignLost.hs"
+          output = outputPath projectRoot "CommentPreservationForeignLost.hs"
       expected <- readFile fixture
       Directory.copyFile fixture output
       Brittany.mainWith "brittany" (formatterArgs projectRoot output)
@@ -104,6 +107,17 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
     parseFailureExample projectRoot
       "rejects a malformed commented class method signature"
       "ClassInstanceCommentsInvalid.hs"
+
+  Hspec.describe "family declaration comments" $ do
+    idempotentFormattingExample projectRoot
+      "preserves comments in open families and standalone instances"
+      "FamilyCommentsExpected.hs"
+    idempotentFormattingExample projectRoot
+      "preserves comments around injectivity and GADT data instances"
+      "FamilyCommentsEdge.hs"
+    parseFailureExample projectRoot
+      "rejects a malformed commented type family equation"
+      "FamilyCommentsInvalid.hs"
 
 formattingExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
 formattingExample projectRoot description fixtureName =
