@@ -94,9 +94,21 @@ briDocByExactTextNoComment
   => Located ast
   -> Text.Text
   -> ToBriDocM BriDocNumbered
-briDocByExactTextNoComment ast exactText = allocateNode $ BDFExternal
+briDocByExactTextNoComment ast =
+  briDocByExactTextWithAnnsNoComment ast Set.empty
+
+-- | Like 'briDocByExactTextNoComment', but also consumes annotation keys that
+-- GHC attached outside the exact-printed node's regular AST fold.
+briDocByExactTextWithAnnsNoComment
+  :: Data ast
+  => Located ast
+  -> Set.Set AnnKey
+  -> Text.Text
+  -> ToBriDocM BriDocNumbered
+briDocByExactTextWithAnnsNoComment ast extraKeys exactText =
+  allocateNode $ BDFExternal
   (ExactPrintCompat.mkAnnKey ast)
-  (foldedAnnKeys ast)
+  (foldedAnnKeys ast <> extraKeys)
   False
   (Text.dropWhileEnd (== '\n') $ Text.dropWhile (== '\n') exactText)
 

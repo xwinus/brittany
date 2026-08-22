@@ -1,13 +1,12 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 
 module Language.Haskell.Brittany.Internal.ExactSource
-  ( declarationSourceSlice
+  ( nodeSourceSlice
   ) where
 
 import qualified Data.Map as Map
 import qualified Data.Text as Text
 import qualified GHC
-import GHC.Hs (HsDecl)
 import GHC.Parser.Annotation (getLocA)
 import Language.Haskell.Brittany.Internal.ExactPrintCompat
   ( Anns
@@ -20,10 +19,10 @@ import Language.Haskell.Brittany.Internal.LayouterBasics
   )
 import Language.Haskell.Brittany.Internal.Prelude
 
-declarationSourceSlice
-  :: Text.Text -> GHC.Located (HsDecl GhcPs) -> Anns -> Maybe Text.Text
-declarationSourceSlice source declaration anns = do
-  declarationSpan <- EP.srcSpanToRealSpan $ getLocA declaration
+nodeSourceSlice
+  :: Text.Text -> GHC.Located ast -> Anns -> Maybe Text.Text
+nodeSourceSlice source node anns = do
+  nodeSpan <- EP.srcSpanToRealSpan $ getLocA node
   let
     commentSpans =
       [ span'
@@ -32,7 +31,7 @@ declarationSourceSlice source declaration anns = do
       , isRegularComment comment
       , Just span' <- [EP.srcSpanToRealSpan $ commentIdentifier $ fst comment]
       ]
-    spans = declarationSpan : commentSpans
+    spans = nodeSpan : commentSpans
     firstLine = minimum $ GHC.srcSpanStartLine <$> spans
     lastLine = maximum $ GHC.srcSpanEndLine <$> spans
     selectedLines =

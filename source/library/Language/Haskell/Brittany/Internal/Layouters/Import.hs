@@ -3,6 +3,7 @@
 module Language.Haskell.Brittany.Internal.Layouters.Import where
 
 import qualified Data.Semigroup as Semigroup
+import qualified Data.Set as Set
 import qualified Data.Text as Text
 import GHC (GenLocated(L), Located, moduleNameString, unLoc)
 import GHC.Hs
@@ -13,6 +14,7 @@ import GHC.Types.SourceText (SourceText(..), StringLiteral(..))
 import GHC.Unit.Types (IsBootInterface(..))
 import Language.Haskell.Syntax.ImpExp (ImportListInterpretation(EverythingBut))
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKey)
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.IE (layoutLLIEs, layoutAnnAndSepLLIEs, toL, SortItemsFlag(ShouldSortItems))
 import Language.Haskell.Brittany.Internal.Prelude
@@ -34,8 +36,20 @@ pkgToSourceText :: RawPkgQual -> Maybe SourceText
 pkgToSourceText (RawPkgQual (StringLiteral st _ _)) = Just st
 pkgToSourceText NoRawPkgQual = Nothing
 
-layoutImport :: ImportDecl GhcPs -> ToBriDocM BriDocNumbered
-layoutImport importD = case importD of
+layoutImport :: ToBriDoc ImportDecl
+layoutImport = layoutImportWithExactText Nothing
+
+layoutImportWithExactText
+  :: Maybe (Text.Text, Set.Set AnnKey)
+  -> Located (ImportDecl GhcPs)
+  -> ToBriDocM BriDocNumbered
+layoutImportWithExactText exactText importNode@(L _ importD) = case exactText of
+  Just (source, annotationKeys) ->
+    briDocByExactTextWithAnnsNoComment importNode annotationKeys source
+  Nothing -> layoutImportNormally importD
+
+layoutImportNormally :: ImportDecl GhcPs -> ToBriDocM BriDocNumbered
+layoutImportNormally importD = case importD of
   ImportDecl
     { ideclName = lmodName
     , ideclPkgQual = pkg
