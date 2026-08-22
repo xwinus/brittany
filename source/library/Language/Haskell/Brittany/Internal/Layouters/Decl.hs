@@ -53,14 +53,16 @@ import qualified Language.Haskell.GHC.ExactPrint.Utils as ExactPrint
 
 
 layoutDecl :: ToBriDoc HsDecl
-layoutDecl = layoutDeclWithExactText Nothing
+layoutDecl = layoutDeclWithExactText Nothing False
 
-layoutDeclWithExactText :: Maybe Text.Text -> ToBriDoc HsDecl
-layoutDeclWithExactText exactText d@(L loc decl) = case decl of
+layoutDeclWithExactText :: Maybe Text.Text -> Bool -> ToBriDoc HsDecl
+layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl of
   SigD _ sig@TypeSig{} -> layoutExactWhenCommented d $ layoutSig (L loc sig)
   SigD _ sig -> withTransformedAnns d $ docWrapNode d $ layoutSig (L loc sig)
   ValD _ bind -> layoutValueDeclaration d bind
   TyClD _ tycl@SynDecl{} -> layoutExactWhenCommented d $ layoutTyCl (L loc tycl)
+  TyClD _ tycl@DataDecl{} ->
+    layoutExactWhenCommented d $ layoutTyCl (L loc tycl)
   TyClD _ tycl -> withTransformedAnns d $ docWrapNode d $ layoutTyCl (L loc tycl)
   InstD _ (TyFamInstD _ tfid) ->
     withTransformedAnns d $ docWrapNode d $ layoutTyFamInstDecl False d tfid
@@ -80,9 +82,12 @@ layoutDeclWithExactText exactText d@(L loc decl) = case decl of
   _ -> withTransformedAnns d $ docWrapNode d $ briDocByExactNoComment d
  where
   layoutValueDeclaration declaration bind = do
-    hasSensitiveComments <- orM
+    let sensitiveExpressions = commentSensitiveExpressions declaration
+    hasConnectedComments <- orM
       $ hasAnyRegularCommentsConnected
-      <$> commentSensitiveExpressions declaration
+      <$> sensitiveExpressions
+    let hasSensitiveComments = hasConnectedComments
+          || (hasSourceComments && not (null sensitiveExpressions))
     if hasSensitiveComments
       then layoutExact declaration exactText
       else withTransformedAnns declaration
@@ -92,7 +97,8 @@ layoutDeclWithExactText exactText d@(L loc decl) = case decl of
           Right n -> return n
 
   layoutExactWhenCommented declaration formatted = do
-    hasComments <- hasAnyRegularCommentsConnected declaration
+    hasConnectedComments <- hasAnyRegularCommentsConnected declaration
+    let hasComments = hasSourceComments || hasConnectedComments
     if hasComments
       then layoutExact declaration exactText
       else withTransformedAnns declaration $ docWrapNode declaration formatted

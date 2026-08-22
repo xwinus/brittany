@@ -32,6 +32,8 @@ isCommentSensitive = \case
   HsMultiIf{} -> True
   HsLet{} -> True
   HsPar _ expression -> containsOperatorApplication expression
+  RecordCon{} -> True
+  RecordUpd{} -> True
   _ -> False
 
 containsOperatorApplication :: LHsExpr GhcPs -> Bool

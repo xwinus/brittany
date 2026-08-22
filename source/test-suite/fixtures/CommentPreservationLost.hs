@@ -1,5 +1,3 @@
-data Record = Record
-  { first :: Int
-    -- Keep this field comment.
-  , second :: Int
-  }
+class Example value where
+  -- Keep this method comment.
+  example :: value -> Int

@@ -44,7 +44,10 @@ import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as EP
 import GHC.Types.SrcLoc (SrcSpan)
 import Language.Haskell.Brittany.Internal.Backend
 import Language.Haskell.Brittany.Internal.BackendUtils
-import Language.Haskell.Brittany.Internal.CommentUtils (collectCommentContents)
+import Language.Haskell.Brittany.Internal.CommentUtils
+  ( collectCommentContents
+  , collectCommentPositions
+  )
 import Language.Haskell.Brittany.Internal.Config
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactSource (nodeSourceSlice)
@@ -494,6 +497,7 @@ toLocal conf anns m = do
 ppModule :: GenLocated SrcSpan (HsModule GhcPs) -> PPM ()
 ppModule lmod@(L _loc _m@(HsModule _ _name _exports _ decls)) = do
   let exactSource = Text.pack $ ExactPrint.exactPrint lmod
+  let sourceCommentPositions = collectCommentPositions lmod
   defaultAnns <- do
     anns <- mAsk
     let annKey = mkAnnKey lmod
@@ -531,6 +535,14 @@ ppModule lmod@(L _loc _m@(HsModule _ _name _exports _ decls)) = do
       -- (defaultAnns has comments cleared to avoid ErrorUnusedComment)
       Map.union (Map.findWithDefault Map.empty declAnnKey annMap) defaultAnns
     let exactDeclText = nodeSourceSlice exactSource decl' filteredAnns
+    let hasSourceComments = case EP.srcSpanToRealSpan $ getLocA decl' of
+          Nothing -> False
+          Just span' -> any
+            (\(line, _) ->
+              line >= GHC.srcSpanStartLine span'
+                && line <= GHC.srcSpanEndLine span'
+            )
+            sourceCommentPositions
 
     traceIfDumpConf
         "bridoc annotations filtered/transformed"
@@ -549,7 +561,8 @@ ppModule lmod@(L _loc _m@(HsModule _ _name _exports _ decls)) = do
         then briDocMToPPM $ briDocByExactNoComment decl'
         else do
           (r, errs, debugs) <-
-            briDocMToPPMInner $ layoutDeclWithExactText exactDeclText decl'
+            briDocMToPPMInner
+              $ layoutDeclWithExactText exactDeclText hasSourceComments decl'
           mTell debugs
           mTell errs
           if null errs

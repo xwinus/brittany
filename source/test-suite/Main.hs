@@ -20,21 +20,8 @@ findProjectRoot dir = do
       let parent = FilePath.takeDirectory dir
       in if parent == dir then pure dir else findProjectRoot parent
 
--- GHC 9.14 stores all file comments on the module annotation rather than
--- on individual AST nodes. Our comment redistribution handles most cases,
--- but these tests have non-idempotent comment placement that would require
--- deeper changes to the annotation pipeline.
 knownCommentFailures :: Set.Set String
-knownCommentFailures = Set.fromList
-  [ "Test63"   -- record field comments
-  , "Test64"   -- record and deriving comments
-  , "Test65"   -- record field punctuation comments
-  , "Test66"   -- deriving clause comments
-  , "Test67"   -- deriving-via comments
-  , "Test68"   -- existential constructor comment placement
-  , "Test73"   -- commented-out record field
-  , "Test343"  -- record comment blank line multiplication
-  ]
+knownCommentFailures = Set.empty
 
 main :: IO ()
 main = Hspec.hspec $ do

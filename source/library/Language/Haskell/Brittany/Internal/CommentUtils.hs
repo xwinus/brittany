@@ -2,6 +2,7 @@
 
 module Language.Haskell.Brittany.Internal.CommentUtils
   ( collectCommentContents
+  , collectCommentPositions
   ) where
 
 import qualified Data.Generics as SYB
@@ -22,18 +23,20 @@ import qualified Language.Haskell.GHC.ExactPrint.Utils as ExactPrintUtils
 -- refer to the same comment location.
 collectCommentContents :: ParsedSource -> [String]
 collectCommentContents parsedSource =
-  List.sort
-    $ fmap snd
-    $ List.nub
-    $ [ (commentPosition exactComment, ExactPrintTypes.commentContents exactComment)
-      | comment <- collectComments parsedSource
-      , exactComment <- ExactPrintUtils.tokComment comment
-      ]
+  List.sort $ snd <$> collectSourceComments parsedSource
+
+collectCommentPositions :: ParsedSource -> [(Int, Int)]
+collectCommentPositions = fmap fst . collectSourceComments
+
+collectSourceComments :: ParsedSource -> [((Int, Int), String)]
+collectSourceComments parsedSource = List.nub
+  [ (commentPosition exactComment, ExactPrintTypes.commentContents exactComment)
+  | comment <- collectComments parsedSource
+  , exactComment <- ExactPrintUtils.tokComment comment
+  ]
  where
   commentPosition comment =
-    let span' =
-          epaLocationRealSrcSpan
-            $ ExactPrintTypes.commentLoc comment
+    let span' = epaLocationRealSrcSpan $ ExactPrintTypes.commentLoc comment
     in (srcSpanStartLine span', srcSpanStartCol span')
 
 collectComments :: ParsedSource -> [LEpaComment]
