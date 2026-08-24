@@ -71,6 +71,11 @@ spec projectRoot = Hspec.describe "fallback inventory and reporting" $ do
     messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "WholeModuleFallback")
 
+  Hspec.it "formats export section comments without fallback" $ do
+    messages <- runFormatter projectRoot fallbackReportingConfig
+      "ExportSectionCommentsExpected.hs"
+    messages `Hspec.shouldNotSatisfy` any (List.isInfixOf "Fallback")
+
   Hspec.it "preserves parse-failure behavior when reporting is enabled" $ do
     let input = fixturePath projectRoot "DataDeclMultipleInvalid.hs"
         output = FilePath.combine projectRoot "output/FallbackInvalid.hs"

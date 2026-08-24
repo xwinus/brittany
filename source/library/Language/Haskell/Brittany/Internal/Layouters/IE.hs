@@ -142,7 +142,7 @@ layoutAnnAndSepLLIEs shouldSort llies@(L _ lies) = do
       ShouldSortItems -> sortedLies
       KeepItemsUnsorted -> lies
   ieCommaDocs <-
-    docWrapNodeRest llies $ sequence $ case splitFirstLast ieDocs of
+    docWrapNode llies $ sequence $ case splitFirstLast ieDocs of
       FirstLastEmpty -> []
       FirstLastSingleton ie -> [ie]
       FirstLast ie1 ieMs ieN ->

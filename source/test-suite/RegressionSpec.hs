@@ -146,6 +146,17 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects malformed lambda-case syntax without changing the input"
       "LambdaCaseInvalid.hs"
 
+  Hspec.describe "module export-list comments" $ do
+    idempotentFormattingExample projectRoot
+      "keeps Haddock section headings before their exports"
+      "ExportSectionCommentsExpected.hs"
+    idempotentFormattingExample projectRoot
+      "preserves mixed comments and export forms in source order"
+      "ExportSectionCommentsEdge.hs"
+    parseFailureExample projectRoot
+      "rejects a malformed commented export list without changing the input"
+      "ExportSectionCommentsInvalid.hs"
+
 formattingExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
 formattingExample projectRoot description fixtureName =
   Hspec.it description $ do
