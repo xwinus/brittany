@@ -16,9 +16,16 @@ module Language.Haskell.Brittany
   , CForwardOptions(..)
   , CPreProcessorConfig(..)
   , BrittanyError(..)
+  , FallbackId(..)
+  , FallbackInfo(..)
+  , FallbackScope(..)
+  , FallbackSupport(..)
+  , fallbackInfo
+  , fallbackInventory
   ) where
 
 import Language.Haskell.Brittany.Internal
 import Language.Haskell.Brittany.Internal.Config
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.Fallbacks
 import Language.Haskell.Brittany.Internal.Types

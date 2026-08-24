@@ -15,6 +15,7 @@ import GHC.Unit.Types (IsBootInterface(..))
 import Language.Haskell.Syntax.ImpExp (ImportListInterpretation(EverythingBut))
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKey)
+import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.IE (layoutLLIEs, layoutAnnAndSepLLIEs, toL, SortItemsFlag(ShouldSortItems))
 import Language.Haskell.Brittany.Internal.Prelude
@@ -45,7 +46,11 @@ layoutImportWithExactText
   -> ToBriDocM BriDocNumbered
 layoutImportWithExactText exactText importNode@(L _ importD) = case exactText of
   Just (source, annotationKeys) ->
-    briDocByExactTextWithAnnsNoComment importNode annotationKeys source
+    briDocByExactTextWithAnnsNoComment
+      ImportFallback
+      importNode
+      annotationKeys
+      source
   Nothing -> layoutImportNormally importD
 
 layoutImportNormally :: ImportDecl GhcPs -> ToBriDocM BriDocNumbered

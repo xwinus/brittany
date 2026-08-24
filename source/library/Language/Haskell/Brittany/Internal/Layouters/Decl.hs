@@ -35,6 +35,7 @@ import GHC.Types.SrcLoc (Located, RealSrcSpan, SrcSpan(..), getLoc, noSrcSpan, s
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey, Anns, mkAnnKey, Comment(..))
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
+import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.ExpressionComments
   ( commentSensitiveExpressions
   , exactSourceExpressions
@@ -68,15 +69,15 @@ layoutDecl = layoutDeclWithExactText Nothing False
 layoutDeclWithExactText :: Maybe Text.Text -> Bool -> ToBriDoc HsDecl
 layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl of
   SigD _ sig@TypeSig{}
-    | requiresExactTypes d -> layoutExact d exactText
+    | requiresExactTypes d -> layoutExact TypeFallback d exactText
     | otherwise -> layoutExactWhenCommented d $ layoutSig (L loc sig)
   SigD _ sig
-    | requiresExactSignature sig -> layoutExact d exactText
+    | requiresExactSignature sig -> layoutExact SignatureFallback d exactText
   SigD _ sig -> withTransformedAnns d $ docWrapNode d $ layoutSig (L loc sig)
   ValD _ bind -> layoutValueDeclaration d bind
   TyClD _ tycl
     | requiresExactTypeDeclaration tycl || requiresExactTypes d ->
-        layoutExact d exactText
+        layoutExact TypeClassDeclarationFallback d exactText
     | otherwise -> layoutExactWhenCommented d $ layoutTyCl (L loc tycl)
   InstD _ (TyFamInstD _ tfid) ->
     layoutExactWhenCommented d $ layoutTyFamInstDecl False d tfid
@@ -90,15 +91,17 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
   InstD _ (DataFamInstD _ _) ->
     layoutExactOrCommented d $ withTransformedAnns d $ do
       followComments <- astFollowingComments d
-      docSeq $ [briDocByExactNoComment d]
+      docSeq $ [briDocByExactNoComment DeclarationFallback d]
         ++ [docLitS (" " ++ commentContents c)
            | (c, _) <- followComments]
-  ForD{} -> layoutExact d exactText
-  WarningD{} -> layoutExact d exactText
-  AnnD{} -> layoutExact d exactText
-  RuleD{} -> layoutExact d exactText
-  SpliceD{} -> layoutExact d exactText
-  _ -> withTransformedAnns d $ docWrapNode d $ briDocByExactNoComment d
+  ForD{} -> layoutExact DeclarationFallback d exactText
+  WarningD{} -> layoutExact DeclarationFallback d exactText
+  AnnD{} -> layoutExact DeclarationFallback d exactText
+  RuleD{} -> layoutExact DeclarationFallback d exactText
+  SpliceD{} -> layoutExact DeclarationFallback d exactText
+  _ -> withTransformedAnns d
+    $ docWrapNode d
+    $ briDocByExactNoComment DeclarationFallback d
  where
   layoutValueDeclaration declaration bind = do
     let sensitiveExpressions = commentSensitiveExpressions declaration
@@ -121,7 +124,7 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
           , requiresExactBinding bind
           ]
     if hasSensitiveComments || requiresExactLayout
-      then layoutExact declaration exactText
+      then layoutExact DeclarationFallback declaration exactText
       else withTransformedAnns declaration
         $ docWrapNode declaration
         $ layoutBind (L loc bind) >>= \case
@@ -137,14 +140,18 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
     hasConnectedComments <- hasAnyRegularCommentsConnected declaration
     let hasComments = hasSourceComments || hasConnectedComments
     if hasComments
-      then layoutExact declaration exactText
+      then layoutExact DeclarationFallback declaration exactText
       else formatted
 
-  layoutExact declaration source = case source of
+  layoutExact fallback declaration source = case source of
     Just text -> do
       anns :: Anns <- mAsk
-      briDocByExactTextWithAnnsNoComment declaration (Map.keysSet anns) text
-    Nothing -> briDocByExactNoComment declaration
+      briDocByExactTextWithAnnsNoComment
+        fallback
+        declaration
+        (Map.keysSet anns)
+        text
+    Nothing -> briDocByExactNoComment fallback declaration
 
   requiresExactTypes = not . null . exactSourceTypes
 
@@ -167,8 +174,8 @@ layoutSig lsig@(L _loc sig) = case sig of
   TypeSig _ names sigTy -> case sigTy of
     HsWC _ body -> case unLoc body of
       HsSig{} -> layoutNamesAndType Nothing names body
-      _ -> briDocByExactNoComment (toL lsig)
-    _ -> briDocByExactNoComment (toL lsig)
+      _ -> briDocByExactNoComment SignatureFallback (toL lsig)
+    _ -> briDocByExactNoComment SignatureFallback (toL lsig)
   InlineSig _ name (InlinePragma _ spec _arity phaseAct conlike) ->
     docWrapNode (toL lsig) $ do
       nameStr <- applyNameAdornment name <$> lrdrNameToTextAnn (toL name)
@@ -191,11 +198,11 @@ layoutSig lsig@(L _loc sig) = case sig of
         <> Text.pack " #-}"
   ClassOpSig _ False names sigTy -> case unLoc sigTy of
     HsSig{} -> layoutNamesAndType Nothing names sigTy
-    _ -> briDocByExactNoComment (toL lsig)
+    _ -> briDocByExactNoComment SignatureFallback (toL lsig)
   PatSynSig _ names sigTy -> case unLoc sigTy of
     HsSig{} -> layoutNamesAndType (Just "pattern") names sigTy
-    _ -> briDocByExactNoComment (toL lsig)
-  _ -> briDocByExactNoComment (toL lsig) -- TODO
+    _ -> briDocByExactNoComment SignatureFallback (toL lsig)
+  _ -> briDocByExactNoComment SignatureFallback (toL lsig) -- TODO
  where
   layoutNamesAndType mKeyword names sigType = docWrapNode (toL lsig) $ do
     let
@@ -396,7 +403,7 @@ layoutIPBind lipbind@(L _ bind) = case bind of
         [([], exprDoc, expr)]
         Nothing
         hasComments
-    _ -> briDocByExactNoComment (toL lipbind)
+    _ -> briDocByExactNoComment ImplicitParameterFallback (toL lipbind)
 
 
 data BagBindOrSig = BagBind (LHsBindLR GhcPs GhcPs)
@@ -926,7 +933,7 @@ layoutTyCl ltycl@(L _loc tycl) = case tycl of
       $ layoutSynDecl isInfix hasSourceParens wrapNodeRest (toL name) (hsq_explicit vars) typ
   DataDecl _ext name tyVars _ dataDefn ->
     layoutDataDecl (toL ltycl) (toL name) tyVars dataDefn
-  _ -> briDocByExactNoComment ltycl
+  _ -> briDocByExactNoComment TypeClassDeclarationFallback ltycl
 
 layoutSynDecl
   :: forall flag. Data.Data.Data flag =>
@@ -1083,7 +1090,7 @@ layoutClsInst lcid@(L _ cid) = docLines
  where
   layoutInstanceHead :: ToBriDocM BriDocNumbered
   layoutInstanceHead =
-    briDocByExactNoComment
+    briDocByExactNoComment TypeClassDeclarationFallback
       $ InstD NoExtField
       . ClsInstD NoExtField
       . removeChildren
@@ -1133,7 +1140,8 @@ layoutClsInst lcid@(L _ cid) = docLines
   -- | Send to ExactPrint then remove unecessary whitespace
   layoutDataFamInstDecl :: ToBriDoc DataFamInstDecl
   layoutDataFamInstDecl ldfid =
-    fmap stripWhitespace <$> briDocByExactNoComment ldfid
+    fmap stripWhitespace
+      <$> briDocByExactNoComment FamilyDefaultFallback ldfid
 
   -- | ExactPrint adds indentation/newlines to @data@/@type@ declarations
   stripWhitespace :: BriDocF f -> BriDocF f

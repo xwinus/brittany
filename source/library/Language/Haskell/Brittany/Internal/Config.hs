@@ -30,6 +30,7 @@ staticDefaultConfig = Config
   { _conf_version = coerce (1 :: Int)
   , _conf_debug = DebugConfig
     { _dconf_dump_config = coerce False
+    , _dconf_dump_fallbacks = coerce False
     , _dconf_dump_annotations = coerce False
     , _dconf_dump_ast_unknown = coerce False
     , _dconf_dump_ast_full = coerce False
@@ -106,6 +107,7 @@ cmdlineConfigParser = do
   importAsCol <- addFlagReadParams "" ["import-as-col"] "N" (flagHelpStr "column to qualified-as module names at")
 
   dumpConfig <- addSimpleBoolFlag "" ["dump-config"] (flagHelp $ parDoc "dump the programs full config (merged commandline + file + defaults)")
+  dumpFallbacks <- addSimpleBoolFlag "" ["dump-fallbacks"] (flagHelp $ parDoc "report exact-source and whole-module fallbacks")
   dumpAnnotations <- addSimpleBoolFlag "" ["dump-annotations"] (flagHelp $ parDoc "dump the full annotations returned by ghc-exactprint")
   dumpUnknownAST <- addSimpleBoolFlag "" ["dump-ast-unknown"] (flagHelp $ parDoc "dump the ast for any nodes not transformed, but copied as-is by brittany")
   dumpCompleteAST <- addSimpleBoolFlag "" ["dump-ast-full"] (flagHelp $ parDoc "dump the full ast")
@@ -132,6 +134,7 @@ cmdlineConfigParser = do
     { _conf_version = mempty
     , _conf_debug = DebugConfig
       { _dconf_dump_config = wrapLast $ falseToNothing dumpConfig
+      , _dconf_dump_fallbacks = wrapLast $ falseToNothing dumpFallbacks
       , _dconf_dump_annotations = wrapLast $ falseToNothing dumpAnnotations
       , _dconf_dump_ast_unknown = wrapLast $ falseToNothing dumpUnknownAST
       , _dconf_dump_ast_full = wrapLast $ falseToNothing dumpCompleteAST

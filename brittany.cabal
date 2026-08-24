@@ -24,6 +24,7 @@ extra-doc-files:
   ChangeLog.md
   README.md
   doc/compatibility.md
+  doc/fallbacks.md
   doc/implementation/*.md
 extra-source-files:
   cabal.project
@@ -117,6 +118,7 @@ library
     Language.Haskell.Brittany.Internal.ExactPrintCompat
     Language.Haskell.Brittany.Internal.ExactPrintUtils
     Language.Haskell.Brittany.Internal.ExtractAnns
+    Language.Haskell.Brittany.Internal.Fallbacks
     Language.Haskell.Brittany.Internal.LayouterBasics
     Language.Haskell.Brittany.Internal.Layouters.DataDecl
     Language.Haskell.Brittany.Internal.Layouters.Decl
@@ -164,6 +166,7 @@ test-suite brittany-test-suite
   other-modules:
     CompatibilityMatrix
     CompatibilitySpec
+    FallbackSpec
     PreprocessorSpec
     RegressionSpec
   type: exitcode-stdio-1.0

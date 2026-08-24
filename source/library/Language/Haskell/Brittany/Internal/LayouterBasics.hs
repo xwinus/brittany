@@ -27,6 +27,7 @@ import qualified GHC.Types.SrcLoc as GHC
 import GHC.Parser.Annotation (EpAnn(..), NameAnn(..), NameAdornment(..), getLocA)
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
+import Language.Haskell.Brittany.Internal.Fallbacks
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
@@ -54,22 +55,6 @@ processDefault x = do
     "\n" -> return ()
     _ -> mTell $ Text.Builder.fromString str
 
--- | Use ExactPrint's output for this node; add a newly generated inline comment
--- at insertion position (meant to point out to the user that this node is
--- not handled by brittany yet). Useful when starting implementing new
--- syntactic constructs when children are not handled yet.
-briDocByExact
-  :: (Data ast, ExactPrint.ExactPrint ast)
-  => Located ast
-  -> ToBriDocM BriDocNumbered
-briDocByExact ast = do
-  anns <- mAsk
-  traceIfDumpConf
-    "ast"
-    _dconf_dump_ast_unknown
-    (printTreeWithCustom 100 (customLayouterF anns) ast)
-  docExt ast anns True
-
 -- | Use ExactPrint's output for this node.
 -- Consider that for multi-line input, the indentation of the code produced
 -- by ExactPrint might be different, and even incompatible with the indentation
@@ -77,9 +62,11 @@ briDocByExact ast = do
 -- this, e.g. for any top-level declarations.
 briDocByExactNoComment
   :: (Data ast, ExactPrint.ExactPrint ast)
-  => Located ast
+  => FallbackId
+  -> Located ast
   -> ToBriDocM BriDocNumbered
-briDocByExactNoComment ast = do
+briDocByExactNoComment fallback ast = do
+  reportFallback fallback ast
   anns <- mAsk
   traceIfDumpConf
     "ast"
@@ -89,38 +76,32 @@ briDocByExactNoComment ast = do
 
 -- | Use caller-provided exact source for a node. This is needed when GHC keeps
 -- source comments on a parent node that is not part of the exact-printed AST.
-briDocByExactTextNoComment
-  :: Data ast
-  => Located ast
-  -> Text.Text
-  -> ToBriDocM BriDocNumbered
-briDocByExactTextNoComment ast =
-  briDocByExactTextWithAnnsNoComment ast Set.empty
-
--- | Like 'briDocByExactTextNoComment', but also consumes annotation keys that
--- GHC attached outside the exact-printed node's regular AST fold.
+-- This also consumes annotation keys that GHC attached outside the
+-- exact-printed node's regular AST fold.
 briDocByExactTextWithAnnsNoComment
   :: Data ast
-  => Located ast
+  => FallbackId
+  -> Located ast
   -> Set.Set AnnKey
   -> Text.Text
   -> ToBriDocM BriDocNumbered
-briDocByExactTextWithAnnsNoComment ast extraKeys exactText =
+briDocByExactTextWithAnnsNoComment fallback ast extraKeys exactText = do
+  reportFallback fallback ast
   allocateNode $ BDFExternal
-  (ExactPrintCompat.mkAnnKey ast)
-  (foldedAnnKeys ast <> extraKeys)
-  False
-  (Text.dropWhileEnd (== '\n') $ Text.dropWhile (== '\n') exactText)
+    (ExactPrintCompat.mkAnnKey ast)
+    (foldedAnnKeys ast <> extraKeys)
+    False
+    (Text.dropWhileEnd (== '\n') $ Text.dropWhile (== '\n') exactText)
 
 -- | Use ExactPrint's output for this node, presuming that this output does
 -- not contain any newlines. If this property is not met, the semantics
 -- depend on the @econf_AllowRiskyExactPrintUse@ config flag.
 briDocByExactInlineOnly
   :: (Data ast, ExactPrint.ExactPrint ast)
-  => String
+  => FallbackId
   -> Located ast
   -> ToBriDocM BriDocNumbered
-briDocByExactInlineOnly infoStr ast = do
+briDocByExactInlineOnly fallback ast = do
   anns <- mAsk
   traceIfDumpConf
     "ast"
@@ -130,14 +111,16 @@ briDocByExactInlineOnly infoStr ast = do
   fallbackMode <-
     mAsk <&> _conf_errorHandling .> _econf_ExactPrintFallback .> confUnpack
   let
-    exactPrintNode t = allocateNode $ BDFExternal
-      (ExactPrintCompat.mkAnnKey ast)
-      (foldedAnnKeys ast)
-      False
-      t
+    exactPrintNode t = do
+      reportFallback fallback ast
+      allocateNode $ BDFExternal
+        (ExactPrintCompat.mkAnnKey ast)
+        (foldedAnnKeys ast)
+        False
+        t
   let
     errorAction = do
-      mTell [ErrorUnknownNode infoStr ast]
+      mTell [ErrorUnknownNode (show fallback) ast]
       docLit $ Text.pack "{- BRITTANY ERROR UNHANDLED SYNTACTICAL CONSTRUCT -}"
   case (fallbackMode, Text.lines exactPrinted) of
     (ExactPrintFallbackModeNever, _) -> errorAction
@@ -145,6 +128,13 @@ briDocByExactInlineOnly infoStr ast = do
       (Text.dropWhile Char.isSpace . Text.dropWhileEnd Char.isSpace $ t)
     (ExactPrintFallbackModeRisky, _) -> exactPrintNode exactPrinted
     _ -> errorAction
+
+reportFallback :: FallbackId -> Located ast -> ToBriDocM ()
+reportFallback fallback ast = do
+  enabled <- mAsk <&> _conf_debug .> _dconf_dump_fallbacks .> confUnpack
+  when enabled $ mTell
+    [ ExactSourceFallback $ renderFallbackNotice fallback $ show $ GHC.getLoc ast
+    ]
 
 rdrNameToText :: RdrName -> Text
 -- rdrNameToText = Text.pack . show . flip runSDoc unsafeGlobalDynFlags . ppr

@@ -13,6 +13,7 @@ import GHC.Types.SrcLoc (noSrcSpan)
 import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..))
+import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import Language.Haskell.Brittany.Internal.Layouters.Type
@@ -48,7 +49,7 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
                 , docSeparator
                 , rhsDoc
                 ]
-        _ -> briDocByExactNoComment ltycl
+        _ -> briDocByExactNoComment DataDeclarationFallback ltycl
 
   -- data MyData a b
   -- (zero constructors)
@@ -64,9 +65,13 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
           , appSep tyVarLine
           ]
 
-  -- data MyData = MyData ..
-  -- data MyData = MyData { .. }
-    DataTypeCons _ (_ : _ : _) -> briDocByExactNoComment ltycl
+  -- data MyData = First | Second ..
+    DataTypeCons _ constructors@(_ : _ : _) -> do
+      hasComments <- hasAnyRegularCommentsConnected ltycl
+      case traverse simpleConstructor constructors of
+        Just simpleConstructors | not hasComments ->
+          layoutMultipleConstructors mCtxt mDerivs simpleConstructors
+        _ -> briDocByExactNoComment DataDeclarationFallback ltycl
     DataTypeCons _ [lcons] ->
       (case lcons of
         (L _ (ConDeclH98 _ext consName _hasExt qvars mRhsContext details _conDoc))
@@ -197,9 +202,45 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
                   )
                 ])
               createDerivingPar mDerivs consAltDoc
-        _ -> briDocByExactNoComment ltycl)
+        _ -> briDocByExactNoComment DataDeclarationFallback ltycl)
 
-  _ -> briDocByExactNoComment ltycl
+  _ -> briDocByExactNoComment DataDeclarationFallback ltycl
+ where
+  simpleConstructor = \case
+    L _ (ConDeclH98 _ constructorName False [] context details _)
+      | contextIsEmpty context -> Just (constructorName, details)
+    _ -> Nothing
+
+  contextIsEmpty Nothing = True
+  contextIsEmpty (Just (L _ context)) = null context
+
+  layoutMultipleConstructors context derivings constructors = docWrapNode ltycl $ do
+    lhsContextDoc <- docSharedWrapper createContextDoc
+      $ unLoc (maybe (L noSrcSpan []) toL context)
+    nameStr <- lrdrNameToTextAnn name
+    tyVarLine <- return <$> createBndrDoc bndrs
+    constructorDocs <- constructors `forM` \(constructorName, details) -> do
+      constructorNameStr <- applyNameAdornment constructorName
+        <$> lrdrNameToTextAnn (toL constructorName)
+      return <$> createDetailsDoc constructorNameStr details
+    let header = docNodeAnnKW ltycl (Just AnnData) $ docSeq
+          [ appSep $ docLitS "data"
+          , docForceSingleline lhsContextDoc
+          , appSep $ docLit nameStr
+          , tyVarLine
+          ]
+        constructorLines = zipWith
+          (\separator constructorDoc -> docSeq
+            [ docLitS separator
+            , docSeparator
+            , docSetBaseY constructorDoc
+            ])
+          ("=" : repeat "|")
+          constructorDocs
+    createDerivingPar derivings
+      $ docAddBaseY BrIndentRegular
+      $ docPar header
+      $ docLines constructorLines
 
 createContextDoc :: HsContext GhcPs -> ToBriDocM BriDocNumbered
 createContextDoc [] = docEmpty

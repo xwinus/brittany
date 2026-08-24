@@ -11,6 +11,7 @@ import GHC (GenLocated(L), ol_val)
 import GHC.Hs
 import qualified GHC.OldList as List
 import GHC.Types.Basic
+import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
@@ -209,7 +210,7 @@ layoutPat lpat@(L _ pat) = docWrapNode (toL lpat) $ case pat of
         $ List.intersperse (docLit $ Text.pack " ; ") (map return patDocs)
       return $ Seq.singleton singleDoc
 
-  _ -> return <$> briDocByExactInlineOnly "some unknown pattern" (toL lpat)
+  _ -> return <$> briDocByExactInlineOnly PatternFallback (toL lpat)
 
 colsWrapPat :: Seq BriDocNumbered -> ToBriDocM BriDocNumbered
 colsWrapPat = docCols ColPatterns . fmap return . Foldable.toList

@@ -53,6 +53,10 @@ import Language.Haskell.Brittany.Internal.CommentUtils
 import Language.Haskell.Brittany.Internal.Config
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactSource (nodeSourceSlice)
+import Language.Haskell.Brittany.Internal.Fallbacks
+  ( FallbackId(..)
+  , renderFallbackNotice
+  )
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
@@ -327,14 +331,18 @@ parsePrintModule configWithDebugs inputText = runExceptT $ do
       let
         customErrOrder ErrorInput{} = 4
         customErrOrder LayoutWarning{} = 0 :: Int
+        customErrOrder ExactSourceFallback{} = -1
         customErrOrder ErrorOutputCheck{} = 1
         customErrOrder ErrorUnusedComment{} = 2
         customErrOrder ErrorUnknownNode{} = 3
         customErrOrder ErrorMacroConfig{} = 5
       let
+        isWarningOrError ExactSourceFallback{} = False
+        isWarningOrError _ = True
+      let
         hasErrors =
           if moduleConfig & _conf_errorHandling & _econf_Werror & confUnpack
-            then not $ null errsWarns
+            then any isWarningOrError errsWarns
             else 0 < maximum (-1 : fmap customErrOrder errsWarns)
       if hasErrors
         then throwE $ errsWarns
@@ -391,8 +399,16 @@ pPrintModuleWithSource originalSource conf inlineConf anns parsedModule =
       (TextL.pack $ ExactPrint.exactPrint parsedModule)
       TextL.fromStrict
       originalSource
+    reportFallbacks =
+      conf & _conf_debug & _dconf_dump_fallbacks & confUnpack
+    wholeModuleNotice =
+      [ ExactSourceFallback
+        $ renderFallbackNotice WholeModuleFallback "module"
+      | hasUnknownNode && reportFallbacks
+      ]
     errs' = if hasUnknownNode
       then filter (\case { ErrorUnknownNode{} -> False; _ -> True }) errs
+        ++ wholeModuleNotice
       else errs
   in tracer $
     if hasUnknownNode
@@ -489,14 +505,19 @@ parsePrintModuleTests conf filename input = do
             perItemConf
             anns
             parsedModule
-      if null errs
+      let actionableErrors = filter (\case
+            ExactSourceFallback{} -> False
+            _ -> True
+            ) errs
+      if null actionableErrors
         then pure $ TextL.toStrict $ ltext
         else
           let
-            errStrs = errs <&> \case
+            errStrs = actionableErrors <&> \case
               ErrorInput str -> str
               ErrorUnusedComment str -> str
               LayoutWarning str -> str
+              ExactSourceFallback str -> str
               ErrorUnknownNode str _ -> str
               ErrorMacroConfig str _ -> "when parsing inline config: " ++ str
               ErrorOutputCheck -> "Output is not syntactically valid."
@@ -572,6 +593,8 @@ ppModule originalSource lmod@(L _loc _m@(HsModule _ _name _exports imports decls
     (not (null decls) && (Data.Maybe.isJust _name || not (null imports)))
     $ mTell (Text.Builder.fromString "\n")
   let toL x = L (getLocA x) (unLoc x)
+  let isFallbackNotice ExactSourceFallback{} = True
+      isFallbackNotice _ = False
   forM_ (zip [0 ..] decls) $ \(i, decl) -> do
     when (i > 0) $ mTell (Text.Builder.fromString "\n")
     let decl' = toL decl
@@ -610,16 +633,18 @@ ppModule originalSource lmod@(L _loc _m@(HsModule _ _name _exports imports decls
     let exactprintOnly = config' & _conf_roundtrip_exactprint_only & confUnpack
     toLocal config' filteredAnns $ do
       bd <- if exactprintOnly
-        then briDocMToPPM $ briDocByExactNoComment decl'
+        then briDocMToPPM
+          $ briDocByExactNoComment ExactPrintOnlyFallback decl'
         else do
           (r, errs, debugs) <-
             briDocMToPPMInner
               $ layoutDeclWithExactText exactDeclText hasSourceComments decl'
           mTell debugs
           mTell errs
-          if null errs
+          if all isFallbackNotice errs
             then pure r
-            else briDocMToPPM $ briDocByExactNoComment decl'
+            else briDocMToPPM
+              $ briDocByExactNoComment WholeModuleFallback decl'
       layoutBriDoc bd
 
   let
