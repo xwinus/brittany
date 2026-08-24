@@ -13,8 +13,8 @@ import GHC.Hs (HsConDetails(..), LPat, Pat(..))
 import GHC.Parser.Annotation (getLocA)
 import Language.Haskell.Brittany.Internal.Prelude
 
--- | Find record patterns whose comments cannot be laid out natively without
--- losing their attachment to a field.
+-- | Find patterns whose comments cannot be laid out natively without losing
+-- their attachment to syntax punctuation.
 commentSensitivePatterns :: Data ast => ast -> [Located (Pat GhcPs)]
 commentSensitivePatterns = collectPatterns isCommentSensitive
 
@@ -41,15 +41,22 @@ collectPatterns predicate = SYB.everything (++) patternQuery
 
 isCommentSensitive :: Pat GhcPs -> Bool
 isCommentSensitive = \case
+  BangPat{} -> True
   ConPat _ _ (RecCon _) -> True
   EmbTyPat{} -> True
   InvisPat{} -> True
+  LazyPat{} -> True
+  OrPat{} -> True
   SumPat{} -> True
   TuplePat{} -> True
+  ViewPat{} -> True
   _ -> False
 
 requiresExactSource :: Pat GhcPs -> Bool
 requiresExactSource = \case
+  BangPat{} -> True
   InvisPat{} -> True
+  LazyPat{} -> True
+  OrPat{} -> True
   SumPat{} -> True
   _ -> False

@@ -59,6 +59,14 @@ type-operator, type-abstraction, and unboxed-sum paths retain their containing
 declaration through exact-source rendering. Comments around binders, arrows,
 contexts, and constructor signatures are preserved.
 
+Issue #17 verifies modern patterns, literals, do notation, control expressions,
+tuple sections, and list and tuple puns. Numeric and multiline literals retain
+their exact source spelling, including sized primitive suffixes. Qualified do
+blocks and declarations containing bang or lazy patterns use exact-source
+rendering where native layout would change syntax or detach comments. Comments
+at pattern, guard, statement, operator, and tuple punctuation boundaries are
+preserved.
+
 Adding a fixture that enables an unclassified extension therefore fails the
 test suite and CI. The manifest's `tracking-issue` fields identify the roadmap
 issue responsible for auditing and improving each classification.
