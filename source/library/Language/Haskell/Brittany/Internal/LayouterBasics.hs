@@ -131,7 +131,15 @@ briDocByExactInlineOnly fallback ast = do
 
 reportFallback :: FallbackId -> Located ast -> ToBriDocM ()
 reportFallback fallback ast = do
-  enabled <- mAsk <&> _conf_debug .> _dconf_dump_fallbacks .> confUnpack
+  config <- mAsk
+  let
+    enabled =
+      (config & _conf_debug & _dconf_dump_fallbacks & confUnpack)
+        || ( config
+          & _conf_errorHandling
+          & _econf_failOnExactSourceFallback
+          & confUnpack
+           )
   when enabled $ mTell
     [ ExactSourceFallback $ renderFallbackNotice fallback $ show $ GHC.getLoc ast
     ]

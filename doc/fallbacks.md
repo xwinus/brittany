@@ -7,9 +7,21 @@ original module if an unknown GHC AST node reaches a layouter.
 
 Run Brittany with `--dump-fallbacks` to report every pass-through path on
 standard error. Reporting is disabled by default, does not alter formatter
-output, does not affect exit status, and is ignored by `--Werror`. A run with
+output, does not affect exit status, and is ignored by `--werror`. A run with
 no fallback reports during normal formatting used native layout for every
 reached syntax path.
+
+Use `--fail-on-fallback` when a workflow requires native formatting for every
+reached syntax path. This mode reports the same fallback identifiers, scopes,
+and source spans without requiring `--dump-fallbacks`, suppresses formatter
+output, and exits with status 70 when any scoped or whole-module fallback is
+used. `--output-on-errors` permits output while retaining the failing exit
+status. Parse failures remain status 60 and never overwrite an input file.
+
+The equivalent YAML setting is
+`conf_errorHandling.econf_failOnExactSourceFallback: true`. Strict fallback
+handling is independent of `--werror` and applies to display, check, inplace,
+exactprint-only, and library use.
 
 The typed, machine-readable registry is exposed as `fallbackInventory` from
 `Language.Haskell.Brittany`. Each entry includes its scope, support mode,

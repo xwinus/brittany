@@ -9,8 +9,8 @@ current code is based on the GHC 9.14 forward port by
 
 - The current development target is GHC 9.14.1 with ghc-exactprint 1.14.
 - Version 0.15.0.0 is unreleased and intended for development use.
-- The test suite verifies all 547 golden fixtures and 152 focused regression,
-  compatibility, and fallback cases. The current result is 699 passing and 0
+- The test suite verifies all 547 golden fixtures and 183 focused regression,
+  compatibility, and fallback cases. The current result is 730 passing and 0
   pending tests.
 - Test runs reparse formatted output to verify its syntactic validity.
 - Test runs fail when formatting leaves a source comment unprocessed.
@@ -18,7 +18,8 @@ current code is based on the GHC 9.14 forward port by
   [compatibility matrix](doc/compatibility.md).
 - Exact-source pass-through and the whole-module safety net are documented in
   the [fallback inventory](doc/fallbacks.md). Use `--dump-fallbacks` to report
-  which source regions were preserved instead of natively formatted.
+  which source regions were preserved instead of natively formatted, or
+  `--fail-on-fallback` to reject such output.
 
 haskell source code formatter
 

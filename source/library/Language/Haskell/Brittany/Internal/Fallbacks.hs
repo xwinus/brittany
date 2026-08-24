@@ -181,7 +181,16 @@ renderFallbackNotice :: FallbackId -> String -> String
 renderFallbackNotice fallback location =
   "exact-source fallback "
     ++ show fallback
+    ++ " ("
+    ++ renderFallbackScope (fallbackScope $ fallbackInfo fallback)
+    ++ " scope)"
     ++ " at "
     ++ location
     ++ ": "
     ++ fallbackReason (fallbackInfo fallback)
+
+renderFallbackScope :: FallbackScope -> String
+renderFallbackScope = \case
+  InlineScope -> "inline"
+  DeclarationScope -> "declaration"
+  ModuleScope -> "module"

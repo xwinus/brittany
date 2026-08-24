@@ -17,12 +17,19 @@ import qualified Data.Text.Lazy as TextL
 import DataTreePrint
 import GHC (GenLocated(L))
 import qualified GHC.Driver.Session as GHC
+import GHC.Hs (hsmodDecls)
 import qualified GHC.LanguageExtensions.Type as GHC
 import qualified GHC.OldList as List
+import GHC.Parser.Annotation (getLocA)
+import GHC.Types.SrcLoc (unLoc)
 import GHC.Utils.Outputable (Outputable(..), showSDocUnsafe)
 import Language.Haskell.Brittany.Internal
 import Language.Haskell.Brittany.Internal.Config
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.Fallbacks
+  ( FallbackId(..)
+  , renderFallbackNotice
+  )
 import Language.Haskell.Brittany.Internal.Obfuscation
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
@@ -239,8 +246,11 @@ mainCmdParser helpDesc = do
       outputPaths
 
     if checkMode
-      then when (Changes `elem` (Data.Either.rights results))
-        $ System.Exit.exitWith (System.Exit.ExitFailure 1)
+      then case Data.Either.lefts results of
+        [] -> when (Changes `elem` Data.Either.rights results)
+          $ System.Exit.exitWith (System.Exit.ExitFailure 1)
+        [exitCode] -> System.Exit.exitWith (System.Exit.ExitFailure exitCode)
+        _ -> System.Exit.exitWith (System.Exit.ExitFailure 1)
       else case results of
         xs | all Data.Either.isRight xs -> pure ()
         [Left x] -> System.Exit.exitWith (System.Exit.ExitFailure x)
@@ -367,8 +377,26 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
               let out = ensureTrailingNewline originalContents
               pure ([], out, out /= originalContents)
             | exactprintOnly -> do
-              let r = ensureTrailingNewline $ Text.pack $ ExactPrint.exactPrint parsedSource
-              pure ([], r, r /= originalContents)
+              let
+                r = ensureTrailingNewline
+                  $ Text.pack
+                  $ ExactPrint.exactPrint parsedSource
+                reportFallbacks =
+                  (moduleConf & _conf_debug & _dconf_dump_fallbacks & confUnpack)
+                    || ( moduleConf
+                      & _conf_errorHandling
+                      & _econf_failOnExactSourceFallback
+                      & confUnpack
+                       )
+                fallbacks =
+                  [ ExactSourceFallback
+                    $ renderFallbackNotice ExactPrintOnlyFallback
+                    $ show
+                    $ getLocA declaration
+                  | reportFallbacks
+                  , declaration <- hsmodDecls $ unLoc parsedSource
+                  ]
+              pure (fallbacks, r, r /= originalContents)
             | otherwise -> do
               let
                 omitCheck =
@@ -472,12 +500,20 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
         -- TODO: don't output anything when there are errors unless user
         -- adds some override?
         let
+          failOnFallback =
+            moduleConf
+              & _conf_errorHandling
+              & _econf_failOnExactSourceFallback
+              & confUnpack
           hasErrors =
-            if config & _conf_errorHandling & _econf_Werror & confUnpack
-              then any isWarningOrError errsWarns
-              else 0 < maximum (-1 : fmap customErrOrder errsWarns)
+            (failOnFallback && any isFallback errsWarns)
+              || if config & _conf_errorHandling & _econf_Werror & confUnpack
+                then any isWarningOrError errsWarns
+                else 0 < maximum (-1 : fmap customErrOrder errsWarns)
           isWarningOrError ExactSourceFallback{} = False
           isWarningOrError _ = True
+          isFallback ExactSourceFallback{} = True
+          isFallback _ = False
           outputOnErrs =
             config
               & _conf_errorHandling
