@@ -57,6 +57,23 @@ isSymbolicSectionOp (L _ expr) =
   where
     isSymbolic s = not (null s) && head s `elem` ("!:#$%&*+./<=>?@\\^|-~" :: String)
 
+isBlockLikeExpression :: HsExpr GhcPs -> Bool
+isBlockLikeExpression = \case
+  HsLam _ LamCase _ -> True
+  HsCase{} -> True
+  HsMultiIf{} -> True
+  HsDo _ stmtContext _ -> case stmtContext of
+    DoExpr _ -> True
+    MDoExpr _ -> True
+    _ -> False
+  HsPar _ inner -> isBlockLikeExpression $ unLoc inner
+  _ -> False
+
+isParenthesizedBlockExpression :: HsExpr GhcPs -> Bool
+isParenthesizedBlockExpression = \case
+  HsPar _ inner -> isBlockLikeExpression $ unLoc inner
+  _ -> False
+
 layoutExpr :: ToBriDoc HsExpr
 layoutExpr lexpr = layoutExpr' (toL lexpr)
 
@@ -352,6 +369,9 @@ layoutExpr' lexpr@(L _ expr) = do
         leftIsDoBlock = case expLeft of
           L _ HsDo{} -> True
           _ -> False
+        layoutRight = if isParenthesizedBlockExpression $ unLoc expRight
+          then expDocRight
+          else docSetBaseY expDocRight
       runFilteredAlternative $ do
         -- one-line
         addAlternative $ docSeq
@@ -364,7 +384,7 @@ layoutExpr' lexpr@(L _ expr) = do
           let
             expDocOpAndRight = docForceSingleline $ docCols
               ColOpPrefix
-              [appSep $ expDocOp', docSetBaseY expDocRight]
+              [appSep $ expDocOp', layoutRight]
           if leftIsDoBlock
             then docLines [expDocLeft, expDocOpAndRight]
             else docAddBaseY BrIndentRegular
@@ -379,7 +399,7 @@ layoutExpr' lexpr@(L _ expr) = do
         addAlternative $ do
           let
             expDocOpAndRight =
-              docCols ColOpPrefix [appSep expDocOp', docSetBaseY expDocRight]
+              docCols ColOpPrefix [appSep expDocOp', layoutRight]
           if leftIsDoBlock
             then docLines [expDocLeft, expDocOpAndRight]
             else docAddBaseY BrIndentRegular
@@ -389,13 +409,17 @@ layoutExpr' lexpr@(L _ expr) = do
       docSeq [docLit $ Text.pack "-", opDoc]
     HsPar _ innerExp -> do
       innerExpDoc <- docSharedWrapper (docWrapNode lexpr . layoutExpr') (toL innerExp)
-      docAlt
-        [ docSeq
+      runFilteredAlternative $ do
+        addAlternative $ docSeq
           [ docLit $ Text.pack "("
           , docForceSingleline innerExpDoc
           , docLit $ Text.pack ")"
           ]
-        , docSetBaseY $ docLines
+        addAlternativeCond (isBlockLikeExpression $ unLoc innerExp)
+          $ docDelimitedBlock docParenL innerExpDoc docParenR
+        addAlternativeCond (not $ isBlockLikeExpression $ unLoc innerExp)
+          $ docSetBaseY
+          $ docLines
           [ docCols
             ColOpPrefix
             [ docLit $ Text.pack "("
@@ -403,7 +427,6 @@ layoutExpr' lexpr@(L _ expr) = do
             ]
           , docLit $ Text.pack ")"
           ]
-        ]
     SectionL _ left op -> do -- (left op) or (left `op`) for alphanumeric
       leftDoc <- docSharedWrapper layoutExpr' (toL left)
       opDoc <- docSharedWrapper layoutExpr' (toL op)

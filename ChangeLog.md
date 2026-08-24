@@ -28,6 +28,8 @@
   original positions within module export lists.
 * Preserved intentional vertical spacing between module headers, imports,
   top-level comments, and declaration groups.
+* Improved multiline indentation and delimiter alignment for parenthesized
+  lambda-case, case, do, and multi-way-if expressions.
 ## 0.14.0.0 -- November 2021
 
 * #357: Added support for GHC 9.0. Dropped support for all other versions of GHC.

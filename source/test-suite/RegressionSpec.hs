@@ -146,6 +146,17 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects malformed lambda-case syntax without changing the input"
       "LambdaCaseInvalid.hs"
 
+  Hspec.describe "parenthesized block expressions" $ do
+    strictIdempotentFormattingExample projectRoot
+      "aligns multiline lambda-case delimiters"
+      "ParenthesizedLambdaCaseExpected.hs"
+    strictIdempotentFormattingExample projectRoot
+      "preserves nested, commented, and control-expression blocks"
+      "ParenthesizedLambdaCaseEdge.hs"
+    parseFailureExample projectRoot
+      "rejects malformed parenthesized lambda-case syntax"
+      "ParenthesizedLambdaCaseInvalid.hs"
+
   Hspec.describe "module export-list comments" $ do
     idempotentFormattingExample projectRoot
       "keeps Haddock section headings before their exports"
@@ -190,6 +201,23 @@ idempotentFormattingExample projectRoot description fixtureName =
     firstPass <- readFile output
     firstPass `Hspec.shouldBe` expected
     Brittany.mainWith "brittany" (formatterArgs projectRoot output)
+    secondPass <- readFile output
+    secondPass `Hspec.shouldBe` firstPass
+
+strictIdempotentFormattingExample
+  :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
+strictIdempotentFormattingExample projectRoot description fixtureName =
+  Hspec.it description $ do
+    let fixture = fixturePath projectRoot fixtureName
+        output = outputPath projectRoot fixtureName
+    expected <- readFile fixture
+    Directory.copyFile fixture output
+    Brittany.mainWith "brittany"
+      ("--fail-on-fallback" : formatterArgs projectRoot output)
+    firstPass <- readFile output
+    firstPass `Hspec.shouldBe` expected
+    Brittany.mainWith "brittany"
+      ("--fail-on-fallback" : formatterArgs projectRoot output)
     secondPass <- readFile output
     secondPass `Hspec.shouldBe` firstPass
 
