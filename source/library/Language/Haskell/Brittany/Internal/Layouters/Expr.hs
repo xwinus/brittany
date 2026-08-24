@@ -1132,12 +1132,18 @@ litBriDoc = \case
   HsString (SourceText t) _fastString -> BDFLit $ Text.pack (FastString.unpackFS t)
   HsStringPrim (SourceText t) _byteString -> BDFLit $ Text.pack (FastString.unpackFS t)
   HsInt _ il -> sourceTextLit (il_text il) (show (il_value il))
-  HsIntPrim _ i -> BDFLit $ Text.pack (show i)
-  HsWordPrim _ i -> BDFLit $ Text.pack (show i)
-  HsInt64Prim _ i -> BDFLit $ Text.pack (show i)
-  HsWord64Prim _ i -> BDFLit $ Text.pack (show i)
-  HsFloatPrim _ fl -> sourceTextLit (fl_text fl) ""
-  HsDoublePrim _ fl -> sourceTextLit (fl_text fl) ""
+  HsIntPrim source i -> sourceTextLit source (show i ++ "#")
+  HsWordPrim source i -> sourceTextLit source (show i ++ "##")
+  HsInt8Prim source i -> sourceTextLit source (show i ++ "#Int8")
+  HsInt16Prim source i -> sourceTextLit source (show i ++ "#Int16")
+  HsInt32Prim source i -> sourceTextLit source (show i ++ "#Int32")
+  HsInt64Prim source i -> sourceTextLit source (show i ++ "#Int64")
+  HsWord8Prim source i -> sourceTextLit source (show i ++ "#Word8")
+  HsWord16Prim source i -> sourceTextLit source (show i ++ "#Word16")
+  HsWord32Prim source i -> sourceTextLit source (show i ++ "#Word32")
+  HsWord64Prim source i -> sourceTextLit source (show i ++ "#Word64")
+  HsFloatPrim _ fl -> sourceTextLitWithSuffix (fl_text fl) "#"
+  HsDoublePrim _ fl -> sourceTextLitWithSuffix (fl_text fl) "##"
   HsMultilineString (SourceText t) _fs -> BDFLit $ Text.pack (FastString.unpackFS t)
   HsMultilineString NoSourceText fs -> BDFLit $ Text.pack (FastString.unpackFS fs)
   _ -> error "litBriDoc: literal with no SourceText"
@@ -1145,6 +1151,11 @@ litBriDoc = \case
 sourceTextLit :: SourceText -> String -> BriDocFInt
 sourceTextLit (SourceText fs) _ = BDFLit $ Text.pack (FastString.unpackFS fs)
 sourceTextLit NoSourceText fallback = BDFLit $ Text.pack fallback
+
+sourceTextLitWithSuffix :: SourceText -> String -> BriDocFInt
+sourceTextLitWithSuffix (SourceText fs) suffix = BDFLit
+  $ Text.pack (FastString.unpackFS fs ++ suffix)
+sourceTextLitWithSuffix NoSourceText suffix = BDFLit $ Text.pack suffix
 
 overLitValBriDoc :: OverLitVal -> BriDocFInt
 overLitValBriDoc = \case

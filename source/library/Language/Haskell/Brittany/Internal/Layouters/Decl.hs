@@ -110,6 +110,7 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
           [ not $ null (exactSourceExpressions declaration)
           , not $ null (exactSourcePatterns declaration)
           , requiresExactTypes declaration
+          , requiresExactBinding bind
           ]
     if hasSensitiveComments || requiresExactLayout
       then layoutExact declaration exactText
@@ -136,6 +137,10 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
     Nothing -> briDocByExactNoComment declaration
 
   requiresExactTypes = not . null . exactSourceTypes
+
+  requiresExactBinding = \case
+    PatSynBind{} -> True
+    _ -> False
 
 --------------------------------------------------------------------------------
 -- Sig

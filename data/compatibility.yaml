@@ -35,9 +35,21 @@ features:
     kind: syntax
     support: exact-source
     tracking-issue: 14
+  - name: ApplicativeDo
+    kind: extension
+    support: native
+    tracking-issue: 17
   - name: BangPatterns
     kind: extension
     support: exact-source
+    tracking-issue: 17
+  - name: BinaryLiterals
+    kind: extension
+    support: native
+    tracking-issue: 17
+  - name: BlockArguments
+    kind: extension
+    support: native
     tracking-issue: 17
   - name: CPP
     kind: extension
@@ -79,6 +91,10 @@ features:
     kind: extension
     support: exact-source
     tracking-issue: 14
+  - name: ExtendedLiterals
+    kind: extension
+    support: native
+    tracking-issue: 17
   - name: FieldSelectors
     kind: extension
     support: native
@@ -91,6 +107,10 @@ features:
     kind: extension
     support: exact-source
     tracking-issue: 16
+  - name: HexFloatLiterals
+    kind: extension
+    support: native
+    tracking-issue: 17
   - name: ImplicitParams
     kind: extension
     support: exact-source
@@ -100,6 +120,10 @@ features:
     support: native
     tracking-issue: 16
   - name: LambdaCase
+    kind: extension
+    support: exact-source
+    tracking-issue: 17
+  - name: ListTuplePuns
     kind: extension
     support: exact-source
     tracking-issue: 17
@@ -131,6 +155,10 @@ features:
     kind: extension
     support: native
     tracking-issue: 15
+  - name: NumericUnderscores
+    kind: extension
+    support: native
+    tracking-issue: 17
   - name: OrPatterns
     kind: extension
     support: exact-source
@@ -167,6 +195,10 @@ features:
     kind: extension
     support: native
     tracking-issue: 16
+  - name: QualifiedDo
+    kind: extension
+    support: exact-source
+    tracking-issue: 17
   - name: RankNTypes
     kind: extension
     support: native
@@ -194,6 +226,10 @@ features:
   - name: StaticPointers
     kind: extension
     support: exact-source
+    tracking-issue: 17
+  - name: Strict
+    kind: extension
+    support: native
     tracking-issue: 17
   - name: StandaloneKindSignatures
     kind: extension
@@ -231,6 +267,10 @@ features:
     kind: extension
     support: exact-source
     tracking-issue: 16
+  - name: TupleSections
+    kind: extension
+    support: native
+    tracking-issue: 17
   - name: UnboxedSums
     kind: extension
     support: exact-source
@@ -432,6 +472,81 @@ cases:
     kind: malformed
     fixture: source/test-suite/fixtures/QuantifiedTypesInvalid.hs
     features: [ExplicitForAll, QuantifiedConstraints, RankNTypes, TypeApplications]
+    expected-result: parse-failure
+  - name: formats or-patterns and pattern synonyms
+    kind: expected
+    fixture: source/test-suite/fixtures/OrPatternSyntaxExpected.hs
+    features: [OrPatterns, PatternSynonyms]
+    expected-result: formats
+  - name: preserves comments around or-pattern and pattern synonym boundaries
+    kind: edge
+    fixture: source/test-suite/fixtures/OrPatternSyntaxEdge.hs
+    features: [OrPatterns, PatternSynonyms]
+    expected-result: formats
+  - name: rejects a malformed or-pattern
+    kind: malformed
+    fixture: source/test-suite/fixtures/OrPatternSyntaxInvalid.hs
+    features: [OrPatterns, PatternSynonyms]
+    expected-result: parse-failure
+  - name: formats multiline extended and numeric literals
+    kind: expected
+    fixture: source/test-suite/fixtures/LiteralSyntaxExpected.hs
+    features: [BinaryLiterals, ExtendedLiterals, HexFloatLiterals, MagicHash, MultilineStrings, NumericUnderscores]
+    expected-result: formats
+  - name: preserves comments and source spelling around modern literals
+    kind: edge
+    fixture: source/test-suite/fixtures/LiteralSyntaxEdge.hs
+    features: [BinaryLiterals, ExtendedLiterals, HexFloatLiterals, MagicHash, MultilineStrings, NumericUnderscores]
+    expected-result: formats
+  - name: rejects an unterminated multiline literal
+    kind: malformed
+    fixture: source/test-suite/fixtures/LiteralSyntaxInvalid.hs
+    features: [BinaryLiterals, ExtendedLiterals, HexFloatLiterals, MagicHash, MultilineStrings, NumericUnderscores]
+    expected-result: parse-failure
+  - name: formats block qualified applicative and recursive do syntax
+    kind: expected
+    fixture: source/test-suite/fixtures/DoSyntaxExpected.hs
+    features: [ApplicativeDo, BlockArguments, QualifiedDo, RecursiveDo]
+    expected-result: formats
+  - name: preserves comments across modern do layout boundaries
+    kind: edge
+    fixture: source/test-suite/fixtures/DoSyntaxEdge.hs
+    features: [ApplicativeDo, BlockArguments, QualifiedDo, RecursiveDo]
+    expected-result: formats
+  - name: rejects a malformed qualified do binding
+    kind: malformed
+    fixture: source/test-suite/fixtures/DoSyntaxInvalid.hs
+    features: [ApplicativeDo, BlockArguments, QualifiedDo, RecursiveDo]
+    expected-result: parse-failure
+  - name: formats lambda-case multi-way-if sections and list tuple puns
+    kind: expected
+    fixture: source/test-suite/fixtures/ControlSyntaxExpected.hs
+    features: [DataKinds, LambdaCase, ListTuplePuns, MultiWayIf, TupleSections]
+    expected-result: formats
+  - name: preserves comments at control and tuple punctuation boundaries
+    kind: edge
+    fixture: source/test-suite/fixtures/ControlSyntaxEdge.hs
+    features: [DataKinds, LambdaCase, ListTuplePuns, MultiWayIf, TupleSections]
+    expected-result: formats
+  - name: rejects a malformed multi-way-if branch
+    kind: malformed
+    fixture: source/test-suite/fixtures/ControlSyntaxInvalid.hs
+    features: [DataKinds, LambdaCase, ListTuplePuns, MultiWayIf, TupleSections]
+    expected-result: parse-failure
+  - name: formats view bang lazy and strict patterns
+    kind: expected
+    fixture: source/test-suite/fixtures/StrictPatternSyntaxExpected.hs
+    features: [BangPatterns, Strict, ViewPatterns]
+    expected-result: formats
+  - name: preserves comments around strict and view pattern punctuation
+    kind: edge
+    fixture: source/test-suite/fixtures/StrictPatternSyntaxEdge.hs
+    features: [BangPatterns, Strict, ViewPatterns]
+    expected-result: formats
+  - name: rejects a malformed bang pattern
+    kind: malformed
+    fixture: source/test-suite/fixtures/StrictPatternSyntaxInvalid.hs
+    features: [BangPatterns, Strict, ViewPatterns]
     expected-result: parse-failure
   - name: classifies lambda case
     kind: expected

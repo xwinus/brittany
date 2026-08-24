@@ -9,7 +9,12 @@ module Language.Haskell.Brittany.Internal.ExpressionComments
 import Data.Data (Data)
 import qualified Data.Generics as SYB
 import GHC (GenLocated(L), Located, unLoc)
-import GHC.Hs (HsExpr(..), LHsExpr, LHsRecUpdFields(..))
+import GHC.Hs
+  ( HsExpr(..)
+  , HsDoFlavour(..)
+  , LHsExpr
+  , LHsRecUpdFields(..)
+  )
 import GHC.Parser.Annotation (getLocA)
 import Language.Haskell.Brittany.Internal.Prelude
 
@@ -58,6 +63,8 @@ requiresExactSource = \case
   HsForAll{} -> True
   HsFunArr{} -> True
   HsQual{} -> True
+  HsDo _ (DoExpr (Just _)) _ -> True
+  HsDo _ (MDoExpr (Just _)) _ -> True
   RecordUpd _ _ (OverloadedRecUpdFields _ _) -> True
   _ -> False
 
