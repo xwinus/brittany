@@ -2,6 +2,7 @@ module CompatibilitySpec (spec) where
 
 import qualified CompatibilityMatrix as Matrix
 import qualified Control.Monad as Monad
+import qualified Data.List as List
 import qualified Language.Haskell.Brittany.Main as Brittany
 import qualified System.Directory as Directory
 import qualified System.Exit as Exit
@@ -54,6 +55,31 @@ spec projectRoot = Hspec.describe "GHC 9.14 compatibility matrix" $ do
               Matrix.validateMatrix invalidMatrix discoveredPragmas
                 `Hspec.shouldContain`
                   ["case is marked skipped: " ++ Matrix.matrixCaseName firstCase]
+        Hspec.it "accepts syntax classifications without LANGUAGE pragmas" $ do
+          let syntaxErrors = filter (List.isInfixOf "ModuleHeaders")
+                $ Matrix.validateMatrix matrix discoveredPragmas
+          syntaxErrors `Hspec.shouldBe` []
+        Hspec.it "still requires LANGUAGE pragmas for extension cases" $ do
+          let reclassify feature
+                | Matrix.featureName feature == "ModuleHeaders" =
+                    feature { Matrix.featureKind = Matrix.Extension }
+                | otherwise = feature
+              invalidMatrix = matrix
+                { Matrix.matrixFeatures = reclassify <$> Matrix.matrixFeatures matrix
+                }
+          Matrix.validateMatrix invalidMatrix discoveredPragmas
+            `Hspec.shouldContain`
+              [ "case does not enable feature ModuleHeaders in data/Test132.hs"
+              ]
+        Hspec.it "rejects a syntax classification without coverage" $ do
+          let keepsCase matrixCase =
+                "ModuleHeaders" `notElem` Matrix.matrixCaseFeatures matrixCase
+              invalidMatrix = matrix
+                { Matrix.matrixCases = filter keepsCase $ Matrix.matrixCases matrix
+                }
+          Matrix.validateMatrix invalidMatrix discoveredPragmas
+            `Hspec.shouldContain`
+              ["feature has no compatibility case: ModuleHeaders"]
 
       Hspec.describe "classified feature cases" $
         Monad.forM_ (Matrix.matrixCases matrix) $ \matrixCase ->

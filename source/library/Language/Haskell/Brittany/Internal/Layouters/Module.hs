@@ -25,6 +25,21 @@ import Language.Haskell.Brittany.Internal.Types
 layoutModule :: ToBriDoc' (HsModule GhcPs)
 layoutModule = layoutModuleWithExactText Text.empty
 
+preambleRequiresExactSource :: Text.Text -> HsModule GhcPs -> Bool
+preambleRequiresExactSource source HsModule{hsmodImports = imports} =
+  containsWarningPragma || any importRequiresExactSource imports
+ where
+  containsWarningPragma = any (`Text.isInfixOf` source)
+    [ Text.pack "{-# WARNING"
+    , Text.pack "{-# DEPRECATED"
+    ]
+  importRequiresExactSource (L _ importDeclaration) = case importDeclaration of
+    ImportDecl
+      { ideclLevelSpec = levelStyle
+      , ideclQualified = qualifiedStyle
+      } -> levelStyle /= NotLevelled || qualifiedStyle == QualifiedPost
+    XImportDecl{} -> True
+
 layoutModuleWithExactText :: Text.Text -> ToBriDoc' (HsModule GhcPs)
 layoutModuleWithExactText exactText lmod@(L _ mod') = case mod' of
     -- Implicit module Main

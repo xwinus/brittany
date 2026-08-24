@@ -40,16 +40,13 @@ parenthesizeIfSymbolic nameText =
 toL :: (HasLoc (GenLocated l a), HasLoc l) => GenLocated l a -> GenLocated SrcSpan a
 toL x = L (getLocA x) (unLoc x)
 
-prepareName :: LIEWrappedName GhcPs -> GenLocated SrcSpan (IEWrappedName GhcPs)
-prepareName = toL
-
 layoutIE :: ToBriDoc IE
 layoutIE lie@(L _ ie) = docWrapNode lie $ case ie of
-  IEVar _ x _ -> layoutWrapped lie x
-  IEThingAbs _ x _ -> layoutWrapped lie x
-  IEThingAll _ x _ -> docSeq [layoutWrapped lie x, docLit $ Text.pack "(..)"]
+  IEVar _ x _ -> layoutWrapped x
+  IEThingAbs _ x _ -> layoutWrapped x
+  IEThingAll _ x _ -> docSeq [layoutWrapped x, docLit $ Text.pack "(..)"]
   IEThingWith _ x (IEWildcard _) _ _ ->
-    docSeq [layoutWrapped lie x, docLit $ Text.pack "(..)"]
+    docSeq [layoutWrapped x, docLit $ Text.pack "(..)"]
   IEThingWith _ x _ ns _ -> do
     hasComments <- orM
       (hasCommentsBetween lie AnnOpenP AnnCloseP
@@ -61,15 +58,16 @@ layoutIE lie@(L _ ie) = docWrapNode lie $ case ie of
     runFilteredAlternative $ do
       addAlternativeCond (not hasComments)
         $ docSeq
-        $ [layoutWrapped lie x, docLit $ Text.pack "("]
+        $ [layoutWrapped x, docLit $ Text.pack "("]
         ++ intersperse docCommaSep (map nameDoc sortedNs)
         ++ [docParenR]
       addAlternative
         $ docWrapNodeRest lie
         $ docAddBaseY BrIndentRegular
-        $ docPar (layoutWrapped lie x) (layoutItems (splitFirstLast sortedNs))
+        $ docPar (layoutWrapped x) (layoutItems (splitFirstLast sortedNs))
    where
-    nameDoc = docLit <=< (fmap parenthesizeIfSymbolic . lrdrNameToTextAnn . toLocatedRdrName . prepareName)
+    nameDoc = docLit
+      <=< (fmap parenthesizeIfSymbolic . lrdrNameToTextAnn . toLocatedRdrName)
     layoutItem n = docSeq [docCommaSep, docWrapNode (toL n) $ nameDoc n]
     layoutItems FirstLastEmpty = docSetBaseY $ docLines
       [ docSeq [docParenLSep, docNodeAnnKW lie (Just AnnOpenP) docEmpty]
@@ -94,20 +92,30 @@ layoutIE lie@(L _ ie) = docWrapNode lie $ case ie of
     ]
   _ -> docEmpty
  where
+  toLocatedRdrName :: LIEWrappedName GhcPs -> Located RdrName
   toLocatedRdrName (L _ wn) = toL $ case wn of
     IEName _ r -> r
+    IEDefault _ r -> r
     IEPattern _ r -> r
     IEType _ r -> r
-  layoutWrapped _ = \case
+    IEData _ r -> r
+  layoutWrapped :: LIEWrappedName GhcPs -> ToBriDocM BriDocNumbered
+  layoutWrapped = \case
     L _ (IEName _ n) -> do
       name <- lrdrNameToTextAnn (toL n)
       docLit $ parenthesizeIfSymbolic name
+    L _ (IEDefault _ n) -> do
+      name <- lrdrNameToTextAnn (toL n)
+      docLit $ Text.pack "default " <> parenthesizeIfSymbolic name
     L _ (IEPattern _ n) -> do
       name <- lrdrNameToTextAnn (toL n)
       docLit $ Text.pack "pattern " <> parenthesizeIfSymbolic name
     L _ (IEType _ n) -> do
       name <- lrdrNameToTextAnn (toL n)
       docLit $ Text.pack "type " <> parenthesizeIfSymbolic name
+    L _ (IEData _ n) -> do
+      name <- lrdrNameToTextAnn (toL n)
+      docLit $ Text.pack "data " <> parenthesizeIfSymbolic name
 
 data SortItemsFlag = ShouldSortItems | KeepItemsUnsorted
 -- Helper function to deal with Located lists of LIEs.
@@ -223,8 +231,10 @@ layoutLLIEs enableSingleline shouldSort llies = do
 wrappedNameToText :: LIEWrappedName GhcPs -> Text
 wrappedNameToText = \case
   L _ (IEName _ n) -> lrdrNameToText (toL n)
+  L _ (IEDefault _ n) -> lrdrNameToText (toL n)
   L _ (IEPattern _ n) -> lrdrNameToText (toL n)
   L _ (IEType _ n) -> lrdrNameToText (toL n)
+  L _ (IEData _ n) -> lrdrNameToText (toL n)
 
 -- | Returns a "fingerprint string", not a full text representation, nor even
 -- a source code representation of this syntax node.

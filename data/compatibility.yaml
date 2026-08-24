@@ -6,15 +6,35 @@ features:
   - name: Haskell2010
     kind: edition
     support: native
-    tracking-issue: 13
+    tracking-issue: 14
   - name: GHC2021
     kind: edition
     support: native
-    tracking-issue: 13
+    tracking-issue: 14
   - name: GHC2024
     kind: edition
     support: native
-    tracking-issue: 13
+    tracking-issue: 14
+  - name: ModuleHeaders
+    kind: syntax
+    support: native
+    tracking-issue: 14
+  - name: ExportLists
+    kind: syntax
+    support: native
+    tracking-issue: 14
+  - name: SafeImports
+    kind: syntax
+    support: native
+    tracking-issue: 14
+  - name: SourceImports
+    kind: syntax
+    support: native
+    tracking-issue: 14
+  - name: WarningPragmas
+    kind: syntax
+    support: exact-source
+    tracking-issue: 14
   - name: BangPatterns
     kind: extension
     support: exact-source
@@ -36,6 +56,10 @@ features:
     support: exact-source
     tracking-issue: 16
   - name: ExplicitNamespaces
+    kind: extension
+    support: native
+    tracking-issue: 14
+  - name: ExplicitLevelImports
     kind: extension
     support: exact-source
     tracking-issue: 14
@@ -63,6 +87,10 @@ features:
     kind: extension
     support: exact-source
     tracking-issue: 16
+  - name: ImportQualifiedPost
+    kind: extension
+    support: exact-source
+    tracking-issue: 14
   - name: MultiWayIf
     kind: extension
     support: exact-source
@@ -91,6 +119,10 @@ features:
     kind: extension
     support: exact-source
     tracking-issue: 17
+  - name: PackageImports
+    kind: extension
+    support: native
+    tracking-issue: 14
   - name: QuasiQuotes
     kind: extension
     support: exact-source
@@ -169,6 +201,21 @@ cases:
     fixture: source/test-suite/fixtures/CompatibilityGHC2024Invalid.hs
     features: [GHC2024]
     expected-result: parse-failure
+  - name: formats a module header and export list
+    kind: expected
+    fixture: data/Test132.hs
+    features: [ModuleHeaders, ExportLists]
+    expected-result: formats
+  - name: preserves comments around module exports
+    kind: edge
+    fixture: data/Test138.hs
+    features: [ModuleHeaders, ExportLists]
+    expected-result: formats
+  - name: rejects a malformed module export list
+    kind: malformed
+    fixture: source/test-suite/fixtures/ModuleSyntaxInvalid.hs
+    features: [ModuleHeaders, ExportLists]
+    expected-result: parse-failure
   - name: classifies bang patterns
     kind: expected
     fixture: data/Test172.hs
@@ -194,6 +241,31 @@ cases:
     fixture: data/Test237.hs
     features: [ExplicitNamespaces, PatternSynonyms]
     expected-result: formats
+  - name: preserves data and type namespace comments
+    kind: edge
+    fixture: source/test-suite/fixtures/ExplicitNamespacesEdge.hs
+    features: [ExplicitNamespaces]
+    expected-result: formats
+  - name: rejects a malformed explicit namespace
+    kind: malformed
+    fixture: source/test-suite/fixtures/ExplicitNamespacesInvalid.hs
+    features: [ExplicitNamespaces]
+    expected-result: parse-failure
+  - name: preserves a prepositive explicit level import
+    kind: expected
+    fixture: source/test-suite/fixtures/ExplicitLevelImportsExpected.hs
+    features: [ExplicitLevelImports]
+    expected-result: formats
+  - name: preserves commented level and postpositive imports
+    kind: edge
+    fixture: source/test-suite/fixtures/ExplicitLevelImportsEdge.hs
+    features: [ExplicitLevelImports, ImportQualifiedPost]
+    expected-result: formats
+  - name: rejects conflicting explicit import levels
+    kind: malformed
+    fixture: source/test-suite/fixtures/ExplicitLevelImportsInvalid.hs
+    features: [ExplicitLevelImports]
+    expected-result: parse-failure
   - name: rejects unsafe foreign declaration comments
     kind: unsupported
     fixture: source/test-suite/fixtures/CommentPreservationForeignLost.hs
@@ -224,6 +296,21 @@ cases:
     fixture: data/Test254.hs
     features: [MagicHash, UnboxedTuples]
     expected-result: formats
+  - name: formats package and postpositive imports
+    kind: expected
+    fixture: source/test-suite/fixtures/ImportSyntaxExpected.hs
+    features: [PackageImports, ImportQualifiedPost]
+    expected-result: formats
+  - name: preserves comments on safe source imports
+    kind: edge
+    fixture: source/test-suite/fixtures/ImportSyntaxEdge.hs
+    features: [PackageImports, ImportQualifiedPost, SafeImports, SourceImports]
+    expected-result: formats
+  - name: rejects malformed import modifier ordering
+    kind: malformed
+    fixture: source/test-suite/fixtures/ImportSyntaxInvalid.hs
+    features: [PackageImports, ImportQualifiedPost, SafeImports, SourceImports]
+    expected-result: parse-failure
   - name: classifies multi-way if comments
     kind: edge
     fixture: source/test-suite/fixtures/ExpressionCommentsExpected.hs
@@ -304,6 +391,21 @@ cases:
     fixture: data/Test248.hs
     features: [ViewPatterns]
     expected-result: formats
+  - name: preserves a module warning pragma
+    kind: expected
+    fixture: source/test-suite/fixtures/WarningPragmasExpected.hs
+    features: [WarningPragmas]
+    expected-result: formats
+  - name: preserves export deprecations and comments
+    kind: edge
+    fixture: source/test-suite/fixtures/WarningPragmasEdge.hs
+    features: [WarningPragmas]
+    expected-result: formats
+  - name: rejects a malformed module warning pragma
+    kind: malformed
+    fixture: source/test-suite/fixtures/WarningPragmasInvalid.hs
+    features: [WarningPragmas]
+    expected-result: parse-failure
   - name: rejects unsupported CPP input
     kind: unsupported
     fixture: source/test-suite/fixtures/CompatibilityCppUnsupported.hs
