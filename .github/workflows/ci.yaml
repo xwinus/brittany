@@ -16,7 +16,7 @@ concurrency:
 env:
   GHC_VERSION: 9.14.1
   CABAL_VERSION: 3.16.1.0
-  EXPECTED_TEST_SUMMARY: 713 examples, 0 failures
+  EXPECTED_TEST_SUMMARY: 721 examples, 0 failures
 
 jobs:
   build:

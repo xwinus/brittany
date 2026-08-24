@@ -76,6 +76,14 @@ spec projectRoot = Hspec.describe "fallback inventory and reporting" $ do
       "ExportSectionCommentsExpected.hs"
     messages `Hspec.shouldNotSatisfy` any (List.isInfixOf "Fallback")
 
+  Hspec.it "uses the same spacing policy for native and exact-source declarations" $ do
+    messages <- runFormatter projectRoot fallbackReportingConfig
+      "TopLevelSpacingEdge.hs"
+    messages `Hspec.shouldSatisfy` any
+      (List.isInfixOf "SignatureFallback")
+    messages `Hspec.shouldNotSatisfy` any
+      (List.isInfixOf "WholeModuleFallback")
+
   Hspec.it "preserves parse-failure behavior when reporting is enabled" $ do
     let input = fixturePath projectRoot "DataDeclMultipleInvalid.hs"
         output = FilePath.combine projectRoot "output/FallbackInvalid.hs"

@@ -138,6 +138,7 @@ library
     Language.Haskell.Brittany.Internal.Transformations.Floating
     Language.Haskell.Brittany.Internal.Transformations.Indent
     Language.Haskell.Brittany.Internal.Transformations.Par
+    Language.Haskell.Brittany.Internal.TopLevelSpacing
     Language.Haskell.Brittany.Internal.Types
     Language.Haskell.Brittany.Internal.Utils
     Language.Haskell.Brittany.Main
@@ -169,4 +170,5 @@ test-suite brittany-test-suite
     FallbackSpec
     PreprocessorSpec
     RegressionSpec
+    TopLevelSpacingSpec
   type: exitcode-stdio-1.0

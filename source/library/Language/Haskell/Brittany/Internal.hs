@@ -70,6 +70,7 @@ import Language.Haskell.Brittany.Internal.Transformations.Columns
 import Language.Haskell.Brittany.Internal.Transformations.Floating
 import Language.Haskell.Brittany.Internal.Transformations.Indent
 import Language.Haskell.Brittany.Internal.Transformations.Par
+import Language.Haskell.Brittany.Internal.TopLevelSpacing
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Utils
 import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
@@ -568,10 +569,10 @@ ppModule :: Maybe Text.Text -> GenLocated SrcSpan (HsModule GhcPs) -> PPM ()
 ppModule originalSource lmod@(L _loc _m@(HsModule _ _name _exports imports decls)) = do
   let exactSource = fromMaybe (Text.pack $ ExactPrint.exactPrint lmod) originalSource
   let sourceCommentPositions = collectCommentPositions lmod
+  annGroups <- mAsk
   defaultAnns <- do
-    anns <- mAsk
     let annKey = mkAnnKey lmod
-    let annMap = Map.findWithDefault Map.empty annKey anns
+    let annMap = Map.findWithDefault Map.empty annKey annGroups
     let isEof = (== AnnEofPos)
     let overAnnsDP f a = a { annsDP = f $ annsDP a }
     -- Clear comments from all annotations in defaultAnns. These are
@@ -585,18 +586,40 @@ ppModule originalSource lmod@(L _loc _m@(HsModule _ _name _exports imports decls
           }
     pure $ fmap (clearComments . overAnnsDP (filter $ isEof . fst)) annMap
 
-  post <- ppPreamble lmod
-  -- The preamble renderer does not terminate a module header or final import.
-  -- Exact-source declarations do not carry the usual annotation-based move,
-  -- so provide the separator explicitly before the first declaration.
-  when
-    (not (null decls) && (Data.Maybe.isJust _name || not (null imports)))
-    $ mTell (Text.Builder.fromString "\n")
+  (post, preambleEndsLine) <- ppPreamble lmod
   let toL x = L (getLocA x) (unLoc x)
+  let annotationFor key = Map.lookup key annGroups >>= Map.lookup key
+  let importUnit limport =
+        let node = toL limport
+        in (`topLevelUnit` annotationFor (mkAnnKey node))
+          <$> EP.srcSpanToRealSpan (getLocA limport)
+  let declUnit ldecl =
+        let node = toL ldecl
+        in (`topLevelUnit` annotationFor (mkAnnKey node))
+          <$> EP.srcSpanToRealSpan (getLocA ldecl)
+  let moduleUnit = (`topLevelUnit` annotationFor (mkAnnKey $ toL lmod))
+        <$> moduleWhereSpan _m
+  let preambleUnit =
+        Data.Maybe.listToMaybe
+          (reverse $ Data.Maybe.mapMaybe importUnit imports)
+          <|> moduleUnit
+  let declUnits = declUnit <$> decls
+  let previousUnits = preambleUnit : declUnits
+  let needsSeparators =
+        (Data.Maybe.isJust _name || not (null imports)) : repeat True
+  let completedSeparatorLines =
+        (if preambleEndsLine then 1 else 0) : repeat 0
   let isFallbackNotice ExactSourceFallback{} = True
       isFallbackNotice _ = False
-  forM_ (zip [0 ..] decls) $ \(i, decl) -> do
-    when (i > 0) $ mTell (Text.Builder.fromString "\n")
+  forM_ (zip3 decls (zip needsSeparators completedSeparatorLines)
+      $ zip previousUnits declUnits) $
+      \(decl, (needsSeparator, completedLines), (previousUnit, currentUnit)) -> do
+    let separatorLines = case (previousUnit, currentUnit) of
+          (Just previous, Just current) ->
+            topLevelSeparatorLines previous current
+          _ -> 1
+    when needsSeparator $ replicateM_ (max 0 $ separatorLines - completedLines)
+      $ mTell (Text.Builder.fromString "\n")
     let decl' = toL decl
     let declAnnKey = mkAnnKey decl'
     let declBindingNames = getDeclBindingNames decl
@@ -684,7 +707,7 @@ getDeclBindingNames ldecl = case unLoc ldecl of
 -- This includes the imports
 ppPreamble
   :: GenLocated SrcSpan (HsModule GhcPs)
-  -> PPM [(KeywordId, EP.DeltaPos)]
+  -> PPM ([(KeywordId, EP.DeltaPos)], Bool)
 ppPreamble lmod@(L loc m@HsModule{}) = do
   filteredAnns <- mAsk <&> \annMap ->
     Map.findWithDefault Map.empty (mkAnnKey (toL lmod)) annMap
@@ -764,7 +787,7 @@ ppPreamble lmod@(L loc m@HsModule{}) = do
     else do
       let emptyModule = L loc m { hsmodDecls = [] }
       MultiRWSS.withMultiReader filteredAnns'' $ processDefault emptyModule
-  return post
+  return (post, not canReformatPreamble)
 
 _sigHead :: Sig GhcPs -> String
 _sigHead = \case

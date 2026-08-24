@@ -24,6 +24,8 @@
   nested forms without escalating supported expressions to whole-module fallback.
 * Preserved Haddock section headings and other list-level comments in their
   original positions within module export lists.
+* Preserved intentional vertical spacing between module headers, imports,
+  top-level comments, and declaration groups.
 * Known limitation: 18 comment-layout tests remain pending.
 
 ## 0.14.0.0 -- November 2021

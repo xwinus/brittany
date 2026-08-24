@@ -7,17 +7,18 @@ import qualified Data.Map as Map
 import qualified Data.Maybe
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
-import GHC (GenLocated(L), Located, moduleNameString, unLoc)
+import GHC (GenLocated(L), Located, getLoc, unLoc)
 import GHC.Hs hiding (DeltaPos)
 import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.Config.Types
-import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), Annotation(..), Comment(commentContents), DeltaPos(..), deltaRow)
+import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), Annotation(..), Comment(commentContents), DeltaPos(..), deltaRow, srcSpanToRealSpan)
 import Language.Haskell.Brittany.Internal.ExactSource (nodeSourceSlice)
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.IE (layoutLLIEs, SortItemsFlag(KeepItemsUnsorted), toL)
 import Language.Haskell.Brittany.Internal.Layouters.Import
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
+import Language.Haskell.Brittany.Internal.TopLevelSpacing
 import Language.Haskell.Brittany.Internal.Types
 
 
@@ -54,6 +55,7 @@ layoutModuleWithExactText exactText lmod@(L _ mod') = case mod' of
     -- docLines $ [layoutImport y i | (y, i) <- sortedImports]
   HsModule{ hsmodName = Just n, hsmodExports = les, hsmodImports = imports } -> do
     commentedImports <- transformToCommentedImport imports
+    spacedImports <- preserveInitialImportSpacing mod' imports commentedImports
     -- groupify commentedImports `forM_` tellDebugMessShow
     -- sortedImports <- sortImports imports
     let tn = Text.pack $ moduleNameString $ unLoc n
@@ -90,7 +92,27 @@ layoutModuleWithExactText exactText lmod@(L _ mod') = case mod' of
                   )
               ]
           ]
-      : (commentedImportsToDoc exactText <$> sortCommentedImports commentedImports) -- [layoutImport y i | (y, i) <- sortedImports]
+      : (commentedImportsToDoc exactText <$> sortCommentedImports spacedImports) -- [layoutImport y i | (y, i) <- sortedImports]
+
+preserveInitialImportSpacing
+  :: HsModule GhcPs
+  -> [LImportDecl GhcPs]
+  -> [CommentedImport]
+  -> ToBriDocM [CommentedImport]
+preserveInitialImportSpacing mod' imports commentedImports = case imports of
+  [] -> pure commentedImports
+  firstImport : _ -> do
+    let importNode = toL firstImport
+    importAnn <- astAnn importNode
+    let headerUnit = (`topLevelUnit` Nothing) <$> moduleWhereSpan mod'
+        importUnit = do
+          importSpan <- srcSpanToRealSpan $ getLoc importNode
+          pure $ topLevelUnit importSpan importAnn
+        blankLines = case (headerUnit, importUnit) of
+          (Just previous, Just next) ->
+            topLevelSeparatorLines previous next - 1
+          _ -> 0
+    pure $ replicate blankLines EmptyLine ++ commentedImports
 
 data CommentedImport
   = EmptyLine
