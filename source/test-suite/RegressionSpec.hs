@@ -157,6 +157,17 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects malformed parenthesized lambda-case syntax"
       "ParenthesizedLambdaCaseInvalid.hs"
 
+  Hspec.describe "multiline constructor patterns" $ do
+    strictColumnsIdempotentFormattingExample projectRoot
+      "wraps a long case-alternative pattern at 80 columns"
+      "MultilineConstructorPatternExpected.hs"
+    columnsIdempotentFormattingExample projectRoot
+      "preserves nested patterns, comments, guards, adornments, and bindings"
+      "MultilineConstructorPatternEdge.hs"
+    parseFailureExample projectRoot
+      "rejects a malformed multiline constructor pattern"
+      "MultilineConstructorPatternInvalid.hs"
+
   Hspec.describe "module export-list comments" $ do
     idempotentFormattingExample projectRoot
       "keeps Haddock section headings before their exports"
@@ -218,6 +229,34 @@ strictIdempotentFormattingExample projectRoot description fixtureName =
     firstPass `Hspec.shouldBe` expected
     Brittany.mainWith "brittany"
       ("--fail-on-fallback" : formatterArgs projectRoot output)
+    secondPass <- readFile output
+    secondPass `Hspec.shouldBe` firstPass
+
+strictColumnsIdempotentFormattingExample
+  :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
+strictColumnsIdempotentFormattingExample projectRoot description fixtureName =
+  columnsIdempotentFormattingExampleWith
+    ["--fail-on-fallback"] projectRoot description fixtureName
+
+columnsIdempotentFormattingExample
+  :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
+columnsIdempotentFormattingExample = columnsIdempotentFormattingExampleWith []
+
+columnsIdempotentFormattingExampleWith
+  :: [String] -> FilePath -> String -> FilePath -> Hspec.SpecWith ()
+columnsIdempotentFormattingExampleWith extraArgs projectRoot description fixtureName =
+  Hspec.it description $ do
+    let fixture = fixturePath projectRoot fixtureName
+        output = outputPath projectRoot fixtureName
+        args =
+          "--columns" : "80" : extraArgs ++ formatterArgs projectRoot output
+    expected <- readFile fixture
+    Directory.copyFile fixture output
+    Brittany.mainWith "brittany" args
+    firstPass <- readFile output
+    firstPass `Hspec.shouldBe` expected
+    filter ((> 80) . length) (lines firstPass) `Hspec.shouldBe` []
+    Brittany.mainWith "brittany" args
     secondPass <- readFile output
     secondPass `Hspec.shouldBe` firstPass
 

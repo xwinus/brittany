@@ -212,6 +212,29 @@ layoutPat lpat@(L _ pat) = docWrapNode (toL lpat) $ case pat of
 
   _ -> return <$> briDocByExactInlineOnly PatternFallback (toL lpat)
 
+layoutPatMultiline :: LPat GhcPs -> ToBriDocM (Maybe BriDocNumbered)
+layoutPatMultiline lpat@(L _ pat) = case pat of
+  ConPat _ lname (PrefixCon args@(_ : _)) -> do
+    nameDoc <- applyNameAdornment lname <$> lrdrNameToTextAnn (toL lname)
+    argDocs <- args `forM` \arg -> do
+      flatDoc <- colsWrapPat =<< layoutPat arg
+      layoutPatMultiline arg >>= \case
+        Nothing -> return flatDoc
+        Just multilineDoc -> docAlt
+          [ docForceSingleline $ return flatDoc
+          , return multilineDoc
+          ]
+    fmap Just $ docWrapNode (toL lpat)
+      $ docAddBaseY BrIndentRegular
+      $ docPar
+          (docLit nameDoc)
+          (docSetIndentLevel $ docLines $ return <$> argDocs)
+  ParPat _ inner -> layoutPatMultiline inner >>= \case
+    Nothing -> return Nothing
+    Just innerDoc -> fmap Just $ docWrapNode (toL lpat)
+      $ docDelimitedBlock docParenL (return innerDoc) docParenR
+  _ -> return Nothing
+
 colsWrapPat :: Seq BriDocNumbered -> ToBriDocM BriDocNumbered
 colsWrapPat = docCols ColPatterns . fmap return . Foldable.toList
 
