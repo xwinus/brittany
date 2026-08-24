@@ -9,9 +9,7 @@ import qualified Data.Text as Text
 import GHC (GenLocated(L), unLoc)
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..))
 import GHC.Hs
-import GHC.Parser.Annotation (getLocA)
 import qualified GHC.OldList as List
-import GHC.Types.Basic
 import GHC.Types.SrcLoc (SrcSpan)
 import GHC.Types.SourceText (SourceText(..))
 import qualified GHC.Data.FastString as FastString
@@ -71,15 +69,15 @@ layoutType ltype = layoutType' (toL ltype)
         contextDoc = case cntxtDocs of
           [] -> docLit $ Text.pack "()"
           [x] -> x
-          _ -> docAlt
+          firstContext : remainingContexts -> docAlt
             [ let open = docLit $ Text.pack "("
                   close = docLit $ Text.pack ")"
                   list = List.intersperse docCommaSep $ docForceSingleline <$> cntxtDocs
                 in docSeq ([open] ++ list ++ [close])
             , let
-                open = docCols ColTyOpPrefix [docParenLSep, docAddBaseY (BrIndentSpecial 2) $ head cntxtDocs]
+                open = docCols ColTyOpPrefix [docParenLSep, docAddBaseY (BrIndentSpecial 2) firstContext]
                 close = docLit $ Text.pack ")"
-                list = List.tail cntxtDocs <&> \cntxtDoc -> docCols ColTyOpPrefix [docCommaSep, docAddBaseY (BrIndentSpecial 2) cntxtDoc]
+                list = remainingContexts <&> \cntxtDoc -> docCols ColTyOpPrefix [docCommaSep, docAddBaseY (BrIndentSpecial 2) cntxtDoc]
                 in docPar open $ docLines $ list ++ [close]
             ]
       docAlt
@@ -182,7 +180,7 @@ layoutType ltype = layoutType' (toL ltype)
         contextDoc = docWrapNode lcntxts' $ case cntxtDocs of
           [] -> docLit $ Text.pack "()"
           [x] -> x
-          _ -> docAlt
+          firstContext : remainingContexts -> docAlt
             [ let
               open = docLit $ Text.pack "("
               close = docLit $ Text.pack ")"
@@ -190,9 +188,9 @@ layoutType ltype = layoutType' (toL ltype)
                 List.intersperse docCommaSep $ docForceSingleline <$> cntxtDocs
             in docSeq ([open] ++ list ++ [close])
             , let
-                open = docCols ColTyOpPrefix [docParenLSep, docAddBaseY (BrIndentSpecial 2) $ head cntxtDocs]
+                open = docCols ColTyOpPrefix [docParenLSep, docAddBaseY (BrIndentSpecial 2) firstContext]
                 close = docLit $ Text.pack ")"
-                list = List.tail cntxtDocs <&> \cntxtDoc -> docCols ColTyOpPrefix [docCommaSep, docAddBaseY (BrIndentSpecial 2) cntxtDoc]
+                list = remainingContexts <&> \cntxtDoc -> docCols ColTyOpPrefix [docCommaSep, docAddBaseY (BrIndentSpecial 2) cntxtDoc]
             in docPar open $ docLines $ list ++ [close]
             ]
       let
@@ -312,44 +310,48 @@ layoutType ltype = layoutType' (toL ltype)
         unitL = docLit $ Text.pack "()"
         simpleL = do
           docs <- docSharedWrapper layoutType `mapM` (map toL typs)
-          let
-            end = docLit $ Text.pack ")"
-            lines =
-              List.tail docs
-                <&> \d -> docAddBaseY (BrIndentSpecial 2)
-                      $ docCols ColTyOpPrefix [docCommaSep, d]
-            commaDocs = List.intersperse docCommaSep (docForceSingleline <$> docs)
-          docAlt
-            [ docSeq
-            $ [docLit $ Text.pack "("]
-            ++ commaDocs
-            ++ [end]
-            , let line1 = docCols ColTyOpPrefix [docParenLSep, head docs]
-              in
-                docPar
-                  (docAddBaseY (BrIndentSpecial 2) $ line1)
-                  (docLines $ lines ++ [end])
-            ]
+          case docs of
+            [] -> unitL
+            firstDoc : restDocs -> do
+              let
+                end = docLit $ Text.pack ")"
+                lines = restDocs
+                  <&> \d -> docAddBaseY (BrIndentSpecial 2)
+                        $ docCols ColTyOpPrefix [docCommaSep, d]
+                commaDocs = List.intersperse docCommaSep (docForceSingleline <$> docs)
+              docAlt
+                [ docSeq
+                $ [docLit $ Text.pack "("]
+                ++ commaDocs
+                ++ [end]
+                , let line1 = docCols ColTyOpPrefix [docParenLSep, firstDoc]
+                  in
+                    docPar
+                      (docAddBaseY (BrIndentSpecial 2) $ line1)
+                      (docLines $ lines ++ [end])
+                ]
         unboxedL = do
           docs <- docSharedWrapper layoutType `mapM` (map toL typs)
-          let
-            start = docParenHashLSep
-            end = docParenHashRSep
-          docAlt
-            [ docSeq
-            $ [start]
-            ++ List.intersperse docCommaSep docs
-            ++ [end]
-            , let
-                line1 = docCols ColTyOpPrefix [start, head docs]
-                lines =
-                  List.tail docs
-                    <&> \d -> docAddBaseY (BrIndentSpecial 2)
-                          $ docCols ColTyOpPrefix [docCommaSep, d]
-              in docPar
-                (docAddBaseY (BrIndentSpecial 2) line1)
-                (docLines $ lines ++ [end])
-            ]
+          case docs of
+            [] -> error "brittany internal error: unboxed unit"
+            firstDoc : restDocs -> do
+              let
+                start = docParenHashLSep
+                end = docParenHashRSep
+              docAlt
+                [ docSeq
+                $ [start]
+                ++ List.intersperse docCommaSep docs
+                ++ [end]
+                , let
+                    line1 = docCols ColTyOpPrefix [start, firstDoc]
+                    lines = restDocs
+                      <&> \d -> docAddBaseY (BrIndentSpecial 2)
+                            $ docCols ColTyOpPrefix [docCommaSep, d]
+                  in docPar
+                    (docAddBaseY (BrIndentSpecial 2) line1)
+                    (docLines $ lines ++ [end])
+                ]
     HsOpTy{} -> -- TODO
       briDocByExactInlineOnly TypeFallback ltype
   -- HsOpTy typ1 opName typ2 -> do
@@ -585,6 +587,9 @@ layoutType ltype = layoutType' (toL ltype)
       HsStrTy (SourceText srctext) _ -> docLit $ Text.pack (FastString.unpackFS srctext)
       HsStrTy NoSourceText _ ->
         error "overLitValBriDoc: literal with no SourceText"
+      HsCharTy (SourceText srctext) _ -> docLit $ Text.pack (FastString.unpackFS srctext)
+      HsCharTy NoSourceText _ ->
+        error "overLitValBriDoc: literal with no SourceText"
     HsWildCardTy _ -> docLit $ Text.pack "_"
     HsSumTy{} -> -- TODO
       briDocByExactInlineOnly TypeFallback ltype
@@ -592,8 +597,6 @@ layoutType ltype = layoutType' (toL ltype)
       if isUnicode
         then docLit $ Text.pack "\x2605" -- Unicode star
         else docLit $ Text.pack "*"
-    XHsType{} -> error "brittany internal error: XHsType"
-    _ -> briDocByExactInlineOnly TypeFallback ltype
     HsAppKindTy _ ty kind -> do
       t <- docSharedWrapper layoutType (toL ty)
       k <- docSharedWrapper layoutType (toL kind)
@@ -606,6 +609,7 @@ layoutType ltype = layoutType' (toL ltype)
           ]
         , docPar t (docSeq [docLit $ Text.pack "@", k])
         ]
+    XHsType{} -> error "brittany internal error: XHsType"
 
 layoutTyVarBndrs
   :: forall flag. [LHsTyVarBndr flag GhcPs]
@@ -616,7 +620,11 @@ layoutTyVarBndrs = mapM $ \case
   (L _ (HsTvb _ _ (HsBndrVar _ lname) (HsBndrKind _ kind))) -> do
     d <- docSharedWrapper layoutType (toL kind)
     return $ (lrdrNameToText (toL lname), Just d)
-  (L _ (XTyVarBndr _)) -> error "layoutTyVarBndrs: XTyVarBndr"
+  (L _ (HsTvb _ _ (HsBndrWildCard _) (HsBndrNoKind _))) ->
+    return (Text.pack "_", Nothing)
+  (L _ (HsTvb _ _ (HsBndrWildCard _) (HsBndrKind _ kind))) -> do
+    d <- docSharedWrapper layoutType (toL kind)
+    return (Text.pack "_", Just d)
 
 -- there is no specific reason this returns a list instead of a single
 -- BriDoc node.

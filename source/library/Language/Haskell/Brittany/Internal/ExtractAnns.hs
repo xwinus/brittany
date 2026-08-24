@@ -2,7 +2,12 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeApplications #-}
+-- Extension constructors vary across GHC AST phases, so compatibility
+-- fallbacks are intentionally retained in this GHC-facing module.
+-- GHC also cannot specialise an imported tuple Ord dictionary used by Map.
+{-# OPTIONS_GHC -Wno-overlapping-patterns -Wno-missed-specialisations #-}
 -- | Extract brittany's Anns from GHC 9.14 parsed AST (EpAnn).
 -- Traverses the AST to collect EpAnn from module, imports, decls, and
 -- nested expr/bind/stmt nodes, building the Map AnnKey Annotation format
@@ -15,9 +20,8 @@ module Language.Haskell.Brittany.Internal.ExtractAnns
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import Data.Data (Data, gmapQ, gmapQi)
 import Data.Dynamic (Dynamic, fromDynamic, toDyn)
-import Data.Typeable (Typeable)
-import Data.Maybe (catMaybes, mapMaybe)
-import Data.Foldable (asum)
+import Data.Kind (Type)
+import Data.Maybe (mapMaybe)
 import qualified Data.Generics as SYB
 import qualified Data.List as List
 import qualified Data.Map as Map
@@ -29,22 +33,17 @@ import GHC
   , unLoc
   )
 import GHC.Hs
-  ( GhcPs
-  , GRHS(..)
+  ( GRHS(..)
   , GrhsAnn
   , HsExpr(..)
   , HsLocalBindsLR(..)
   , HsModule(..)
-  , HsSigType
-  , HsType
-  , IE(..)
   , ImportDecl(..)
   , LIE
   , LImportDecl
   , LHsDecl
   , LHsExpr
   , LHsBind
-  , LHsLocalBinds
   , LHsSigType
   , LHsType
   , LMatch
@@ -57,7 +56,7 @@ import GHC.Hs
   , AnnsModule(..)
   , ExprLStmt
   )
-import GHC.Hs.ImpExp (ideclAnn, ideclExt)
+import GHC.Hs.ImpExp (ideclAnn)
 import GHC.Parser.Annotation (HasLoc(..))
 import GHC.Parser.Annotation
   ( AnnContext
@@ -84,7 +83,6 @@ import GHC.Types.SrcLoc (EpaLocation'(..), RealSrcSpan, SrcSpan(..))
 import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.ExactPrintCompat
 import Language.Haskell.Brittany.Internal.Prelude
-import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
 import qualified Language.Haskell.GHC.ExactPrint.Types as EPTypes
 import qualified Language.Haskell.GHC.ExactPrint.Utils as EPUtils
 
@@ -123,21 +121,21 @@ recoverMissingComments src fp lmod@(L l p) =
         findDashDash :: Int -> Bool -> Int -> String -> Maybe (Int, String)
         findDashDash _ _ _ [] = Nothing
         -- Inside string literal
-        findDashDash col True bc ('"':rest) = findDashDash (col+1) False bc rest
-        findDashDash col True bc ('\\':_:rest) = findDashDash (col+2) True bc rest
-        findDashDash col True bc (_:rest) = findDashDash (col+1) True bc rest
+        findDashDash col True bc ('"':rest) = findDashDash (col + 1) False bc rest
+        findDashDash col True bc ('\\':_:rest) = findDashDash (col + 2) True bc rest
+        findDashDash col True bc (_:rest) = findDashDash (col + 1) True bc rest
         -- Block comment tracking
-        findDashDash col False bc ('{':'-':rest) | bc >= 0 = findDashDash (col+2) False (bc+1) rest
-        findDashDash col False bc ('-':'}':rest) | bc > 0 = findDashDash (col+2) False (bc-1) rest
-        findDashDash col False bc (_:rest) | bc > 0 = findDashDash (col+1) False bc rest
+        findDashDash col False bc ('{':'-':rest) | bc >= 0 = findDashDash (col + 2) False (bc + 1) rest
+        findDashDash col False bc ('-':'}':rest) | bc > 0 = findDashDash (col + 2) False (bc - 1) rest
+        findDashDash col False bc (_:rest) | bc > 0 = findDashDash (col + 1) False bc rest
         -- Normal code
-        findDashDash col False 0 ('"':rest) = findDashDash (col+1) True 0 rest
+        findDashDash col False 0 ('"':rest) = findDashDash (col + 1) True 0 rest
         findDashDash col False 0 ('-':'-':rest)
           -- Must not be a symbolic operator (e.g., -->, --+)
-          | null rest || not (isSymChar (head rest)) =
+          | not (maybe False isSymChar (listToMaybe rest)) =
             Just (col, "--" ++ rest)
-        findDashDash col False 0 (_:rest) = findDashDash (col+1) False 0 rest
-        findDashDash col False bc (_:rest) = findDashDash (col+1) False bc rest
+        findDashDash col False 0 (_:rest) = findDashDash (col + 1) False 0 rest
+        findDashDash col False bc (_:rest) = findDashDash (col + 1) False bc rest
 
     isSymChar :: Char -> Bool
     isSymChar c = c `elem` ("!#$%&*+./<=>?@\\^|-~:" :: String)
@@ -215,7 +213,7 @@ extractAnnsFromModule lmod =
       (modOwnComs0, childComAssignments) = distributeModuleComments allTargets sortedModComs
       -- Split modOwnComs: comments after 'where' should be prior on first child
       (trulyModComs, afterWhereComs) = case allTargets of
-        ((firstK, _, _) : _) | modHeaderEndLine > 0 ->
+        ((_firstK, _, _) : _) | modHeaderEndLine > 0 ->
           let (before, after) = List.partition (\((l, _), _) -> l <= modHeaderEndLine) modOwnComs0
           in case after of
             [] -> (before, [])
@@ -245,13 +243,13 @@ extractAnnsFromModule lmod =
       declAnns = extractDeclAnns (hsmodDecls mod')
       nestedAnns = extractNestedEpAnns (hsmodDecls mod')
       -- Step 6: Apply remaining comment patches to import/decl annotations
-      patchAnns anns = Map.mapWithKey (\k ann ->
+      patchAnns annotationMap = Map.mapWithKey (\k ann ->
         let priorPatch = Map.findWithDefault [] k childPriorPatches
             followPatch = Map.findWithDefault [] k childFollowingPatches
         in ann { annPriorComments = priorPatch ++ annPriorComments ann
                , annFollowingComments = annFollowingComments ann ++ followPatch
                }
-        ) anns
+        ) annotationMap
       importAnns' = patchAnns importAnns
       declAnns' = patchAnns declAnns
       -- Step 7: Module annotation gets only its own comments
@@ -264,11 +262,10 @@ extractAnnsFromModule lmod =
               -- Use a reference point that gives correct DP relative to node end
               ownFollows = case modFollowOwnComs of
                 [] -> []
-                coms ->
+                coms@(((firstLine, firstCol), _) : _) ->
                   -- For the first comment, compute DP from the export list end
                   -- Use (line, col-1) as ref so same-line comments get DP (0, 1+)
-                  let ((firstLine, firstCol), _) = head coms
-                      ref = (firstLine, firstCol - 1)
+                  let ref = (firstLine, firstCol - 1)
                   in snd $ List.mapAccumL buildModComDP ref coms
           in Map.singleton modKey (modAnn { annPriorComments = ownPriors
                                           , annFollowingComments = ownFollows })
@@ -342,6 +339,7 @@ redistributeIntraDeclComments (L l p) = L l p'
         _ -> return $ EpAnn anc an ocs
     addComments other = return other
 
+type ComType :: Type
 data ComType = PriorCom | FollowingCom deriving (Eq)
 
 -- | Distribute remaining module-level comments to the appropriate child nodes.
@@ -719,7 +717,7 @@ extractNestedEpAnns decls =
       overrideExpr lexpr@(L loc expr) = case expr of
         HsIf xIf condExpr thenExpr elseExpr ->
           extractHsIfAnns lexpr loc xIf condExpr thenExpr elseExpr
-        HsDo _ _ lstmts@(L stmtLoc stmts) ->
+        HsDo _ _ (L stmtLoc stmts) ->
           extractHsDoAnns lexpr loc stmtLoc stmts
         _ -> []
       overrideGRHS :: LGRHS GhcPs (LHsExpr GhcPs) -> [(AnnKey, Annotation)]
@@ -809,15 +807,6 @@ extractNestedEpAnns decls =
             }
       in (nextPos, (AnnComment bComment, dp))
 
-    lastNestedCommentEnd :: [GHC.LEpaComment] -> Maybe (Int, Int)
-    lastNestedCommentEnd lcs =
-      let withSpans = List.concatMap lepaToSpanAndContent lcs
-          sorted = List.sortOn fst withSpans
-      in case sorted of
-           [] -> Nothing
-           _ -> let (_, (_, spanR)) = List.last sorted
-                in Just (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
-
 -- | Redistribute inner comments (annsDP AnnComment entries) from parent
 -- annotations to the most appropriate child annotations. For each inner
 -- comment, finds the child annotation whose span ends closest before the
@@ -828,7 +817,7 @@ redistributeInnerComments
   -> Map.Map AnnKey ()  -- override keys to skip
   -> Anns  -- input annotations
   -> Anns  -- output with inner comments redistributed
-redistributeInnerComments spanMap skipKeys anns =
+redistributeInnerComments spanMap skipKeys annotationMap =
   let -- Collect all inner comments that need redistribution
       -- Skip nodes handled by overrides (HsIf, HsDo) to avoid double comments
       parentInnerComs = Map.toList $ Map.mapMaybeWithKey (\k ann ->
@@ -838,7 +827,7 @@ redistributeInnerComments spanMap skipKeys anns =
                 else case Map.lookup k spanMap of
                   Just (pStart, pEnd) -> Just (pStart, pEnd, innerComs)
                   Nothing -> Nothing
-        ) anns
+        ) annotationMap
       -- For each parent's inner comments, find the best child target
       -- Children are annotations whose span is WITHIN the parent's span
       allChildren = [(k, start, end) | (k, (start, end)) <- Map.toList spanMap]
@@ -861,14 +850,14 @@ redistributeInnerComments spanMap skipKeys anns =
         [(k, coms) | (k, True, coms) <- assignments]
       -- Track which parents had comments successfully redistributed
       parentKeys = Map.fromList [(pk, ()) | (pk, _) <- parentInnerComs]
-      -- Create default annotations for target keys not already in anns
+      -- Create default annotations for target keys not already present.
       defaultAnn = Ann Nothing Nothing [] [] [] (DP (0,0))
       newTargetKeys = Map.fromList
         [ (k, defaultAnn)
         | k <- Map.keys followingPatches ++ Map.keys priorPatches
-        , not (Map.member k anns)
+        , not (Map.member k annotationMap)
         ]
-      annsWithTargets = anns `Map.union` newTargetKeys
+      annsWithTargets = annotationMap `Map.union` newTargetKeys
       -- Apply patches: add comments to children, remove from parents
       patched = Map.mapWithKey (\k ann ->
         let addFollow = Map.findWithDefault [] k followingPatches
@@ -922,9 +911,9 @@ redistributeInnerComments spanMap skipKeys anns =
               sameLineCandidates0 = [(k, e) | (k, e) <- candidates, fst e == fst comPos]
               sameLineCandidates = case sameLineCandidates0 of
                 [] -> []
-                cs -> let bestEnd = snd (head cs)
-                          sameEnd = [(k, e) | (k, e) <- cs, e == bestEnd]
-                      in case sameEnd of
+                cs@((_, bestEnd) : _) ->
+                  let sameEnd = [(k, e) | (k, e) <- cs, e == bestEnd]
+                  in case sameEnd of
                         [_] -> sameEnd
                         _ ->
                           -- Multiple candidates with same end: pick the one with latest start (most specific)
@@ -1102,13 +1091,14 @@ distributeContainerCommentsToIE iePositions comSpans =
             [(k, [(pos, c)]) | Right (k, pos, c, True) <- results]
           buildPatches groups = do
             (k, items) <- Map.toList groups
-            let sorted = List.sortOn (fst . snd) items
-                ref = fst (head sorted)
-                coms = snd $ List.mapAccumL buildModComDP ref (map snd sorted)
-            [(k, coms)]
+            case List.sortOn (fst . snd) items of
+              [] -> []
+              sorted@((ref, _) : _) ->
+                let coms = snd $ List.mapAccumL buildModComDP ref (map snd sorted)
+                in [(k, coms)]
       in (ownComs, [], buildPatches followGroups)
 
-tryEpAnnFromLocation :: (Data l, Typeable l) => l -> Maybe (EpaLocation, EpAnnComments)
+tryEpAnnFromLocation :: Data l => l -> Maybe (EpaLocation, EpAnnComments)
 tryEpAnnFromLocation loc =
   tryExtractEpAnnFields loc
     <|> tryEpAnnFromDynamic (toDyn loc)
@@ -1149,7 +1139,7 @@ hasLocationOnlyEpAnn e = case e of
   _ -> False
 
 extractFromLocated
-  :: (Data a, HasLoc l, HasLoc (GenLocated l a), Typeable l)
+  :: (Data a, HasLoc l, Typeable l)
   => GenLocated l a
   -> [(AnnKey, RealSrcSpan, EpAnnComments)]
 extractFromLocated ln@(L loc x) =
@@ -1172,7 +1162,7 @@ extractFromLocated ln@(L loc x) =
 -- the location annotation (e.g., EpAnn AnnListItem for expressions) and on
 -- constructor extension fields (e.g., XHsDo). We merge comments from both.
 extractFromLocatedWithLoc
-  :: (Data a, HasLoc l, HasLoc (GenLocated l a), Data l, Typeable l)
+  :: (Data a, HasLoc l, Data l)
   => GenLocated l a
   -> [(AnnKey, RealSrcSpan, EpAnnComments)]
 extractFromLocatedWithLoc ln@(L loc x) =
@@ -1343,8 +1333,8 @@ extractHsIfAnns lexpr locAnn annsIf condExpr thenExpr elseExpr =
             }
 
     getExprStart :: LHsExpr GhcPs -> (Int, Int)
-    getExprStart lexpr =
-      let srcSpan = getLocA lexpr
+    getExprStart childExpr =
+      let srcSpan = getLocA childExpr
       in case srcSpanToRealSpan srcSpan of
         Just rsp -> ss2pos rsp
         Nothing -> (1, 1)
@@ -1389,7 +1379,6 @@ extractHsDoAnns lexpr locAnn stmtListAnn stmts =
     EpAnn locAnc _ locCs ->
       let ancSpan = epaLocationRealSrcSpan locAnc
           nodeStart = ss2pos ancSpan
-          nodeEnd = ss2posEnd ancSpan
           -- Comments from location annotation AND statement list annotation
           stmtListCs = case stmtListAnn of
             EpAnn _ _ cs -> cs
@@ -1640,19 +1629,8 @@ maybeImportEpAnn idecl =
 maybeDeclEpAnn :: LHsDecl GhcPs -> Maybe (EpaLocation, EpAnnComments)
 maybeDeclEpAnn (L loc _) = tryEpAnnFromLocation loc
 
-mkAnnKeyL :: (Data a, HasLoc l, HasLoc (GenLocated l a)) => GenLocated l a -> AnnKey
+mkAnnKeyL :: (Data a, HasLoc l) => GenLocated l a -> AnnKey
 mkAnnKeyL x = mkAnnKey (L (getLocA x) (unLoc x))
-
-buildAnnotation :: (Int, Int) -> RealSrcSpan -> EpAnnComments -> Annotation
-buildAnnotation prevEnd ancSpan cs =
-  Ann
-    { annCapturedSpan = Nothing
-    , annSortKey = Nothing
-    , annsDP = []
-    , annFollowingComments = lepaToCommentsWithDP prevEnd (getFollowingComments cs)
-    , annPriorComments = lepaToCommentsWithDP prevEnd (priorComments cs)
-    , annEntryDelta = posToDP prevEnd (ss2pos ancSpan)
-    }
 
 lepaToCommentsWithDP :: (Int, Int) -> [GHC.LEpaComment] -> [(Comment, DeltaPos)]
 lepaToCommentsWithDP ref lcs =
@@ -1677,20 +1655,6 @@ lepaToSpanAndContent lc@(GHC.L _loc _) =
   in [ (ss2pos $ epaLocationRealSrcSpan (EPTypes.commentLoc x), (EPTypes.commentContents x, epaLocationRealSrcSpan (EPTypes.commentLoc x)))
      | x <- epComments
      ]
-
--- | Recompute DeltaPos for comments relative to a new reference point.
--- Extracts actual source positions from commentIdentifier and chains DPs.
-recomputeComDPs :: (Int, Int) -> [(Comment, DeltaPos)] -> [(Comment, DeltaPos)]
-recomputeComDPs ref coms = snd $ List.mapAccumL go ref coms
-  where
-    go prev (com, _oldDP) =
-      case srcSpanToRealSpan (commentIdentifier com) of
-        Just rspan ->
-          let pos = ss2pos rspan
-              dp = posToDP prev pos
-              nextPos = (SrcLoc.srcSpanEndLine rspan, SrcLoc.srcSpanEndCol rspan)
-          in (nextPos, (com, dp))
-        Nothing -> (prev, (com, DP (0, 1)))  -- fallback
 
 posToDP :: (Int, Int) -> (Int, Int) -> DeltaPos
 posToDP (prevL, prevC) (curL, curC)

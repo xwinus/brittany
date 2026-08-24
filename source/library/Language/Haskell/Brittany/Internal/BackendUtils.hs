@@ -11,7 +11,6 @@ import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
 import qualified Data.Text.Lazy.Builder as Text.Builder
 import GHC (Located)
-import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
@@ -200,7 +199,7 @@ layoutBaseYPushInternal i = do
 layoutBaseYPopInternal :: (MonadMultiState LayoutState m) => m ()
 layoutBaseYPopInternal = do
   traceLocal ("layoutBaseYPopInternal")
-  mModify $ \s -> s { _lstate_baseYs = List.tail $ _lstate_baseYs s }
+  mModify $ \s -> s { _lstate_baseYs = drop 1 $ _lstate_baseYs s }
 
 layoutIndentLevelPushInternal :: (MonadMultiState LayoutState m) => Int -> m ()
 layoutIndentLevelPushInternal i = do
@@ -215,7 +214,7 @@ layoutIndentLevelPopInternal = do
   traceLocal ("layoutIndentLevelPopInternal")
   mModify $ \s -> s
     { _lstate_indLevelLinger = lstate_indLevel s
-    , _lstate_indLevels = List.tail $ _lstate_indLevels s
+    , _lstate_indLevels = drop 1 $ _lstate_indLevels s
     }
 
 layoutRemoveIndentLevelLinger :: (MonadMultiState LayoutState m) => m ()

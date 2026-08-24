@@ -1,6 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MonadComprehensions #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+-- Preserve exact-print fallbacks for uninhabited GhcPs extension constructors.
+{-# OPTIONS_GHC -Wno-overlapping-patterns #-}
 
 module Language.Haskell.Brittany.Internal.Layouters.Expr where
 
@@ -11,11 +13,9 @@ import qualified Data.Text as Text
 import GHC (GenLocated(L), RdrName(..), SrcSpan, unLoc)
 import GHC.Types.Name.Reader (RdrName(Exact))
 import GHC.Types.SrcLoc (noSrcSpan)
-import GHC.Parser.Annotation (EpAnn(..), EpaLocation(..))
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..))
 import qualified GHC.Data.FastString as FastString
 import GHC.Hs
-import GHC.Hs.Type (FieldOcc(..), HsSigType(HsSig), HsWildCardBndrs(HsWC))
 import GHC.Types.SourceText (FractionalLit(..), IntegralLit(..), SourceText(..))
 import Language.Haskell.Syntax.Basic (FieldLabelString(..))
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
@@ -23,7 +23,6 @@ import qualified Data.List.NonEmpty as NonEmpty
 import qualified GHC.OldList as List
 import GHC.Types.Basic
 import GHC.Types.Name
-import GHC.Types.Name.Occurrence (occNameString)
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.LayouterBasics
@@ -35,7 +34,6 @@ import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Utils
-import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
 
 
 
@@ -55,7 +53,8 @@ isSymbolicSectionOp (L _ expr) =
     HsVar _ (L _ (Exact name)) -> isSymbolic $ getOccString name
     _ -> False
   where
-    isSymbolic s = not (null s) && head s `elem` ("!:#$%&*+./<=>?@\\^|-~" :: String)
+    isSymbolic [] = False
+    isSymbolic (firstChar : _) = firstChar `elem` ("!:#$%&*+./<=>?@\\^|-~" :: String)
 
 layoutExpr :: ToBriDoc HsExpr
 layoutExpr lexpr = layoutExpr' (toL lexpr)
@@ -877,10 +876,10 @@ layoutExpr' lexpr@(L _ expr) = do
             return (fieldl, lrdrNameToText (toL lnameF), fExpDoc)
         recordExpression True indentPolicy lexpr nameDoc fieldDocs
       _ -> unknownNodeError "RecordCon with puns" lexpr
-    RecordUpd _ rExpr (RegularRecUpdFields _ recUpdFields) -> do
+    RecordUpd _ rExpr (RegularRecUpdFields _ updateFields) -> do
       rExprDoc <- docSharedWrapper layoutExpr' (toL rExpr)
       rFs <-
-        (map toL recUpdFields) `forM` \lfield@(L _ (HsFieldBind _ (L _ ambName) rFExpr pun)) -> do
+        (map toL updateFields) `forM` \lfield@(L _ (HsFieldBind _ (L _ ambName) rFExpr pun)) -> do
           rFExpDoc <- if pun
             then return Nothing
             else Just <$> docSharedWrapper layoutExpr' (toL rFExpr)

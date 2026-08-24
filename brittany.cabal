@@ -57,7 +57,6 @@ common library
     , extra ^>= 1.8
     , filepath ^>= 1.5
     , ghc ^>= 9.14
-    , ghc-boot ^>= 9.14
     , ghc-boot-th ^>= 9.14
     , ghc-exactprint ^>= 1.14.0
     , ghc-paths ^>= 0.1.0

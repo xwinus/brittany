@@ -5,14 +5,11 @@ module Language.Haskell.Brittany.Internal.Layouters.Import where
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Set as Set
 import qualified Data.Text as Text
-import GHC (GenLocated(L), Located, moduleNameString, unLoc)
+import GHC (GenLocated(L), Located, unLoc)
 import GHC.Hs
-import GHC.Types.Basic
 import qualified GHC.Data.FastString as FastString
 import GHC.Types.PkgQual (RawPkgQual(..))
 import GHC.Types.SourceText (SourceText(..), StringLiteral(..))
-import GHC.Unit.Types (IsBootInterface(..))
-import Language.Haskell.Syntax.ImpExp (ImportListInterpretation(EverythingBut))
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKey)
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
@@ -193,4 +190,3 @@ layoutImportNormally importD = case importD of
           then docSeq [importHead, bindingsD]
           else docLines [importHead, bindingsD]
           where enoughRoom = nameCost < importCol - hidingParenCost
-  _ -> docEmpty

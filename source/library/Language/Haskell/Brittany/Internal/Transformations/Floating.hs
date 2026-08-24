@@ -93,8 +93,8 @@ transformSimplifyFloating = stepBO .> stepFull
       Just $ BDDebug s $ BDAnnotationKW annKey1 kw x
     _ -> Nothing
   descendBYPush = transformDownMay $ \case
-    BDBaseYPushCur (BDCols sig cols@(_ : _)) ->
-      Just $ BDCols sig (BDBaseYPushCur (List.head cols) : List.tail cols)
+    BDBaseYPushCur (BDCols sig (firstCol : rest)) ->
+      Just $ BDCols sig (BDBaseYPushCur firstCol : rest)
     BDBaseYPushCur (BDDebug s x) -> Just $ BDDebug s (BDBaseYPushCur x)
     _ -> Nothing
   descendBYPop = transformDownMay $ \case
@@ -103,8 +103,8 @@ transformSimplifyFloating = stepBO .> stepFull
     BDBaseYPop (BDDebug s x) -> Just $ BDDebug s (BDBaseYPop x)
     _ -> Nothing
   descendILPush = transformDownMay $ \case
-    BDIndentLevelPushCur (BDCols sig cols@(_ : _)) ->
-      Just $ BDCols sig (BDIndentLevelPushCur (List.head cols) : List.tail cols)
+    BDIndentLevelPushCur (BDCols sig (firstCol : rest)) ->
+      Just $ BDCols sig (BDIndentLevelPushCur firstCol : rest)
     BDIndentLevelPushCur (BDDebug s x) ->
       Just $ BDDebug s (BDIndentLevelPushCur x)
     _ -> Nothing

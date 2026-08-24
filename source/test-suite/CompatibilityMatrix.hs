@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
+-- GHC cannot specialise imported container and tuple Ord dictionaries here.
+{-# OPTIONS_GHC -Wno-missed-specialisations #-}
 
 module CompatibilityMatrix
   ( CaseKind(..)

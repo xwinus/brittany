@@ -113,6 +113,17 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects a malformed commented type family equation"
       "FamilyCommentsInvalid.hs"
 
+  Hspec.describe "type-level character literals" $ do
+    formattingExample projectRoot
+      "formats a character literal"
+      "TypeCharLiteralExpected.hs"
+    idempotentFormattingExample projectRoot
+      "formats character literals in a promoted tuple"
+      "TypeCharLiteralEdge.hs"
+    parseFailureExample projectRoot
+      "rejects a malformed character escape"
+      "TypeCharLiteralInvalid.hs"
+
 formattingExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
 formattingExample projectRoot description fixtureName =
   Hspec.it description $ do

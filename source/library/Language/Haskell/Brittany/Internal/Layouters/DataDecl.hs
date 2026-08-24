@@ -203,8 +203,6 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
                 ])
               createDerivingPar mDerivs consAltDoc
         _ -> briDocByExactNoComment DataDeclarationFallback ltycl)
-
-  _ -> briDocByExactNoComment DataDeclarationFallback ltycl
  where
   simpleConstructor = \case
     L _ (ConDeclH98 _ constructorName False [] context details _)
@@ -304,7 +302,6 @@ derivingClauseDoc (L _ (HsDerivingClause _ext mStrategy lTys)) =
   let ts = case lTys of
         L _ (DctSingle _ ty) -> [ty]
         L _ (DctMulti _ tys) -> tys
-        _ -> []
       tsLength = length ts
       whenMoreThan1Type val = if tsLength > 1 then docLitS val else docLitS ""
       (lhsStrategy, rhsStrategy) =
@@ -318,7 +315,7 @@ derivingClauseDoc (L _ (HsDerivingClause _ext mStrategy lTys)) =
        , docWrapNodeRest (toL lTys)
        $ docSeq
        $ List.intersperse docCommaSep
-       $ ((\lty -> case unLoc lty of HsSig _ _ body -> layoutType (toL body); _ -> docLitS "?") <$> ts)
+       $ (layoutSigType <$> ts)
        , whenMoreThan1Type ")"
        , rhsStrategy
        ]

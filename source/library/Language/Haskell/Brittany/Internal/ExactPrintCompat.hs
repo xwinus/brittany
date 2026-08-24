@@ -1,5 +1,6 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 -- | Compatibility types for ghc-exactprint 1.14 / GHC 9.14.
 -- In GHC 9.14 the old API annotations (ApiAnns, AnnKeywordId, Anns, AnnKey)
 -- were removed. This module provides stub types so that the rest of Brittany
@@ -7,19 +8,19 @@
 -- not supported on this port.
 module Language.Haskell.Brittany.Internal.ExactPrintCompat where
 
-import Control.Monad.Trans.State (State, StateT, runState, runStateT, state)
-import Data.Data (Data, toConstr, Typeable)
+import Control.Monad.Trans.State (State, StateT, runState, state)
+import Data.Data (Data)
 import Data.Function (on)
+import Data.Kind (Type)
 import qualified Data.Map as Map
-import Data.Maybe (listToMaybe)
 import GHC (GenLocated(L))
 import qualified GHC.Data.Strict as Strict
 import GHC.Types.SrcLoc (RealSrcSpan, SrcSpan(..))
-import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.Prelude
 
 -- Stub for GHC 9.14: AnnKeywordId was removed from GHC.Parser.Annotation.
 -- Constructors used by layouters (partial list).
+type AnnKeywordId :: Type
 data AnnKeywordId
   = AnnModule
   | AnnWhere
@@ -63,11 +64,14 @@ data AnnKeywordId
   | AnnElse
   deriving (Data, Eq, Ord, Show)
 
+type AnnSpan :: Type
 type AnnSpan = [SrcSpan]
 
+type AnnConName :: Type
 data AnnConName = CN { unConName :: String }
   deriving (Data, Eq, Ord, Show)
 
+type AnnKey :: Type
 data AnnKey = AnnKey AnnSpan AnnConName
   deriving (Data, Eq, Show)
 
@@ -77,12 +81,14 @@ annKeyCon (AnnKey _ c) = c
 instance Ord AnnKey where
   compare = compare `on` show
 
+type DeltaPos :: Type
 data DeltaPos = DP !(Int, Int)
   deriving (Eq, Ord, Show)
 
 deltaRow :: DeltaPos -> Int
 deltaRow (DP (r, _)) = r
 
+type Comment :: Type
 data Comment = Comment
   { commentOrigin :: Maybe AnnKeywordId
   , commentIdentifier :: SrcSpan
@@ -93,6 +99,7 @@ data Comment = Comment
 instance Ord Comment where
   compare = compare `on` show
 
+type KeywordId :: Type
 data KeywordId
   = AnnString [String]
   | AnnComment Comment
@@ -102,6 +109,7 @@ data KeywordId
   | AnnEofPos
   deriving (Eq, Ord, Show)
 
+type Annotation :: Type
 data Annotation = Ann
   { annCapturedSpan :: Maybe AnnKey
   , annSortKey :: Maybe [SrcSpan]
@@ -115,6 +123,7 @@ data Annotation = Ann
 instance Ord Annotation where
   compare = compare `on` show
 
+type Anns :: Type
 type Anns = Map.Map AnnKey Annotation
 
 emptyAnns :: Anns
@@ -144,7 +153,9 @@ annKeyRealSpan :: AnnKey -> Maybe RealSrcSpan
 annKeyRealSpan (AnnKey spans _) = listToMaybe spans >>= srcSpanToRealSpan
 
 -- Stub for old ExactPrint.Transform (state over Anns). No-op on GHC 9.14 port.
+type Transform :: Type -> Type
 type Transform a = State Anns a
+type TransformT :: (Type -> Type) -> Type -> Type
 type TransformT m a = StateT Anns m a
 
 modifyAnnsT :: (Anns -> Anns) -> Transform ()
@@ -152,4 +163,3 @@ modifyAnnsT f = state $ \anns -> ((), f anns)
 
 runTransform :: Anns -> Transform a -> (Anns, a)
 runTransform anns m = let (a, anns') = runState m anns in (anns', a)
-

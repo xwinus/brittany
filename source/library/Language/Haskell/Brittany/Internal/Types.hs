@@ -9,6 +9,8 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE RoleAnnotations #-}
 
 module Language.Haskell.Brittany.Internal.Types where
 
@@ -26,24 +28,29 @@ import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPri
 import qualified Safe
 
 
+type PerItemConfig :: Kind.Type
 data PerItemConfig = PerItemConfig
   { _icd_perBinding :: Map String (CConfig Maybe)
   , _icd_perKey :: Map ExactPrint.Types.AnnKey (CConfig Maybe)
   }
   deriving Data.Data.Data
 
+type PPM :: Kind.Type -> Kind.Type
 type PPM = MultiRWSS.MultiRWS
   '[Map AnnKey Anns, PerItemConfig, Config, Anns]
   '[Text.Builder.Builder, [BrittanyError], Seq String]
   '[]
 
+type PPMLocal :: Kind.Type -> Kind.Type
 type PPMLocal = MultiRWSS.MultiRWS
   '[Config, Anns]
   '[Text.Builder.Builder, [BrittanyError], Seq String]
   '[]
 
+type TopLevelDeclNameMap :: Kind.Type
 newtype TopLevelDeclNameMap = TopLevelDeclNameMap (Map AnnKey String)
 
+type LayoutState :: Kind.Type
 data LayoutState = LayoutState
   { _lstate_baseYs         :: [Int]
      -- ^ stack of number of current indentation columns
@@ -132,6 +139,7 @@ instance Show LayoutState where
 --   , _lsettings_initialAnns :: ExactPrint.Anns
 --   }
 
+type BrittanyError :: Kind.Type
 data BrittanyError
   = ErrorInput String
     -- ^ parsing failed
@@ -150,6 +158,7 @@ data BrittanyError
   | ErrorOutputCheck
     -- ^ checking the output for syntactic validity failed
 
+type BriSpacing :: Kind.Type
 data BriSpacing = BriSpacing
   { _bs_spacePastLineIndent :: Int -- space in the current,
                                    -- potentially somewhat filled
@@ -159,6 +168,7 @@ data BriSpacing = BriSpacing
                                    -- current line.
   }
 
+type ColSig :: Kind.Type
 data ColSig
   = ColTyOpPrefix
     -- any prefixed operator/paren/"::"/..
@@ -208,20 +218,26 @@ data ColSig
   -- TODO
   deriving (Eq, Ord, Data.Data.Data, Show)
 
+type BrIndent :: Kind.Type
 data BrIndent = BrIndentNone
               | BrIndentRegular
               | BrIndentSpecial Int
   deriving (Eq, Ord, Data.Data.Data, Show)
 
+type ToBriDocM :: Kind.Type -> Kind.Type
 type ToBriDocM = MultiRWSS.MultiRWS
                    '[Config, Anns] -- reader
                    '[[BrittanyError], Seq String] -- writer
                    '[NodeAllocIndex] -- state
 
+type ToBriDoc :: (Kind.Type -> Kind.Type) -> Kind.Type
 type ToBriDoc (sym :: Kind.Type -> Kind.Type) = Located (sym GhcPs) -> ToBriDocM BriDocNumbered
+type ToBriDoc' :: Kind.Type -> Kind.Type
 type ToBriDoc' sym            = Located sym         -> ToBriDocM BriDocNumbered
+type ToBriDocC :: Kind.Type -> Kind.Type -> Kind.Type
 type ToBriDocC sym c          = Located sym         -> ToBriDocM c
 
+type DocMultiLine :: Kind.Type
 data DocMultiLine
   = MultiLineNo
   | MultiLinePossible
@@ -230,6 +246,7 @@ data DocMultiLine
 -- isomorphic to BriDocF Identity. Provided for ease of use, as we do a lot
 -- of transformations on `BriDocF Identity`s and it is really annoying to
 -- `Identity`/`runIdentity` everywhere.
+type BriDoc :: Kind.Type
 data BriDoc
   = -- BDWrapAnnKey AnnKey BriDoc
     BDEmpty
@@ -278,6 +295,8 @@ data BriDoc
   | BDDebug String BriDoc
   deriving (Data.Data.Data, Eq, Ord)
 
+type BriDocF :: (Kind.Type -> Kind.Type) -> Kind.Type
+type role BriDocF nominal
 data BriDocF f
   = -- BDWrapAnnKey AnnKey BriDoc
     BDFEmpty
@@ -324,7 +343,9 @@ data BriDocF f
 -- deriving instance Data.Data.Data (BriDocF Identity)
 deriving instance Data.Data.Data (BriDocF ((,) Int))
 
+type BriDocFInt :: Kind.Type
 type BriDocFInt = BriDocF ((,) Int)
+type BriDocNumbered :: Kind.Type
 type BriDocNumbered = (Int, BriDocFInt)
 
 instance Uniplate.Uniplate BriDoc where
@@ -360,6 +381,7 @@ instance Uniplate.Uniplate BriDoc where
   uniplate (BDForceParSpacing bd   ) = plate BDForceParSpacing |* bd
   uniplate (BDDebug s bd           ) = plate BDDebug |- s |* bd
 
+type NodeAllocIndex :: Kind.Type
 newtype NodeAllocIndex = NodeAllocIndex Int
 
 -- TODO: rename to "dropLabels" ?
@@ -433,6 +455,7 @@ briDocForceSpine :: BriDoc -> BriDoc
 briDocForceSpine bd = briDocSeqSpine bd `seq` bd
 
 
+type VerticalSpacingPar :: Kind.Type
 data VerticalSpacingPar
   = VerticalSpacingParNone -- no indented lines
   | VerticalSpacingParSome   Int -- indented lines, requiring this much
@@ -446,6 +469,7 @@ data VerticalSpacingPar
     -- product like (Normal|Always, None|Some Int).
   deriving (Eq, Show)
 
+type VerticalSpacing :: Kind.Type
 data VerticalSpacing
   = VerticalSpacing
     { _vs_sameLine  :: !Int
@@ -454,6 +478,8 @@ data VerticalSpacing
     }
   deriving (Eq, Show)
 
+type LineModeValidity :: Kind.Type -> Kind.Type
+type role LineModeValidity representational
 newtype LineModeValidity a = LineModeValidity (Strict.Maybe a)
   deriving (Functor, Applicative, Monad, Show, Alternative)
 

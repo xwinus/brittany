@@ -3,7 +3,9 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE RoleAnnotations #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
 module Language.Haskell.Brittany.Internal.Utils where
 
@@ -12,11 +14,11 @@ import qualified Data.Coerce
 import Data.Data
 import Data.Generics.Aliases
 import qualified Data.Generics.Uniplate.Direct as Uniplate
+import Data.Kind (Type)
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Sequence as Seq
 import DataTreePrint
 import qualified GHC.Data.FastString as GHC
-import qualified GHC.Driver.Session as GHC
 import GHC.Hs (NoExtField(..))
 import qualified GHC.OldList as List
 import GHC.Types.Name.Occurrence as OccName (occNameString)
@@ -27,7 +29,6 @@ import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (Anns)
-import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrint.Types
 import qualified Text.PrettyPrint as PP
 
 
@@ -54,26 +55,31 @@ fromOptionIdentity x y =
 
 -- maximum monoid over N+0
 -- or more than N, because Num is allowed.
+type Max :: Type -> Type
+type role Max representational
 newtype Max a = Max { getMax :: a }
   deriving (Eq, Ord, Show, Bounded, Num)
 
-instance (Num a, Ord a) => Semigroup (Max a) where
+instance Ord a => Semigroup (Max a) where
   (<>) = Data.Coerce.coerce (max :: a -> a -> a)
 
 instance (Num a, Ord a) => Monoid (Max a) where
   mempty = Max 0
   mappend = (<>)
 
+type ShowIsId :: Type
 newtype ShowIsId = ShowIsId String deriving Data
 
 instance Show ShowIsId where
   show (ShowIsId x) = x
 
+type A :: Type -> Type
+type role A representational
 data A x = A ShowIsId x
   deriving Data
 
 customLayouterF :: Anns -> LayouterF
-customLayouterF anns layoutF =
+customLayouterF _anns layoutF =
   DataToLayouter
     $ f
     `extQ` showIsId
@@ -242,6 +248,8 @@ spanMaybe f (x1 : xR) | Just y <- f x1 = (y : ys, xs)
   where (ys, xs) = spanMaybe f xR
 spanMaybe _ xs = ([], xs)
 
+type FirstLastView :: Type -> Type
+type role FirstLastView representational
 data FirstLastView a
   = FirstLastEmpty
   | FirstLastSingleton a

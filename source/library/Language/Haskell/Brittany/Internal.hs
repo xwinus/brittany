@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
 module Language.Haskell.Brittany.Internal
   ( parsePrintModule
@@ -22,6 +23,7 @@ import qualified Data.ByteString.Char8
 import Data.CZipWith
 import Data.Char (isSpace)
 import Data.HList.HList
+import Data.Kind (Type)
 import qualified Data.Map as Map
 import qualified Data.Maybe
 import qualified Data.Semigroup as Semigroup
@@ -33,8 +35,7 @@ import qualified Data.Yaml
 import qualified GHC hiding (parseModule)
 import GHC (GenLocated(L))
 import qualified GHC.Driver.Session as GHC
-import GHC.Hs
-import GHC.Parser.Annotation (getLocA)
+import GHC.Hs hiding (anns)
 import GHC.Types.SrcLoc (unLoc)
 import qualified GHC.LanguageExtensions.Type as GHC
 import qualified GHC.OldList as List
@@ -73,11 +74,11 @@ import Language.Haskell.Brittany.Internal.Transformations.Par
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Utils
 import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
-import qualified Language.Haskell.GHC.ExactPrint.Types as ExactPrint
 import qualified UI.Butcher.Monadic as Butcher
 
 
 
+type InlineConfigTarget :: Type
 data InlineConfigTarget
     = InlineConfigTargetModule
     | InlineConfigTargetNextDecl    -- really only next in module
@@ -592,12 +593,12 @@ ppModule originalSource lmod@(L _loc _m@(HsModule _ _name _exports imports decls
   when
     (not (null decls) && (Data.Maybe.isJust _name || not (null imports)))
     $ mTell (Text.Builder.fromString "\n")
-  let toL x = L (getLocA x) (unLoc x)
+  let toSrcSpanLocated x = L (getLocA x) (unLoc x)
   let isFallbackNotice ExactSourceFallback{} = True
       isFallbackNotice _ = False
-  forM_ (zip [0 ..] decls) $ \(i, decl) -> do
+  forM_ (zip [0 :: Int ..] decls) $ \(i, decl) -> do
     when (i > 0) $ mTell (Text.Builder.fromString "\n")
-    let decl' = toL decl
+    let decl' = toSrcSpanLocated decl
     let declAnnKey = mkAnnKey decl'
     let declBindingNames = getDeclBindingNames decl
     inlineConf <- mAsk

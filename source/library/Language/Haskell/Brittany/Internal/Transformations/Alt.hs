@@ -5,6 +5,7 @@
 {-# LANGUAGE MonadComprehensions #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Language.Haskell.Brittany.Internal.Transformations.Alt where
@@ -12,6 +13,7 @@ module Language.Haskell.Brittany.Internal.Transformations.Alt where
 import qualified Control.Monad.Memo as Memo
 import qualified Control.Monad.Trans.MultiRWS.Strict as MultiRWSS
 import Data.HList.ContainsType
+import Data.Kind (Type)
 import qualified Data.List.Extra
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
@@ -24,6 +26,7 @@ import Language.Haskell.Brittany.Internal.Utils
 
 
 
+type AltCurPos :: Type
 data AltCurPos = AltCurPos
   { _acp_line :: Int -- chars in the current line
   , _acp_indent :: Int -- current indentation level
@@ -32,6 +35,7 @@ data AltCurPos = AltCurPos
   }
   deriving Show
 
+type AltLineModeState :: Type
 data AltLineModeState
   = AltLineModeStateNone
   | AltLineModeStateForceML Bool -- true ~ decays on next wrap
@@ -180,11 +184,11 @@ transformAlts =
                                       -- possibility, but i will prefer a
                                       -- fail-early approach; BDEmpty does not
                                       -- make sense semantically for Alt[].
-      BDFAlt alts -> do
+      BDFAlt alts@(firstAlt : _) -> do
         altChooser <- mAsk <&> _conf_layout .> _lconfig_altChooser .> confUnpack
         case altChooser of
           AltChooserSimpleQuick -> do
-            rec $ head alts
+            rec firstAlt
           AltChooserShallowBest -> do
             spacings <- alts `forM` getSpacing
             acp <- mGet
@@ -573,6 +577,7 @@ getSpacing !bridoc = rec bridoc
     VerticalSpacingParNone -> 0
     VerticalSpacingParAlways i -> i
 
+type SpecialCompare :: Type
 data SpecialCompare = Unequal | Smaller | Bigger
 
 getSpacings

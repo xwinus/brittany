@@ -1,13 +1,15 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
 module Language.Haskell.Brittany.Internal.Layouters.Module where
 
 import qualified Data.Map as Map
+import Data.Kind (Type)
 import qualified Data.Maybe
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
-import GHC (GenLocated(L), Located, moduleNameString, unLoc)
+import GHC (GenLocated(L), Located, unLoc)
 import GHC.Hs hiding (DeltaPos)
 import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.Config.Types
@@ -92,6 +94,7 @@ layoutModuleWithExactText exactText lmod@(L _ mod') = case mod' of
           ]
       : (commentedImportsToDoc exactText <$> sortCommentedImports commentedImports) -- [layoutImport y i | (y, i) <- sortedImports]
 
+type CommentedImport :: Type
 data CommentedImport
   = EmptyLine
   | IndependentComment (Comment, DeltaPos)
@@ -105,6 +108,7 @@ instance Show CommentedImport where
       "ImportStatement " ++ show (length $ commentsBefore r) ++ " " ++ show
         (length $ commentsAfter r)
 
+type ImportStatementRecord :: Type
 data ImportStatementRecord = ImportStatementRecord
   { commentsBefore :: [(Comment, DeltaPos)]
   , commentsAfter :: [(Comment, DeltaPos)]
