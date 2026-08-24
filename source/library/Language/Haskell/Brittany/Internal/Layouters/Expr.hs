@@ -68,12 +68,8 @@ layoutExpr' lexpr@(L _ expr) = do
     HsVar _ vname -> do
       t <- lrdrNameToTextAnn (toL vname)
       -- GHC 9.14: apply paren adornment from NameAnn for operators in
-      -- expression position (e.g., (:) → "(:)"). Skip for names that are
-      -- already complete (like "()" or "[]"), and skip backticks since callers
-      -- (SectionL, SectionR, OpApp) handle those.
-      let t' = if t == Text.pack "()" || t == Text.pack "[]"
-               then t
-               else applyNameAdornmentParensOnly vname t
+      -- expression position. Backticks are handled by expression callers.
+      let t' = applyNameAdornmentParensOnly vname t
       docLit t'
     XExpr _ -> briDocByExactInlineOnly ExpressionFallback lexpr
     HsOverLabel _ name ->

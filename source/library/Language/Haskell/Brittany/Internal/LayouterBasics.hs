@@ -177,7 +177,9 @@ lrdrNameToTextAnnGen f ast@(L _ n) = do
 -- Call this with the original LocatedN name BEFORE toL conversion.
 applyNameAdornment :: GenLocated (EpAnn NameAnn) RdrName -> Text -> Text
 applyNameAdornment (L (EpAnn _ nameAnn _) _) t = case getAdornment nameAnn of
-  Just NameParens{} -> Text.pack "(" <> t <> Text.pack ")"
+  Just NameParens{}
+    | isIntrinsicallyDelimitedName t -> t
+    | otherwise -> Text.pack "(" <> t <> Text.pack ")"
   Just NameBackquotes{} -> Text.pack "`" <> t <> Text.pack "`"
   Just NameSquare{} -> Text.pack "[]"  -- GHC 9.14: ListTuplePuns bracket syntax
   _ -> t
@@ -193,7 +195,9 @@ applyNameAdornment _ t = t
 -- OpApp) handle backtick wrapping themselves.
 applyNameAdornmentParensOnly :: GenLocated (EpAnn NameAnn) RdrName -> Text -> Text
 applyNameAdornmentParensOnly (L (EpAnn _ nameAnn _) _) t = case getAdornment nameAnn of
-  Just NameParens{} -> Text.pack "(" <> t <> Text.pack ")"
+  Just NameParens{}
+    | isIntrinsicallyDelimitedName t -> t
+    | otherwise -> Text.pack "(" <> t <> Text.pack ")"
   Just NameSquare{} -> Text.pack "[]"  -- GHC 9.14: ListTuplePuns bracket syntax
   _ -> t
   where
@@ -202,6 +206,16 @@ applyNameAdornmentParensOnly (L (EpAnn _ nameAnn _) _) t = case getAdornment nam
     getAdornment (NameAnnOnly { nann_adornment = a }) = Just a
     getAdornment _ = Nothing
 applyNameAdornmentParensOnly _ t = t
+
+isIntrinsicallyDelimitedName :: Text -> Bool
+isIntrinsicallyDelimitedName name =
+  let delimitedSuffix = Text.dropWhile (`notElem` ("([" :: String)) name
+  in ( Text.isPrefixOf (Text.pack "(") delimitedSuffix
+       && Text.isSuffixOf (Text.pack ")") delimitedSuffix
+     )
+       || ( Text.isPrefixOf (Text.pack "[") delimitedSuffix
+            && Text.isSuffixOf (Text.pack "]") delimitedSuffix
+          )
 
 lrdrNameToTextAnn
   :: (MonadMultiReader Config m, MonadMultiReader (Map AnnKey Annotation) m)

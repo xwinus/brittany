@@ -113,6 +113,17 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects a malformed commented type family equation"
       "FamilyCommentsInvalid.hs"
 
+  Hspec.describe "unit constructor patterns" $ do
+    idempotentFormattingExample projectRoot
+      "keeps a unit constructor pattern stable"
+      "UnitPatternExpected.hs"
+    idempotentFormattingExample projectRoot
+      "keeps nested and explicitly parenthesized unit patterns stable"
+      "UnitPatternEdge.hs"
+    parseFailureExample projectRoot
+      "rejects malformed unit pattern syntax without changing the input"
+      "UnitPatternInvalid.hs"
+
 formattingExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
 formattingExample projectRoot description fixtureName =
   Hspec.it description $ do
@@ -142,8 +153,13 @@ parseFailureExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
 parseFailureExample projectRoot description fixtureName =
   Hspec.it description $ do
     let fixture = fixturePath projectRoot fixtureName
-    Brittany.mainWith "brittany" (formatterArgs projectRoot fixture)
+        output = outputPath projectRoot fixtureName
+    expected <- readFile fixture
+    Directory.copyFile fixture output
+    Brittany.mainWith "brittany" (formatterArgs projectRoot output)
       `Hspec.shouldThrow` isParseFailure
+    actual <- readFile output
+    actual `Hspec.shouldBe` expected
 
 fixturePath :: FilePath -> FilePath -> FilePath
 fixturePath projectRoot fixtureName =
