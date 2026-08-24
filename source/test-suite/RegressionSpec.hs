@@ -135,6 +135,17 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects malformed tuple constructor syntax without changing the input"
       "TupleConstructorInvalid.hs"
 
+  Hspec.describe "lambda-case expressions" $ do
+    idempotentFormattingExample projectRoot
+      "keeps lambda-case distinct from an ordinary lambda"
+      "LambdaCaseExpected.hs"
+    idempotentFormattingExample projectRoot
+      "formats empty, guarded, commented, and nested lambda-case expressions"
+      "LambdaCaseEdge.hs"
+    parseFailureExample projectRoot
+      "rejects malformed lambda-case syntax without changing the input"
+      "LambdaCaseInvalid.hs"
+
 formattingExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
 formattingExample projectRoot description fixtureName =
   Hspec.it description $ do
