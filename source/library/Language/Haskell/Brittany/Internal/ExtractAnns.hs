@@ -316,7 +316,8 @@ redistributeIntraDeclComments (L l p) = L l p'
     -- Bottom-up traversal: each node claims comments within its span
     (p1, remaining) = runState (SYB.everywhereM (SYB.mkM addCommentsListItem
                                                   `SYB.extM` addCommentsGrhs
-                                                  `SYB.extM` addCommentsList) p0) allComments
+                                                  `SYB.extM` addCommentsList
+                                                  `SYB.extM` addCommentsMatchGroup) p0) allComments
     -- Put unclaimed comments back on module annotation (NOT on imports/decls)
     p' = case hsmodAnn (hsmodExt p1) of
       EpAnn anc2 an2 cs2 ->
@@ -330,6 +331,8 @@ redistributeIntraDeclComments (L l p) = L l p'
     addCommentsGrhs = addComments
     addCommentsList :: EpAnn (AnnList ()) -> State [GHC.LEpaComment] (EpAnn (AnnList ()))
     addCommentsList = addComments
+    addCommentsMatchGroup :: SrcSpanAnnLW -> State [GHC.LEpaComment] SrcSpanAnnLW
+    addCommentsMatchGroup = addComments
     addComments :: forall ann. EpAnn ann -> State [GHC.LEpaComment] (EpAnn ann)
     addComments (EpAnn anc an ocs) =
       case anc of
@@ -846,6 +849,7 @@ redistributeInnerComments spanMap skipKeys anns =
         let children = List.sortOn (\(_, s, _) -> s)
               [ (k, s, e) | (k, s, e) <- allChildren
               , k /= parentKey
+              , not (Map.member k skipKeys)
               , s >= pStart && e <= pEnd
               ]
             -- For declaration-level parents (InstD, TyClD), inter-child

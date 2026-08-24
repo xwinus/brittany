@@ -80,7 +80,26 @@ layoutExpr' lexpr@(L _ expr) = do
       allocateNode $ overLitValBriDoc $ ol_val olit
     HsLit _ lit -> do
       allocateNode $ litBriDoc lit
-    HsLam _ _ (MG _ lmatches)
+    HsLam _ LamCase (MG _ lmatches) | null (unLoc lmatches) -> do
+      docSetParSpacing
+        $ docAddBaseY BrIndentRegular
+        $ (docLit $ Text.pack "\\case {}")
+    HsLam _ LamCase (MG _ lmatches) -> do
+      let matches = unLoc lmatches
+      binderDoc <- docLit $ Text.pack "->"
+      funcPatDocs <-
+        docWrapNode (toL lmatches)
+        $ layoutPatternBind Nothing binderDoc
+        `mapM` matches
+      docSetParSpacing $ docAddBaseY BrIndentRegular $ docPar
+        (docLit $ Text.pack "\\case")
+        (docSetBaseAndIndent
+        $ docNonBottomSpacing
+        $ docLines
+        $ return
+        <$> funcPatDocs
+        )
+    HsLam _ LamSingle (MG _ lmatches)
       | [lmatch@(L _ match)] <- unLoc lmatches
       , pats <- unLoc (m_pats match)
       , GRHSs _ grhssNE llocals <- m_grhss match
@@ -153,25 +172,6 @@ layoutExpr' lexpr@(L _ expr) = do
             (docWrapNode (toL lgrhs) $ docNonBottomSpacing bodyDoc)
           ]
     HsLam _ _ _ -> unknownNodeError "HsLam too complex" lexpr
-    HsLam _ LamCase (MG _ lmatches) | null (unLoc lmatches) -> do
-      docSetParSpacing
-        $ docAddBaseY BrIndentRegular
-        $ (docLit $ Text.pack "\\case {}")
-    HsLam _ LamCase (MG _ lmatches) -> do
-      let matches = unLoc lmatches
-      binderDoc <- docLit $ Text.pack "->"
-      funcPatDocs <-
-        docWrapNode (toL lmatches)
-        $ layoutPatternBind Nothing binderDoc
-        `mapM` matches
-      docSetParSpacing $ docAddBaseY BrIndentRegular $ docPar
-        (docLit $ Text.pack "\\case")
-        (docSetBaseAndIndent
-        $ docNonBottomSpacing
-        $ docLines
-        $ return
-        <$> funcPatDocs
-        )
     HsApp _ exp1@(L _ HsApp{}) exp2 -> do
       let
         gather

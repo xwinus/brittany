@@ -20,6 +20,8 @@
   constructor patterns such as `()`.
 * Fixed non-idempotent parenthesis growth around boxed tuple constructors in
   expression position and covered unboxed forms.
+* Restored native GHC 9.14 lambda-case layout for single, empty, guarded, and
+  nested forms without escalating supported expressions to whole-module fallback.
 * Known limitation: 18 comment-layout tests remain pending.
 
 ## 0.14.0.0 -- November 2021

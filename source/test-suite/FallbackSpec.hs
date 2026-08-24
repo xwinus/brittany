@@ -65,6 +65,12 @@ spec projectRoot = Hspec.describe "fallback inventory and reporting" $ do
     messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "DataDeclarationFallback")
 
+  Hspec.it "does not escalate lambda-case formatting to a whole-module fallback" $ do
+    messages <- runFormatter projectRoot fallbackReportingConfig
+      "LambdaCaseEdge.hs"
+    messages `Hspec.shouldNotSatisfy` any
+      (List.isInfixOf "WholeModuleFallback")
+
   Hspec.it "preserves parse-failure behavior when reporting is enabled" $ do
     let input = fixturePath projectRoot "DataDeclMultipleInvalid.hs"
         output = FilePath.combine projectRoot "output/FallbackInvalid.hs"
