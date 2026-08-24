@@ -51,6 +51,14 @@ features:
     kind: extension
     support: exact-source
     tracking-issue: 16
+  - name: DisambiguateRecordFields
+    kind: extension
+    support: native
+    tracking-issue: 15
+  - name: DuplicateRecordFields
+    kind: extension
+    support: native
+    tracking-issue: 15
   - name: ExistentialQuantification
     kind: extension
     support: exact-source
@@ -63,6 +71,10 @@ features:
     kind: extension
     support: exact-source
     tracking-issue: 14
+  - name: FieldSelectors
+    kind: extension
+    support: native
+    tracking-issue: 15
   - name: ForeignFunctionInterface
     kind: extension
     support: unsupported
@@ -103,6 +115,14 @@ features:
     kind: extension
     support: exact-source
     tracking-issue: 16
+  - name: NamedFieldPuns
+    kind: extension
+    support: native
+    tracking-issue: 15
+  - name: NoFieldSelectors
+    kind: extension
+    support: native
+    tracking-issue: 15
   - name: OrPatterns
     kind: extension
     support: exact-source
@@ -112,6 +132,10 @@ features:
     support: exact-source
     tracking-issue: 17
   - name: OverloadedRecordDot
+    kind: extension
+    support: native
+    tracking-issue: 15
+  - name: OverloadedRecordUpdate
     kind: extension
     support: exact-source
     tracking-issue: 15
@@ -133,7 +157,7 @@ features:
     tracking-issue: 16
   - name: RecordWildCards
     kind: extension
-    support: exact-source
+    support: native
     tracking-issue: 15
   - name: RecursiveDo
     kind: extension
@@ -159,6 +183,10 @@ features:
     kind: extension
     support: exact-source
     tracking-issue: 18
+  - name: TraditionalRecordSyntax
+    kind: extension
+    support: native
+    tracking-issue: 15
   - name: TypeApplications
     kind: extension
     support: exact-source
@@ -341,6 +369,51 @@ cases:
     fixture: data/Test541.hs
     features: [OverloadedRecordDot]
     expected-result: formats
+  - name: formats traditional and disambiguated record syntax
+    kind: expected
+    fixture: source/test-suite/fixtures/RecordSyntaxExpected.hs
+    features: [TraditionalRecordSyntax, NamedFieldPuns, RecordWildCards, DuplicateRecordFields, DisambiguateRecordFields, FieldSelectors]
+    expected-result: formats
+  - name: preserves comments in record construction update and patterns
+    kind: edge
+    fixture: source/test-suite/fixtures/RecordSyntaxEdge.hs
+    features: [TraditionalRecordSyntax, NamedFieldPuns, RecordWildCards, DuplicateRecordFields, DisambiguateRecordFields, FieldSelectors]
+    expected-result: formats
+  - name: rejects a malformed traditional record construction
+    kind: malformed
+    fixture: source/test-suite/fixtures/RecordSyntaxInvalid.hs
+    features: [TraditionalRecordSyntax, NamedFieldPuns, RecordWildCards, DuplicateRecordFields, DisambiguateRecordFields, FieldSelectors]
+    expected-result: parse-failure
+  - name: formats records without generated field selectors
+    kind: expected
+    fixture: source/test-suite/fixtures/NoFieldSelectorsExpected.hs
+    features: [NoFieldSelectors]
+    expected-result: formats
+  - name: preserves record comments without generated field selectors
+    kind: edge
+    fixture: source/test-suite/fixtures/NoFieldSelectorsEdge.hs
+    features: [NoFieldSelectors]
+    expected-result: formats
+  - name: rejects a malformed record without field selectors
+    kind: malformed
+    fixture: source/test-suite/fixtures/NoFieldSelectorsInvalid.hs
+    features: [NoFieldSelectors]
+    expected-result: parse-failure
+  - name: formats overloaded record access and updates
+    kind: expected
+    fixture: source/test-suite/fixtures/OverloadedRecordSyntaxExpected.hs
+    features: [OverloadedRecordDot, OverloadedRecordUpdate]
+    expected-result: formats
+  - name: preserves comments and puns in overloaded record updates
+    kind: edge
+    fixture: source/test-suite/fixtures/OverloadedRecordSyntaxEdge.hs
+    features: [OverloadedRecordDot, OverloadedRecordUpdate]
+    expected-result: formats
+  - name: rejects a malformed overloaded record update
+    kind: malformed
+    fixture: source/test-suite/fixtures/OverloadedRecordSyntaxInvalid.hs
+    features: [OverloadedRecordDot, OverloadedRecordUpdate]
+    expected-result: parse-failure
   - name: classifies quasiquotes
     kind: edge
     fixture: data/Test255.hs

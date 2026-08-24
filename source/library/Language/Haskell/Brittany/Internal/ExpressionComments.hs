@@ -3,12 +3,13 @@
 
 module Language.Haskell.Brittany.Internal.ExpressionComments
   ( commentSensitiveExpressions
+  , exactSourceExpressions
   ) where
 
 import Data.Data (Data)
 import qualified Data.Generics as SYB
 import GHC (GenLocated(L), Located, unLoc)
-import GHC.Hs (HsExpr(..), LHsExpr)
+import GHC.Hs (HsExpr(..), LHsExpr, LHsRecUpdFields(..))
 import GHC.Parser.Annotation (getLocA)
 import Language.Haskell.Brittany.Internal.Prelude
 
@@ -16,14 +17,27 @@ import Language.Haskell.Brittany.Internal.Prelude
 -- out idempotently. Their containing declaration must retain its exact source.
 commentSensitiveExpressions
   :: Data ast => ast -> [Located (HsExpr GhcPs)]
-commentSensitiveExpressions = SYB.everything (++) expressionQuery
+commentSensitiveExpressions = collectExpressions isCommentSensitive
+
+-- | Find expression shapes that currently require exact-source rendering even
+-- without comments.
+exactSourceExpressions
+  :: Data ast => ast -> [Located (HsExpr GhcPs)]
+exactSourceExpressions = collectExpressions requiresExactSource
+
+collectExpressions
+  :: Data ast
+  => (HsExpr GhcPs -> Bool)
+  -> ast
+  -> [Located (HsExpr GhcPs)]
+collectExpressions predicate = SYB.everything (++) expressionQuery
  where
   expressionQuery :: SYB.GenericQ [Located (HsExpr GhcPs)]
   expressionQuery = const [] `SYB.extQ` collectExpression
 
   collectExpression :: LHsExpr GhcPs -> [Located (HsExpr GhcPs)]
   collectExpression expression
-    | isCommentSensitive $ unLoc expression =
+    | predicate $ unLoc expression =
         [L (getLocA expression) (unLoc expression)]
     | otherwise = []
 
@@ -34,6 +48,13 @@ isCommentSensitive = \case
   HsPar _ expression -> containsOperatorApplication expression
   RecordCon{} -> True
   RecordUpd{} -> True
+  HsGetField{} -> True
+  HsProjection{} -> True
+  _ -> False
+
+requiresExactSource :: HsExpr GhcPs -> Bool
+requiresExactSource = \case
+  RecordUpd _ _ (OverloadedRecUpdFields _ _) -> True
   _ -> False
 
 containsOperatorApplication :: LHsExpr GhcPs -> Bool
