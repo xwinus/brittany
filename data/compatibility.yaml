@@ -47,6 +47,10 @@ features:
     kind: extension
     support: exact-source
     tracking-issue: 16
+  - name: DataKinds
+    kind: extension
+    support: native
+    tracking-issue: 16
   - name: DerivingVia
     kind: extension
     support: exact-source
@@ -62,6 +66,10 @@ features:
   - name: ExistentialQuantification
     kind: extension
     support: exact-source
+    tracking-issue: 16
+  - name: ExplicitForAll
+    kind: extension
+    support: native
     tracking-issue: 16
   - name: ExplicitNamespaces
     kind: extension
@@ -89,7 +97,7 @@ features:
     tracking-issue: 16
   - name: KindSignatures
     kind: extension
-    support: exact-source
+    support: native
     tracking-issue: 16
   - name: LambdaCase
     kind: extension
@@ -97,7 +105,7 @@ features:
     tracking-issue: 17
   - name: MagicHash
     kind: extension
-    support: exact-source
+    support: native
     tracking-issue: 16
   - name: ImportQualifiedPost
     kind: extension
@@ -143,6 +151,10 @@ features:
     kind: extension
     support: exact-source
     tracking-issue: 17
+  - name: PolyKinds
+    kind: extension
+    support: native
+    tracking-issue: 16
   - name: PackageImports
     kind: extension
     support: native
@@ -151,9 +163,13 @@ features:
     kind: extension
     support: exact-source
     tracking-issue: 18
+  - name: QuantifiedConstraints
+    kind: extension
+    support: native
+    tracking-issue: 16
   - name: RankNTypes
     kind: extension
-    support: exact-source
+    support: native
     tracking-issue: 16
   - name: RecordWildCards
     kind: extension
@@ -179,6 +195,10 @@ features:
     kind: extension
     support: exact-source
     tracking-issue: 17
+  - name: StandaloneKindSignatures
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
   - name: TemplateHaskell
     kind: extension
     support: exact-source
@@ -187,7 +207,15 @@ features:
     kind: extension
     support: native
     tracking-issue: 15
+  - name: TypeAbstractions
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
   - name: TypeApplications
+    kind: extension
+    support: native
+    tracking-issue: 16
+  - name: TypeData
     kind: extension
     support: exact-source
     tracking-issue: 16
@@ -199,7 +227,23 @@ features:
     kind: extension
     support: exact-source
     tracking-issue: 16
+  - name: TypeOperators
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
+  - name: UnboxedSums
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
   - name: UnboxedTuples
+    kind: extension
+    support: native
+    tracking-issue: 16
+  - name: UnliftedDatatypes
+    kind: extension
+    support: exact-source
+    tracking-issue: 16
+  - name: UnliftedNewtypes
     kind: extension
     support: exact-source
     tracking-issue: 16
@@ -314,6 +358,81 @@ cases:
     fixture: data/Test318.hs
     features: [RankNTypes, KindSignatures]
     expected-result: formats
+  - name: formats required type arguments and type abstractions
+    kind: expected
+    fixture: source/test-suite/fixtures/TypeArgumentsExpected.hs
+    features: [ExplicitForAll, GADTs, RequiredTypeArguments, TypeAbstractions, TypeApplications]
+    expected-result: formats
+  - name: preserves comments around visible and invisible type binders
+    kind: edge
+    fixture: source/test-suite/fixtures/TypeArgumentsEdge.hs
+    features: [ExplicitForAll, GADTs, RequiredTypeArguments, TypeAbstractions, TypeApplications]
+    expected-result: formats
+  - name: rejects a malformed visible forall constructor
+    kind: malformed
+    fixture: source/test-suite/fixtures/TypeArgumentsInvalid.hs
+    features: [ExplicitForAll, GADTs, RequiredTypeArguments, TypeAbstractions, TypeApplications]
+    expected-result: parse-failure
+  - name: formats type-level data and operators
+    kind: expected
+    fixture: source/test-suite/fixtures/TypeDataExpected.hs
+    features: [DataKinds, TypeData, TypeOperators]
+    expected-result: formats
+  - name: preserves comments around promoted constructors and type operators
+    kind: edge
+    fixture: source/test-suite/fixtures/TypeDataEdge.hs
+    features: [DataKinds, TypeData, TypeOperators]
+    expected-result: formats
+  - name: rejects a malformed type-level data declaration
+    kind: malformed
+    fixture: source/test-suite/fixtures/TypeDataInvalid.hs
+    features: [DataKinds, TypeData, TypeOperators]
+    expected-result: parse-failure
+  - name: formats standalone and declaration kind signatures
+    kind: expected
+    fixture: source/test-suite/fixtures/KindSyntaxExpected.hs
+    features: [ExplicitForAll, KindSignatures, PolyKinds, StandaloneKindSignatures]
+    expected-result: formats
+  - name: preserves comments around kind binders and arrows
+    kind: edge
+    fixture: source/test-suite/fixtures/KindSyntaxEdge.hs
+    features: [ExplicitForAll, KindSignatures, PolyKinds, StandaloneKindSignatures]
+    expected-result: formats
+  - name: rejects a malformed standalone kind signature
+    kind: malformed
+    fixture: source/test-suite/fixtures/KindSyntaxInvalid.hs
+    features: [ExplicitForAll, KindSignatures, PolyKinds, StandaloneKindSignatures]
+    expected-result: parse-failure
+  - name: formats unlifted declarations tuples and sums
+    kind: expected
+    fixture: source/test-suite/fixtures/UnliftedSyntaxExpected.hs
+    features: [DataKinds, GADTs, MagicHash, StandaloneKindSignatures, UnboxedSums, UnboxedTuples, UnliftedDatatypes, UnliftedNewtypes]
+    expected-result: formats
+  - name: preserves comments around unlifted constructors tuples and sums
+    kind: edge
+    fixture: source/test-suite/fixtures/UnliftedSyntaxEdge.hs
+    features: [DataKinds, GADTs, MagicHash, StandaloneKindSignatures, UnboxedSums, UnboxedTuples, UnliftedDatatypes, UnliftedNewtypes]
+    expected-result: formats
+  - name: rejects malformed unboxed sum syntax
+    kind: malformed
+    fixture: source/test-suite/fixtures/UnliftedSyntaxInvalid.hs
+    features: [DataKinds, GADTs, MagicHash, StandaloneKindSignatures, UnboxedSums, UnboxedTuples, UnliftedDatatypes, UnliftedNewtypes]
+    expected-result: parse-failure
+  - name: formats quantified constraints and rank-n applications
+    kind: expected
+    fixture: source/test-suite/fixtures/QuantifiedTypesExpected.hs
+    features: [ExplicitForAll, QuantifiedConstraints, RankNTypes, TypeApplications]
+    expected-result: formats
+  - name: preserves comments in quantified and rank-n types
+    kind: edge
+    fixture: source/test-suite/fixtures/QuantifiedTypesEdge.hs
+    features: [ExplicitForAll, QuantifiedConstraints, RankNTypes, TypeApplications]
+    expected-result: formats
+  - name: rejects a malformed quantified constraint
+    kind: malformed
+    fixture: source/test-suite/fixtures/QuantifiedTypesInvalid.hs
+    features: [ExplicitForAll, QuantifiedConstraints, RankNTypes, TypeApplications]
+    expected-result: parse-failure
   - name: classifies lambda case
     kind: expected
     fixture: data/Test232.hs

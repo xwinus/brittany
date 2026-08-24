@@ -49,6 +49,11 @@ import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.PatternComments
   ( commentSensitivePatterns
+  , exactSourcePatterns
+  )
+import Language.Haskell.Brittany.Internal.TypeFallbacks
+  ( exactSourceTypes
+  , requiresExactTypeDeclaration
   )
 import Language.Haskell.Brittany.Internal.Types
 import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
@@ -61,10 +66,15 @@ layoutDecl = layoutDeclWithExactText Nothing False
 
 layoutDeclWithExactText :: Maybe Text.Text -> Bool -> ToBriDoc HsDecl
 layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl of
-  SigD _ sig@TypeSig{} -> layoutExactWhenCommented d $ layoutSig (L loc sig)
+  SigD _ sig@TypeSig{}
+    | requiresExactTypes d -> layoutExact d exactText
+    | otherwise -> layoutExactWhenCommented d $ layoutSig (L loc sig)
   SigD _ sig -> withTransformedAnns d $ docWrapNode d $ layoutSig (L loc sig)
   ValD _ bind -> layoutValueDeclaration d bind
-  TyClD _ tycl -> layoutExactWhenCommented d $ layoutTyCl (L loc tycl)
+  TyClD _ tycl
+    | requiresExactTypeDeclaration tycl || requiresExactTypes d ->
+        layoutExact d exactText
+    | otherwise -> layoutExactWhenCommented d $ layoutTyCl (L loc tycl)
   InstD _ (TyFamInstD _ tfid) ->
     layoutExactWhenCommented d $ layoutTyFamInstDecl False d tfid
   InstD _ (ClsInstD _ inst) ->
@@ -96,8 +106,11 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
     let hasSensitiveComments = hasConnectedExpressionComments
           || hasConnectedPatternComments
           || (hasSourceComments && hasSensitiveNodes)
-    let requiresExactLayout = not
-          $ null (exactSourceExpressions declaration)
+    let requiresExactLayout = or
+          [ not $ null (exactSourceExpressions declaration)
+          , not $ null (exactSourcePatterns declaration)
+          , requiresExactTypes declaration
+          ]
     if hasSensitiveComments || requiresExactLayout
       then layoutExact declaration exactText
       else withTransformedAnns declaration
@@ -121,6 +134,8 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
   layoutExact declaration source = case source of
     Just text -> briDocByExactTextNoComment declaration text
     Nothing -> briDocByExactNoComment declaration
+
+  requiresExactTypes = not . null . exactSourceTypes
 
 --------------------------------------------------------------------------------
 -- Sig
