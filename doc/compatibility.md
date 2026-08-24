@@ -14,8 +14,8 @@ pragmas directly.
 
 - `native`: Brittany has a native layout path for the classified feature.
 - `exact-source`: formatting is safe, reparses, and is idempotent, but the
-  feature is conservatively treated as exact-source pass-through until its AST
-  paths have dedicated coverage.
+  feature uses exact-source pass-through because it does not yet have a safe
+  native layout path or its AST paths still need dedicated coverage.
 - `unsupported`: Brittany rejects the covered form without modifying the input.
 
 The classifications describe verified formatter behavior, not whether GHC can
@@ -42,6 +42,13 @@ module and namespace layout including GHC 9.14 `data` namespace specifiers;
 package, safe, and source imports; and exact-source preservation for explicit
 level imports, postpositive qualified imports, and module or export warning
 pragmas.
+
+Issue #15 verifies traditional record construction, updates, and patterns;
+field puns and wildcards; duplicate and disambiguated fields; generated and
+suppressed field selectors; and overloaded field access and updates. These
+forms use native layout except for `OverloadedRecordUpdate`, whose containing
+value declaration is preserved through exact-source rendering. Comments around
+record fields are preserved in construction, update, and pattern positions.
 
 Adding a fixture that enables an unclassified extension therefore fails the
 test suite and CI. The manifest's `tracking-issue` fields identify the roadmap

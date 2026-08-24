@@ -36,6 +36,7 @@ import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), An
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.ExpressionComments
   ( commentSensitiveExpressions
+  , exactSourceExpressions
   )
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.DataDecl
@@ -46,6 +47,9 @@ import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import Language.Haskell.Brittany.Internal.Layouters.Type
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
+import Language.Haskell.Brittany.Internal.PatternComments
+  ( commentSensitivePatterns
+  )
 import Language.Haskell.Brittany.Internal.Types
 import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
 import qualified Language.Haskell.GHC.ExactPrint.Utils as ExactPrint
@@ -80,12 +84,21 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
  where
   layoutValueDeclaration declaration bind = do
     let sensitiveExpressions = commentSensitiveExpressions declaration
-    hasConnectedComments <- orM
+    let sensitivePatterns = commentSensitivePatterns declaration
+    hasConnectedExpressionComments <- orM
       $ hasAnyRegularCommentsConnected
       <$> sensitiveExpressions
-    let hasSensitiveComments = hasConnectedComments
-          || (hasSourceComments && not (null sensitiveExpressions))
-    if hasSensitiveComments
+    hasConnectedPatternComments <- orM
+      $ hasAnyRegularCommentsConnected
+      <$> sensitivePatterns
+    let hasSensitiveNodes = not
+          $ null sensitiveExpressions && null sensitivePatterns
+    let hasSensitiveComments = hasConnectedExpressionComments
+          || hasConnectedPatternComments
+          || (hasSourceComments && hasSensitiveNodes)
+    let requiresExactLayout = not
+          $ null (exactSourceExpressions declaration)
+    if hasSensitiveComments || requiresExactLayout
       then layoutExact declaration exactText
       else withTransformedAnns declaration
         $ docWrapNode declaration
