@@ -142,6 +142,8 @@ data BrittanyError
     --   output and second the corresponding, ill-formed input.
   | LayoutWarning String
     -- ^ some warning
+  | ExactSourceFallback String
+    -- ^ non-fatal observability notice for an exact-source fallback
   | forall ast . Data.Data.Data ast => ErrorUnknownNode String (GenLocated SrcSpan ast)
     -- ^ internal error: pretty-printing is not implemented for type of node
     --   in the syntax-tree

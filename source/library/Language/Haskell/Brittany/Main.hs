@@ -409,6 +409,7 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
         let
           customErrOrder ErrorInput{} = 4
           customErrOrder LayoutWarning{} = -1 :: Int
+          customErrOrder ExactSourceFallback{} = -3
           customErrOrder ErrorOutputCheck{} = 1
           customErrOrder ErrorUnusedComment{} = 2
           customErrOrder ErrorUnknownNode{} = -2 :: Int
@@ -448,6 +449,11 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
               warns `forM_` \case
                 LayoutWarning str -> putErrorLn str
                 _ -> error "cannot happen (TM)"
+            fallbacks@(ExactSourceFallback{} : _) -> do
+              putErrorLn "EXACT-SOURCE FALLBACKS:"
+              fallbacks `forM_` \case
+                ExactSourceFallback str -> putErrorLn $ "  " ++ str
+                _ -> error "cannot happen (TM)"
             unused@(ErrorUnusedComment{} : _) -> do
               putErrorLn
                 $ "Error: detected unprocessed comments."
@@ -468,8 +474,10 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
         let
           hasErrors =
             if config & _conf_errorHandling & _econf_Werror & confUnpack
-              then not $ null errsWarns
+              then any isWarningOrError errsWarns
               else 0 < maximum (-1 : fmap customErrOrder errsWarns)
+          isWarningOrError ExactSourceFallback{} = False
+          isWarningOrError _ = True
           outputOnErrs =
             config
               & _conf_errorHandling
@@ -501,6 +509,7 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
   addTraceSep conf =
     if or
         [ confUnpack $ _dconf_dump_annotations conf
+        , confUnpack $ _dconf_dump_fallbacks conf
         , confUnpack $ _dconf_dump_ast_unknown conf
         , confUnpack $ _dconf_dump_ast_full conf
         , confUnpack $ _dconf_dump_bridoc_raw conf

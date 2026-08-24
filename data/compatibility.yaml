@@ -35,6 +35,10 @@ features:
     kind: syntax
     support: exact-source
     tracking-issue: 14
+  - name: MultipleConstructorDataDeclarations
+    kind: syntax
+    support: native
+    tracking-issue: 19
   - name: ApplicativeDo
     kind: extension
     support: native
@@ -347,6 +351,21 @@ cases:
     kind: malformed
     fixture: source/test-suite/fixtures/ModuleSyntaxInvalid.hs
     features: [ModuleHeaders, ExportLists]
+    expected-result: parse-failure
+  - name: formats a multiple-constructor data declaration natively
+    kind: expected
+    fixture: source/test-suite/fixtures/DataDeclMultipleExpected.hs
+    features: [MultipleConstructorDataDeclarations]
+    expected-result: formats
+  - name: formats mixed multiple-constructor details natively
+    kind: edge
+    fixture: source/test-suite/fixtures/DataDeclMultipleEdge.hs
+    features: [MultipleConstructorDataDeclarations]
+    expected-result: formats
+  - name: rejects a malformed multiple-constructor declaration
+    kind: malformed
+    fixture: source/test-suite/fixtures/DataDeclMultipleInvalid.hs
+    features: [MultipleConstructorDataDeclarations]
     expected-result: parse-failure
   - name: classifies bang patterns
     kind: expected

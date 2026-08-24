@@ -25,6 +25,7 @@ import GHC.Types.Basic
 import GHC.Types.Name
 import GHC.Types.Name.Occurrence (occNameString)
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.Decl
 import Language.Haskell.Brittany.Internal.Layouters.Pattern
@@ -74,7 +75,7 @@ layoutExpr' lexpr@(L _ expr) = do
                then t
                else applyNameAdornmentParensOnly vname t
       docLit t'
-    XExpr _ -> briDocByExactInlineOnly "XExpr" lexpr
+    XExpr _ -> briDocByExactInlineOnly ExpressionFallback lexpr
     HsOverLabel _ name ->
       let label = FastString.unpackFS name in docLit . Text.pack $ '#' : label
     HsIPVar _ext (HsIPName name) ->
@@ -889,15 +890,15 @@ layoutExpr' lexpr@(L _ expr) = do
           return (lfield, ambNameRes, rFExpDoc)
       recordExpression False indentPolicy lexpr rExprDoc rFs
     RecordUpd _ _ (OverloadedRecUpdFields _ _) -> do
-      briDocByExactInlineOnly "RecordUpd OverloadedRecUpdFields" lexpr
+      briDocByExactInlineOnly ExpressionFallback lexpr
     ExprWithTySig _ exp1 sigWc -> case sigWc of
       HsWC _ body -> case unLoc body of
         HsSig _ _ typ1 -> do
           expDoc <- docSharedWrapper layoutExpr' (toL exp1)
           typDoc <- docSharedWrapper layoutType (toL typ1)
           docSeq [appSep expDoc, appSep $ docLit $ Text.pack "::", typDoc]
-        _ -> briDocByExactInlineOnly "ExprWithTySig" lexpr
-      _ -> briDocByExactInlineOnly "ExprWithTySig" lexpr
+        _ -> briDocByExactInlineOnly ExpressionFallback lexpr
+      _ -> briDocByExactInlineOnly ExpressionFallback lexpr
     ArithSeq _ Nothing info -> case info of
       From e1 -> do
         e1Doc <- docSharedWrapper layoutExpr' (toL e1)
@@ -939,16 +940,16 @@ layoutExpr' lexpr@(L _ expr) = do
           , docForceSingleline eNDoc
           , docLit $ Text.pack "]"
           ]
-    ArithSeq{} -> briDocByExactInlineOnly "ArithSeq" lexpr
+    ArithSeq{} -> briDocByExactInlineOnly ExpressionFallback lexpr
     HsTypedBracket{} -> do
       -- TODO
-      briDocByExactInlineOnly "HsTypedBracket{}" lexpr
+      briDocByExactInlineOnly ExpressionFallback lexpr
     HsUntypedBracket{} -> do
       -- TODO
-      briDocByExactInlineOnly "HsUntypedBracket{}" lexpr
+      briDocByExactInlineOnly ExpressionFallback lexpr
     HsTypedSplice{} -> do
       -- TODO
-      briDocByExactInlineOnly "HsTypedSplice{}" lexpr
+      briDocByExactInlineOnly ExpressionFallback lexpr
     HsUntypedSplice _ (HsQuasiQuote _ quoter content) -> do
       allocateNode $ BDFPlain
         (Text.pack
@@ -960,9 +961,9 @@ layoutExpr' lexpr@(L _ expr) = do
         )
     HsUntypedSplice{} -> do
       -- TODO
-      briDocByExactInlineOnly "HsUntypedSplice{}" lexpr
+      briDocByExactInlineOnly ExpressionFallback lexpr
     HsHole{} -> docLit $ Text.pack "_"
-    HsProc{} -> briDocByExactInlineOnly "HsProc{}" lexpr
+    HsProc{} -> briDocByExactInlineOnly ExpressionFallback lexpr
     HsStatic _ innerExpr -> do
       innerDoc <- docSharedWrapper layoutExpr' (toL innerExpr)
       docSeq
@@ -980,15 +981,15 @@ layoutExpr' lexpr@(L _ expr) = do
       let fieldStrs = NonEmpty.toList flds <&> \(DotFieldOcc _ (L _ (FieldLabelString fs))) ->
                         FastString.unpackFS fs
       docLit $ Text.pack ("(." ++ List.intercalate "." fieldStrs ++ ")")
-    HsPragE{} -> briDocByExactInlineOnly "HsPragE{}" lexpr
+    HsPragE{} -> briDocByExactInlineOnly ExpressionFallback lexpr
     HsEmbTy _ wc -> do
       typeDoc <- docSharedWrapper layoutType (toL $ hswc_body wc)
       docSeq
         [ appSep $ docLit $ Text.pack "type"
         , typeDoc
         ]
-    XExpr _ -> briDocByExactInlineOnly "XExpr" lexpr
-    _ -> briDocByExactInlineOnly "unknown HsExpr" lexpr
+    XExpr _ -> briDocByExactInlineOnly ExpressionFallback lexpr
+    _ -> briDocByExactInlineOnly ExpressionFallback lexpr
 
 recordExpression
   :: (Data.Data.Data lExpr, Data.Data.Data name)

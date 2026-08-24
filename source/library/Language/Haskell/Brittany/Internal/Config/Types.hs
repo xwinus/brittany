@@ -24,6 +24,7 @@ confUnpack (Identity x) = coerce x
 
 data CDebugConfig f = DebugConfig
   { _dconf_dump_config :: f (Semigroup.Last Bool)
+  , _dconf_dump_fallbacks :: f (Semigroup.Last Bool)
   , _dconf_dump_annotations :: f (Semigroup.Last Bool)
   , _dconf_dump_ast_unknown :: f (Semigroup.Last Bool)
   , _dconf_dump_ast_full :: f (Semigroup.Last Bool)

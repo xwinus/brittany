@@ -17,6 +17,7 @@ import GHC.Types.SourceText (SourceText(..))
 import qualified GHC.Data.FastString as FastString
 import GHC.Utils.Outputable (ftext, showSDocUnsafe)
 import Language.Haskell.Brittany.Internal.LayouterBasics
+import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
@@ -350,7 +351,7 @@ layoutType ltype = layoutType' (toL ltype)
                 (docLines $ lines ++ [end])
             ]
     HsOpTy{} -> -- TODO
-      briDocByExactInlineOnly "HsOpTy{}" ltype
+      briDocByExactInlineOnly TypeFallback ltype
   -- HsOpTy typ1 opName typ2 -> do
   --   -- TODO: these need some proper fixing. precedences don't add up.
   --   --       maybe the parser just returns some trivial right recursion
@@ -523,9 +524,9 @@ layoutType ltype = layoutType' (toL ltype)
   --     , _layouter_ast = ltype
   --     }
     HsSpliceTy{} -> -- TODO
-      briDocByExactInlineOnly "HsSpliceTy{}" ltype
+      briDocByExactInlineOnly TypeFallback ltype
     HsDocTy{} -> -- TODO
-      briDocByExactInlineOnly "HsDocTy{}" ltype
+      briDocByExactInlineOnly TypeFallback ltype
     HsExplicitListTy _ _ typs -> do
       typDocs <- (docSharedWrapper layoutType) `mapM` (map toL typs)
       hasComments <- hasAnyCommentsBelow ltype
@@ -576,7 +577,7 @@ layoutType ltype = layoutType' (toL ltype)
                 in docSetBaseY $ docLines $ [start] ++ linesM ++ [lineN] ++ [end]
         ]
     HsExplicitTupleTy{} -> -- TODO
-      briDocByExactInlineOnly "HsExplicitTupleTy{}" ltype
+      briDocByExactInlineOnly TypeFallback ltype
     HsTyLit _ lit -> case lit of
       HsNumTy (SourceText srctext) _ -> docLit $ Text.pack (FastString.unpackFS srctext)
       HsNumTy NoSourceText _ ->
@@ -586,13 +587,13 @@ layoutType ltype = layoutType' (toL ltype)
         error "overLitValBriDoc: literal with no SourceText"
     HsWildCardTy _ -> docLit $ Text.pack "_"
     HsSumTy{} -> -- TODO
-      briDocByExactInlineOnly "HsSumTy{}" ltype
+      briDocByExactInlineOnly TypeFallback ltype
     HsStarTy _ isUnicode -> do
       if isUnicode
         then docLit $ Text.pack "\x2605" -- Unicode star
         else docLit $ Text.pack "*"
     XHsType{} -> error "brittany internal error: XHsType"
-    _ -> briDocByExactInlineOnly "HsType" ltype
+    _ -> briDocByExactInlineOnly TypeFallback ltype
     HsAppKindTy _ ty kind -> do
       t <- docSharedWrapper layoutType (toL ty)
       k <- docSharedWrapper layoutType (toL kind)

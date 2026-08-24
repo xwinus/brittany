@@ -77,3 +77,9 @@ or formatting and directs users to preprocess the input or remove `-XCPP`.
 Adding a fixture that enables an unclassified extension therefore fails the
 test suite and CI. The manifest's `tracking-issue` fields identify the roadmap
 issue responsible for auditing and improving each classification.
+
+Issue #19 adds the machine-readable
+[fallback inventory](fallbacks.md), opt-in `--dump-fallbacks` diagnostics, and
+native layout for simple multi-constructor Haskell 98 data declarations.
+Commented and extension-specific constructor forms remain exact-source until
+their annotation paths have the same expected, edge, and malformed coverage.

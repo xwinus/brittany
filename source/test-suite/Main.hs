@@ -5,6 +5,7 @@ import qualified CompatibilitySpec
 import Data.Kind (Type)
 import qualified Data.List as List
 import qualified Data.Set as Set
+import qualified FallbackSpec
 import qualified Language.Haskell.Brittany.Main as Brittany
 import qualified PreprocessorSpec
 import qualified RegressionSpec
@@ -58,6 +59,7 @@ main = Hspec.hspec $ do
 
   RegressionSpec.spec projectRoot
   CompatibilitySpec.spec projectRoot
+  FallbackSpec.spec projectRoot
   PreprocessorSpec.spec projectRoot
 
 type Literal :: Type

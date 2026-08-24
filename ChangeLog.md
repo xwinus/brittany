@@ -7,8 +7,10 @@
 * Added initial support for GHC 9.14 language extensions.
 * Fixed a segmentation fault when formatting `DerivingVia` clauses with the
   GHC 9.14 AST.
-* Preserved multi-constructor data declarations through an exactprint fallback
-  instead of silently dropping every constructor after the first.
+* Added native layout for simple multi-constructor data declarations while
+  retaining exact-source safety for commented and extended constructor forms.
+* Added a machine-readable fallback inventory and opt-in `--dump-fallbacks`
+  diagnostics for exact-source and whole-module pass-through paths.
 * Re-enabled output syntax validation for the GHC 9.14 test suite.
 * Re-enabled the unused-comment check so comment loss fails formatting instead
   of silently producing incomplete output.

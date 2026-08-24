@@ -10,6 +10,7 @@ import GHC (GenLocated(L), unLoc)
 import GHC.Hs
 import GHC.Types.SrcLoc (noSrcSpan)
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.Decl
@@ -115,4 +116,4 @@ layoutStmt lstmt@(L _ stmt) = do
     BodyStmt _ expr _ _ -> do
       expDoc <- docSharedWrapper layoutExpr (toL expr)
       docAddBaseY BrIndentRegular $ expDoc
-    _ -> briDocByExactInlineOnly "some unknown statement" lstmt
+    _ -> briDocByExactInlineOnly StatementFallback lstmt
