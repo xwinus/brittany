@@ -34,6 +34,7 @@ type FeatureKind :: Type
 data FeatureKind
   = Edition
   | Extension
+  | Syntax
   deriving (Eq, Show)
 
 type SupportMode :: Type
@@ -90,6 +91,7 @@ instance Aeson.FromJSON FeatureKind where
   parseJSON = parseEnum "feature kind"
     [ ("edition", Edition)
     , ("extension", Extension)
+    , ("syntax", Syntax)
     ]
 
 instance Aeson.FromJSON SupportMode where
@@ -255,6 +257,7 @@ validateMatrix matrix discoveredPragmas = concat
         ++ " in "
         ++ matrixCaseFixture matrixCase
       | name <- matrixCaseFeatures matrixCase
+      , featureRequiresPragma name
       , (name, matrixCaseFixture matrixCase) `Set.notMember` discoveredSet
       ]
     , caseKindErrors matrixCase
@@ -312,6 +315,10 @@ validateMatrix matrix discoveredPragmas = concat
   successfulCaseFor name matrixCase =
     name `elem` matrixCaseFeatures matrixCase
       && matrixCaseExpectedResult matrixCase == Formats
+
+  featureRequiresPragma name = case Map.lookup name featureMap of
+    Just feature -> featureKind feature /= Syntax
+    Nothing -> False
 
   unclassifiedPragmaErrors =
     [ "unclassified LANGUAGE pragma " ++ name ++ " in " ++ path

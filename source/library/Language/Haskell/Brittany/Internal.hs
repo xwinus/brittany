@@ -623,6 +623,9 @@ ppPreamble lmod@(L loc m@HsModule{}) = do
   let
     shouldReformatPreamble =
       config & _conf_layout & _lconfig_reformatModulePreamble & confUnpack
+    exactSource = Text.pack $ ExactPrint.exactPrint lmod
+    canReformatPreamble =
+      shouldReformatPreamble && not (preambleRequiresExactSource exactSource m)
 
   let
     (filteredAnns', post) =
@@ -656,29 +659,32 @@ ppPreamble lmod@(L loc m@HsModule{}) = do
   -- ExtractAnns puts these in annPriorComments.
   let modKey = mkAnnKey (toL lmod)
   let modPriorComments = maybe [] annPriorComments (Map.lookup modKey filteredAnns)
-  forM_ (zip [0::Int ..] modPriorComments) $
-    \(idx, (c, dp)) -> do
-      -- For comments after the first, the DP accounts for the newline we
-      -- added after the previous comment, so subtract 1 row.
-      let dp' = if idx > 0
-            then case dp of
-              EP.DP (y, x) | y > 0 -> EP.DP (y - 1, x)
-              _ -> dp
-            else dp
-      ppmMoveToExactLoc dp'
-      mTell $ Text.Builder.fromString (commentContents c)
-      mTell $ Text.Builder.fromString "\n"
+  when canReformatPreamble $
+    forM_ (zip [0::Int ..] modPriorComments) $
+      \(idx, (c, dp)) -> do
+        -- For comments after the first, the DP accounts for the newline we
+        -- added after the previous comment, so subtract 1 row.
+        let dp' = if idx > 0
+              then case dp of
+                EP.DP (y, x) | y > 0 -> EP.DP (y - 1, x)
+                _ -> dp
+              else dp
+        ppmMoveToExactLoc dp'
+        mTell $ Text.Builder.fromString (commentContents c)
+        mTell $ Text.Builder.fromString "\n"
 
-  -- Clear the prior comments we just emitted from the annotation map
-  -- so layoutBriDoc doesn't re-output them via BDAnnotationPrior.
+  -- Clear prior comments after the native path emits them so layoutBriDoc
+  -- does not re-output them via BDAnnotationPrior.
   let clearModPriorComments anns = case Map.lookup modKey anns of
         Nothing -> anns
         Just ann -> Map.insert modKey (ann { annPriorComments = [] }) anns
-      filteredAnns'' = clearModPriorComments filteredAnns'
+      filteredAnns'' =
+        if canReformatPreamble
+          then clearModPriorComments filteredAnns'
+          else filteredAnns'
 
-  if shouldReformatPreamble
+  if canReformatPreamble
     then toLocal config filteredAnns'' $ withTransformedAnns lmod $ do
-      let exactSource = Text.pack $ ExactPrint.exactPrint lmod
       briDoc <- briDocMToPPM $ layoutModuleWithExactText exactSource lmod
       layoutBriDoc briDoc
     else do

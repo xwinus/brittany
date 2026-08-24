@@ -2,7 +2,13 @@
 
 The machine-readable compatibility matrix lives in
 [`data/compatibility.yaml`](../data/compatibility.yaml). It classifies every
-language edition and extension currently enabled by the test corpus.
+language edition and extension currently enabled by the test corpus, plus
+syntax categories that do not have a dedicated `LANGUAGE` pragma.
+
+Feature kinds are `edition`, `extension`, and `syntax`. Edition and extension
+cases must enable their feature in the fixture. Syntax cases cover constructs
+such as module headers, export lists, safe or source imports, and warning
+pragmas directly.
 
 ## Support modes
 
@@ -30,6 +36,12 @@ The compatibility test harness enforces the following rules:
 5. Successful cases must preserve comments, produce parseable output, and be
    byte-identical after a second formatting pass.
 6. Unsupported and malformed cases must fail without modifying their input.
+
+Issue #14 verifies Haskell2010, GHC2021, and GHC2024 module syntax; native
+module and namespace layout including GHC 9.14 `data` namespace specifiers;
+package, safe, and source imports; and exact-source preservation for explicit
+level imports, postpositive qualified imports, and module or export warning
+pragmas.
 
 Adding a fixture that enables an unclassified extension therefore fails the
 test suite and CI. The manifest's `tracking-issue` fields identify the roadmap
