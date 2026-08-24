@@ -16,6 +16,8 @@
   of silently producing incomplete output.
 * Replaced the SIGSEGV workaround with a standard Hspec runner that verifies
   every fixture and reports failures normally.
+* Fixed non-idempotent parenthesis growth around intrinsically delimited
+  constructor patterns such as `()`.
 * Known limitation: 18 comment-layout tests remain pending.
 
 ## 0.14.0.0 -- November 2021
