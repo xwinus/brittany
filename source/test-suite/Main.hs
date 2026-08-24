@@ -12,6 +12,7 @@ import qualified RegressionSpec
 import qualified System.Directory as Directory
 import qualified System.FilePath as FilePath
 import qualified Test.Hspec as Hspec
+import qualified TopLevelSpacingSpec
 
 findProjectRoot :: FilePath -> IO FilePath
 findProjectRoot dir = do
@@ -61,6 +62,7 @@ main = Hspec.hspec $ do
   CompatibilitySpec.spec projectRoot
   FallbackSpec.spec projectRoot
   PreprocessorSpec.spec projectRoot
+  TopLevelSpacingSpec.spec
 
 type Literal :: Type
 newtype Literal

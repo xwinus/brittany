@@ -157,6 +157,17 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects a malformed commented export list without changing the input"
       "ExportSectionCommentsInvalid.hs"
 
+  Hspec.describe "top-level spacing" $ do
+    idempotentFormattingExample projectRoot
+      "preserves section gaps around imports and declaration groups"
+      "TopLevelSpacingExpected.hs"
+    idempotentFormattingExample projectRoot
+      "preserves mixed gaps, comments, splices, and exact-source declarations"
+      "TopLevelSpacingEdge.hs"
+    parseFailureExample projectRoot
+      "rejects malformed spaced syntax without changing the input"
+      "TopLevelSpacingInvalid.hs"
+
 formattingExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
 formattingExample projectRoot description fixtureName =
   Hspec.it description $ do
