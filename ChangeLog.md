@@ -30,6 +30,8 @@
   top-level comments, and declaration groups.
 * Improved multiline indentation and delimiter alignment for parenthesized
   lambda-case, case, do, and multi-way-if expressions.
+* Wrapped long prefix-constructor patterns at the configured column limit while
+  keeping short constructor patterns compact.
 ## 0.14.0.0 -- November 2021
 
 * #357: Added support for GHC 9.0. Dropped support for all other versions of GHC.

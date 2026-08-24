@@ -373,6 +373,7 @@ layoutBind lbind@(L _ bind) = case bind of
   PatBind _ pat _ (GRHSs _ grhssNE whereBinds) -> do
     let grhss = NonEmpty.toList grhssNE
     patDocs <- colsWrapPat =<< layoutPat pat
+    multilinePatDoc <- layoutPatMultiline pat
     clauseDocs <- layoutGrhs `mapM` grhss
     mWhereDocs <- layoutLocalBinds (L noSrcSpan whereBinds)
     let mWhereArg = mWhereDocs <&> (,) (mkAnnKey (toL lbind)) -- TODO: is this the right AnnKey?
@@ -382,6 +383,7 @@ layoutBind lbind@(L _ bind) = case bind of
       Nothing
       binderDoc
       (Just patDocs)
+      multilinePatDoc
       clauseDocs
       mWhereArg
       hasComments
@@ -400,6 +402,7 @@ layoutIPBind lipbind@(L _ bind) = case bind of
         Nothing
         binderDoc
         (Just ipName)
+        Nothing
         [([], exprDoc, expr)]
         Nothing
         hasComments
@@ -460,6 +463,7 @@ layoutPatternBind funId binderDoc lmatch@(L _ match) = do
     Match _ (FunRhs matchId _ _ _) _ _ -> Just . applyNameAdornment matchId <$> lrdrNameToTextAnn (toL matchId)
     _ -> pure Nothing
   let mIdStr' = fixPatternBindIdentifier match <$> mIdStr
+  multilinePatDocs <- mapM layoutPatMultiline pats
   patDoc <- docWrapNodePrior (toL lmatch) $ case (mIdStr', patDocs) of
     (Just idStr, p1 : p2 : pr) | isInfix -> if null pr
       then docCols
@@ -484,11 +488,27 @@ layoutPatternBind funId binderDoc lmatch@(L _ match) = do
     (Just idStr, []) -> docLit idStr
     (Just idStr, ps) ->
       docCols ColPatternsFuncPrefix
-        $ appSep (docLit $ idStr)
-        : (spacifyDocs $ docForceSingleline <$> ps)
+        $ appSep (docLit idStr)
+        : spacifyDocs (docForceSingleline <$> ps)
     (Nothing, ps) ->
       docCols ColPatterns
         $ (List.intersperse docSeparator $ docForceSingleline <$> ps)
+  mMultilinePatDoc <- if isInfix || not (any Data.Maybe.isJust multilinePatDocs)
+    then return Nothing
+    else do
+      selectedDocs <- sequence $ zipWith
+        (\flatDoc -> maybe flatDoc return)
+        patDocs
+        multilinePatDocs
+      case (mIdStr', selectedDocs) of
+        (Just idStr, ps@(_ : _)) -> fmap Just
+          $ docWrapNodePrior (toL lmatch)
+          $ docAddBaseY BrIndentRegular
+          $ docPar (docLit idStr) (docLines $ return <$> ps)
+        (Nothing, [p]) -> fmap Just
+          $ docWrapNodePrior (toL lmatch)
+          $ return p
+        _ -> return Nothing
   clauseDocs <- docWrapNodeRest (toL lmatch) $ layoutGrhs `mapM` grhss
   mWhereDocs <- layoutLocalBinds (L noSrcSpan whereBinds)
   let mWhereArg = mWhereDocs <&> (,) (mkAnnKey (toL lmatch))
@@ -500,6 +520,7 @@ layoutPatternBind funId binderDoc lmatch@(L _ match) = do
     alignmentToken
     binderDoc
     (Just patDoc)
+    mMultilinePatDoc
     clauseDocs
     mWhereArg
     hasComments
@@ -525,12 +546,13 @@ layoutPatternBindFinal
   :: Maybe Text
   -> BriDocNumbered
   -> Maybe BriDocNumbered
+  -> Maybe BriDocNumbered
   -> [([BriDocNumbered], BriDocNumbered, LHsExpr GhcPs)]
   -> Maybe (AnnKey, [BriDocNumbered])
      -- ^ AnnKey for the node that contains the AnnWhere position annotation
   -> Bool
   -> ToBriDocM BriDocNumbered
-layoutPatternBindFinal alignmentToken binderDoc mPatDoc clauseDocs mWhereDocs hasComments
+layoutPatternBindFinal alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseDocs mWhereDocs hasComments
   = do
     let
       patPartInline = case mPatDoc of
@@ -603,6 +625,9 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc clauseDocs mWhereDocs ha
         _ -> Nothing
 
     indentPolicy <- mAsk <&> _conf_layout .> _lconfig_indentPolicy .> confUnpack
+    indentAmount <-
+      mAsk <&> _conf_layout .> _lconfig_indentAmount .> confUnpack
+    let multilinePatternBodyIndent = BrIndentSpecial (2 * indentAmount)
 
     runFilteredAlternative $ do
 
@@ -672,6 +697,21 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc clauseDocs mWhereDocs ha
               $ return body
               ]
             ++ wherePartMultiLine
+          case mMultilinePatDoc of
+            Nothing -> return ()
+            Just patDoc ->
+              addAlternative
+                $ docLines
+                $ [ docSeq
+                      [ appSep $ return patDoc
+                      , guardPart
+                      , return binderDoc
+                      ]
+                  , docNonBottomSpacing
+                  $ docEnsureIndent multilinePatternBodyIndent
+                  $ return body
+                  ]
+                ++ wherePartMultiLine
 
         _ -> return () -- no alternatives exclusively when `length clauseDocs /= 1`
 
@@ -826,6 +866,27 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc clauseDocs mWhereDocs ha
                        ]
           ]
         ++ wherePartMultiLine
+      case mMultilinePatDoc of
+        Nothing -> return ()
+        Just patDoc ->
+          addAlternativeCond (length clauseDocs > 1)
+            $ docLines
+            $ [ return patDoc
+              , docEnsureIndent BrIndentRegular
+              $ docLines
+              $ clauseDocs
+              <&> \(guardDocs, bodyDoc, _) -> do
+                    let guardPart = singleLineGuardsDoc guardDocs
+                    docForceSingleline $ docCols
+                      ColGuardedBody
+                      [ guardPart
+                      , docSeq
+                        [ appSep $ return binderDoc
+                        , docForceSingleline $ return bodyDoc
+                        ]
+                      ]
+              ]
+            ++ wherePartMultiLine
 
 -- | Layout a pattern synonym binding
 layoutPatSynBind

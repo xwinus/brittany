@@ -675,6 +675,7 @@ layoutExpr' lexpr@(L _ expr) = do
           Nothing
           binderDoc
           Nothing
+          Nothing
           (NonEmpty.toList clauseDocs)
           Nothing
           hasComments
