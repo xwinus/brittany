@@ -54,6 +54,10 @@ isCommentSensitive = \case
 
 requiresExactSource :: HsExpr GhcPs -> Bool
 requiresExactSource = \case
+  ExplicitSum{} -> True
+  HsForAll{} -> True
+  HsFunArr{} -> True
+  HsQual{} -> True
   RecordUpd _ _ (OverloadedRecUpdFields _ _) -> True
   _ -> False
 

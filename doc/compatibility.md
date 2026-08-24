@@ -50,6 +50,15 @@ forms use native layout except for `OverloadedRecordUpdate`, whose containing
 value declaration is preserved through exact-source rendering. Comments around
 record fields are preserved in construction, update, and pattern positions.
 
+Issue #16 verifies required and visible type arguments, type abstractions,
+type-level data and operators, standalone and inline kind signatures, unlifted
+declarations, unboxed tuples and sums, quantified constraints, and rank-n
+types. Stable native layout is used for forall, kind, promoted, application,
+constraint, `MagicHash`, and unboxed tuple paths. Experimental declaration,
+type-operator, type-abstraction, and unboxed-sum paths retain their containing
+declaration through exact-source rendering. Comments around binders, arrows,
+contexts, and constructor signatures are preserved.
+
 Adding a fixture that enables an unclassified extension therefore fails the
 test suite and CI. The manifest's `tracking-issue` fields identify the roadmap
 issue responsible for auditing and improving each classification.
