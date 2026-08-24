@@ -124,6 +124,17 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects malformed unit pattern syntax without changing the input"
       "UnitPatternInvalid.hs"
 
+  Hspec.describe "tuple constructors in expressions" $ do
+    idempotentFormattingExample projectRoot
+      "keeps a boxed pair constructor stable"
+      "TupleConstructorExpected.hs"
+    idempotentFormattingExample projectRoot
+      "keeps tuple arities and symbolic controls stable"
+      "TupleConstructorEdge.hs"
+    parseFailureExample projectRoot
+      "rejects malformed tuple constructor syntax without changing the input"
+      "TupleConstructorInvalid.hs"
+
 formattingExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
 formattingExample projectRoot description fixtureName =
   Hspec.it description $ do

@@ -1,0 +1,1 @@
+pair = (,) <$> Just 1 <*> Just 2

@@ -18,6 +18,8 @@
   every fixture and reports failures normally.
 * Fixed non-idempotent parenthesis growth around intrinsically delimited
   constructor patterns such as `()`.
+* Fixed non-idempotent parenthesis growth around boxed tuple constructors in
+  expression position and covered unboxed forms.
 * Known limitation: 18 comment-layout tests remain pending.
 
 ## 0.14.0.0 -- November 2021
