@@ -664,6 +664,17 @@ docParenL = docLit $ Text.pack "("
 docParenR :: ToBriDocM BriDocNumbered
 docParenR = docLit $ Text.pack ")"
 
+docDelimitedBlock
+  :: ToBriDocM BriDocNumbered
+  -> ToBriDocM BriDocNumbered
+  -> ToBriDocM BriDocNumbered
+  -> ToBriDocM BriDocNumbered
+docDelimitedBlock open child close = docLines
+  [ open
+  , docEnsureIndent BrIndentRegular $ docSetIndentLevel child
+  , close
+  ]
+
 docParenHashLSep :: ToBriDocM BriDocNumbered
 docParenHashLSep = docSeq [docLit $ Text.pack "(#", docSeparator]
 
