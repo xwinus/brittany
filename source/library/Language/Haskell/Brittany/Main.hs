@@ -1,12 +1,14 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
 module Language.Haskell.Brittany.Main where
 
 import Control.Monad (zipWithM)
 import qualified Control.Monad.Trans.Except as ExceptT
 import Data.CZipWith
+import Data.Kind (Type)
 import qualified Data.Either
 import qualified Data.List.Extra
 import qualified Data.Monoid
@@ -44,6 +46,7 @@ import UI.Butcher.Monadic
 
 
 
+type WriteMode :: Type
 data WriteMode = Display | Inplace
 
 instance Read WriteMode where
@@ -247,6 +250,7 @@ mainCmdParser helpDesc = do
         _ -> System.Exit.exitWith (System.Exit.ExitFailure 1)
 
 
+type ChangeStatus :: Type
 data ChangeStatus = Changes | NoChanges
   deriving (Eq)
 

@@ -17,7 +17,6 @@ import qualified Data.Foldable as Foldable
 import qualified Data.Generics as SYB
 import Data.HList.HList
 import qualified Data.Map as Map
-import qualified Data.Maybe
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import GHC (GenLocated(L))
@@ -28,10 +27,9 @@ import GHC.Hs
   , AnnsIf
   , AnnsModule
   , EpAnnHsCase
-  , GhcPs, GrhsAnn, HsDecl, HsExpr, HsModule(..)
+  , GrhsAnn, HsModule(..)
   , HsLocalBindsLR(..)
-  , LHsDecl, LHsExpr, LHsBind, LMatch, LGRHS, LHsType, LPat
-  , StmtLR
+  , LHsDecl, LHsExpr, LHsBind, LMatch, LGRHS, LHsType
   , hsmodDecls
   )
 import GHC.Parser.Annotation
@@ -42,8 +40,6 @@ import GHC.Parser.Annotation
   , EpAnn(..)
   , NameAnn
   , NoEpAnns
-  , EpaLocation
-  , epaLocationRealSrcSpan
   , getLocA
   , HasLoc(..)
   )
@@ -89,7 +85,7 @@ commentAnnFixTransformGlob ast = do
                     )
     -- Also match GHC 9.14 LocatedAn nodes (GenLocated (EpAnn ann) a)
     -- which use different location wrappers than plain Located.
-    mkKeyAn :: (Data a1, HasLoc l, HasLoc (GenLocated l a1)) => GenLocated l a1 -> Seq (SrcSpan, ExactPrint.AnnKey)
+    mkKeyAn :: (Data a1, HasLoc l) => GenLocated l a1 -> Seq (SrcSpan, ExactPrint.AnnKey)
     mkKeyAn x = let span = getLocA x in Seq.singleton (span, ExactPrint.mkAnnKey (L span (unLoc x)))
     extractGhc914 :: forall a . SYB.Data a => a -> Seq (SrcSpan, ExactPrint.AnnKey)
     extractGhc914 =
@@ -145,15 +141,15 @@ commentAnnFixTransformGlob ast = do
                             || containsSpan r1 r2
                       in if sameOrContained then move annKey2 $> False else return True
                      where
-                      move ak2 = ExactPrint.modifyAnnsT $ \anns ->
-                        case Map.lookup ak2 anns of
+                      move ak2 = ExactPrint.modifyAnnsT $ \annotationMap ->
+                        case Map.lookup ak2 annotationMap of
                           Just ann2 ->
                             let ann2' = ann2
                                   { ExactPrint.annFollowingComments =
                                     ExactPrint.annFollowingComments ann2 ++ [comPair]
                                   }
-                            in Map.insert ak2 ann2' anns
-                          Nothing -> anns
+                            in Map.insert ak2 ann2' annotationMap
+                          Nothing -> annotationMap
                     _ -> return True
                 _ -> return True -- retain comment at current node.
       priors' <- filterM processCom priors
@@ -167,7 +163,7 @@ commentAnnFixTransformGlob ast = do
           , ExactPrint.annFollowingComments = follows'
           , ExactPrint.annsDP = assocs'
           }
-      ExactPrint.modifyAnnsT $ \anns -> Map.insert annKey1 ann1' anns
+      ExactPrint.modifyAnnsT $ \annotationMap -> Map.insert annKey1 ann1' annotationMap
 
   -- Check if inner span is contained within outer span
   containsSpan :: RealSrcSpan -> RealSrcSpan -> Bool
@@ -247,7 +243,7 @@ extractToplevelAnns
   :: Located (HsModule GhcPs)
   -> ExactPrint.Anns
   -> Map ExactPrint.AnnKey ExactPrint.Anns
-extractToplevelAnns lmod anns = output
+extractToplevelAnns lmod annotationMap = output
  where
   (L _ m) = lmod
   -- GHC 9.14: hsmodDecls returns [LHsDecl GhcPs] with EpAnn location; convert to SrcSpan for mkAnnKey
@@ -259,13 +255,13 @@ extractToplevelAnns lmod anns = output
   declMap2 =
     Map.fromList
       $ [ (captured, declMap1 Map.! k)
-        | (k, ExactPrint.Ann (Just captured) _ _ _ _ _) <- Map.toList anns
+        | (k, ExactPrint.Ann (Just captured) _ _ _ _ _) <- Map.toList annotationMap
         ]
   declMap = declMap1 `Map.union` declMap2
   -- Use getLocA for consistent SrcSpan-based keys with ExtractAnns (mkAnnKeyL)
   lmodSrc = L (getLocA lmod) (unLoc lmod)
   modKey = ExactPrint.mkAnnKey lmodSrc
-  output = groupMap (\k _ -> Map.findWithDefault modKey k declMap) anns
+  output = groupMap (\k _ -> Map.findWithDefault modKey k declMap) annotationMap
 
 groupMap :: (Ord k, Ord l) => (k -> a -> l) -> Map k a -> Map l (Map k a)
 groupMap f = Map.foldlWithKey'
@@ -304,7 +300,6 @@ tryEpAnnToSrcSpan epann = case epann of
       SrcLoc.RealSrcSpan rss _ -> Just (ExactPrint.realSpanToSrcSpan rss)
       _ -> Nothing
     _ -> Nothing
-  _ -> Nothing
 
 foldedAnnKeys :: Data.Data.Data ast => ast -> Set ExactPrint.AnnKey
 foldedAnnKeys ast = SYB.everything
@@ -334,15 +329,15 @@ withTransformedAnns
   -> MultiRWSS.MultiRWS '[Config , ExactPrint.Anns] w s a
   -> MultiRWSS.MultiRWS '[Config , ExactPrint.Anns] w s a
 withTransformedAnns ast m = MultiRWSS.mGetRawR >>= \case
-  readers@(conf :+: anns :+: HNil) -> do
+  readers@(conf :+: annotationMap :+: HNil) -> do
     -- TODO: implement `local` for MultiReader/MultiRWS
-    MultiRWSS.mPutRawR (conf :+: f anns :+: HNil)
+    MultiRWSS.mPutRawR (conf :+: f annotationMap :+: HNil)
     x <- m
     MultiRWSS.mPutRawR readers
     pure x
  where
-  f anns =
+  f annotationMap =
     let
       (annsBalanced, ()) =
-        ExactPrint.runTransform anns (commentAnnFixTransformGlob ast)
+        ExactPrint.runTransform annotationMap (commentAnnFixTransformGlob ast)
     in annsBalanced

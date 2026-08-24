@@ -1,8 +1,10 @@
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
 module Language.Haskell.Brittany.Internal.Obfuscation where
 
 import Data.Char
+import Data.Kind (Type)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
@@ -84,6 +86,7 @@ createAlias xs = go NoHint xs
     cr' <- go (if c' `elem` "aeuioAEUIO" then NoVocalHint else VocalHint) cr
     pure (c' : cr')
 
+type Hint :: Type
 data Hint = NoHint | VocalHint | NoVocalHint
 
 _randomRange :: Random a => a -> a -> IO a

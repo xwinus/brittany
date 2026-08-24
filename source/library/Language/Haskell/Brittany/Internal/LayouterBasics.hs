@@ -3,6 +3,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE RoleAnnotations #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
 module Language.Haskell.Brittany.Internal.LayouterBasics where
 
@@ -10,6 +12,7 @@ import qualified Control.Monad.Trans.MultiRWS.Strict as MultiRWSS
 import qualified Control.Monad.Writer.Strict as Writer
 import qualified Data.Char as Char
 import Data.Data
+import Data.Kind (Type)
 import qualified Data.Map as Map
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Sequence as Seq
@@ -24,7 +27,7 @@ import GHC.Types.Name (getOccString)
 import GHC.Types.Name.Occurrence (occNameString)
 import GHC.Types.Name.Reader (RdrName(..))
 import qualified GHC.Types.SrcLoc as GHC
-import GHC.Parser.Annotation (EpAnn(..), NameAnn(..), NameAdornment(..), getLocA)
+import GHC.Parser.Annotation (EpAnn(EpAnn), NameAnn(..), NameAdornment(..), getLocA)
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.Fallbacks
@@ -186,7 +189,6 @@ applyNameAdornment (L (EpAnn _ nameAnn _) _) t = case getAdornment nameAnn of
     getAdornment (NameAnnCommas { nann_adornment = a }) = Just a
     getAdornment (NameAnnOnly { nann_adornment = a }) = Just a
     getAdornment _ = Nothing
-applyNameAdornment _ t = t
 
 -- | Like applyNameAdornment but only applies parentheses, not backticks.
 -- Use this for HsVar in expression position where callers (SectionL, SectionR,
@@ -201,7 +203,6 @@ applyNameAdornmentParensOnly (L (EpAnn _ nameAnn _) _) t = case getAdornment nam
     getAdornment (NameAnnCommas { nann_adornment = a }) = Just a
     getAdornment (NameAnnOnly { nann_adornment = a }) = Just a
     getAdornment _ = Nothing
-applyNameAdornmentParensOnly _ t = t
 
 lrdrNameToTextAnn
   :: (MonadMultiReader Config m, MonadMultiReader (Map AnnKey Annotation) m)
@@ -367,7 +368,7 @@ hasAnnKeyword ast annKeyword = astAnn ast <&> \case
 -- position falls within the given node's span. This finds comments that may
 -- be on parent list-spine nodes (like (:) cons cells) rather than on the
 -- node itself or its children.
-hasAnyCommentsWithinSpan :: Data ast => GHC.Located ast -> ToBriDocM Bool
+hasAnyCommentsWithinSpan :: GHC.Located ast -> ToBriDocM Bool
 hasAnyCommentsWithinSpan ast = case GHC.srcSpanToRealSrcSpan (GHC.getLoc ast) of
   Nothing -> pure False
   Just rss -> do
@@ -522,7 +523,7 @@ docExt
   -> ExactPrintCompat.Anns
   -> Bool
   -> ToBriDocM BriDocNumbered
-docExt x anns shouldAddComment = allocateNode $ BDFExternal
+docExt x _annotationMap shouldAddComment = allocateNode $ BDFExternal
   (ExactPrintCompat.mkAnnKey x)
   (foldedAnnKeys x)
   shouldAddComment
@@ -532,6 +533,8 @@ docExt x anns shouldAddComment = allocateNode $ BDFExternal
 docAlt :: [ToBriDocM BriDocNumbered] -> ToBriDocM BriDocNumbered
 docAlt l = allocateNode . BDFAlt =<< sequence l
 
+type CollectAltM :: Type -> Type
+type role CollectAltM nominal
 newtype CollectAltM a = CollectAltM (Writer.Writer [ToBriDocM BriDocNumbered] a)
   deriving (Functor, Applicative, Monad)
 
@@ -677,6 +680,7 @@ docNodeMoveToKWDP
 docNodeMoveToKWDP ast kw shouldRestoreIndent bdm =
   docMoveToKWDP (ExactPrintCompat.mkAnnKey ast) kw shouldRestoreIndent bdm
 
+type DocWrapable :: Type -> Constraint
 class DocWrapable a where
   docWrapNode :: ( Data.Data.Data ast)
               => Located ast

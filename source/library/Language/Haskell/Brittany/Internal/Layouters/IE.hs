@@ -2,19 +2,18 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
 module Language.Haskell.Brittany.Internal.Layouters.IE where
 
 import qualified Data.List.Extra
+import Data.Kind (Type)
 import qualified Data.Text as Text
 import GHC
   ( GenLocated(L)
   , Located
-  , ModuleName
-  , moduleNameString
   , unLoc
   )
-import GHC.Parser.Annotation (getLocA, HasLoc(..))
 import GHC.Types.SrcLoc (SrcSpan)
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..))
 import GHC.Hs
@@ -37,7 +36,7 @@ parenthesizeIfSymbolic nameText =
           else nameText
 
 -- Convert EpAnn-located to SrcSpan-located for mkAnnKey.
-toL :: (HasLoc (GenLocated l a), HasLoc l) => GenLocated l a -> GenLocated SrcSpan a
+toL :: HasLoc l => GenLocated l a -> GenLocated SrcSpan a
 toL x = L (getLocA x) (unLoc x)
 
 layoutIE :: ToBriDoc IE
@@ -117,6 +116,7 @@ layoutIE lie@(L _ ie) = docWrapNode lie $ case ie of
       name <- lrdrNameToTextAnn (toL n)
       docLit $ Text.pack "data " <> parenthesizeIfSymbolic name
 
+type SortItemsFlag :: Type
 data SortItemsFlag = ShouldSortItems | KeepItemsUnsorted
 -- Helper function to deal with Located lists of LIEs.
 -- In particular this will also associate documentation

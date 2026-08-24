@@ -16,7 +16,8 @@
   of silently producing incomplete output.
 * Replaced the SIGSEGV workaround with a standard Hspec runner that verifies
   every fixture and reports failures normally.
-* Known limitation: 18 comment-layout tests remain pending.
+* Made clean builds warning-free under `-Weverything -Werror` on GHC 9.14.1
+  and enabled the pedantic build flag in CI.
 
 ## 0.14.0.0 -- November 2021
 

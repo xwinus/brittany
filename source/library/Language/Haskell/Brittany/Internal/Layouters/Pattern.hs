@@ -1,5 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+-- MultiRWS cannot expose the imported dictionary needed by GHC's optimiser.
+{-# OPTIONS_GHC -Wno-missed-specialisations #-}
 
 module Language.Haskell.Brittany.Internal.Layouters.Pattern where
 

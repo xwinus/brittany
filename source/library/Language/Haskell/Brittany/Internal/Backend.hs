@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
 module Language.Haskell.Brittany.Internal.Backend where
 
@@ -11,6 +12,7 @@ import qualified Data.Either as Either
 import qualified Data.Foldable as Foldable
 import qualified Data.IntMap.Lazy as IntMapL
 import qualified Data.IntMap.Strict as IntMapS
+import Data.Kind (Type)
 import qualified Data.Map as Map
 import qualified Data.Maybe as Maybe
 import qualified Data.Semigroup as Semigroup
@@ -27,27 +29,32 @@ import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Utils
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrintCompat
-import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
-import qualified Language.Haskell.GHC.ExactPrint.Types as ExactPrint.Types
 
 
 
+type ColIndex :: Type
 type ColIndex = Int
 
+type ColumnSpacing :: Type
 data ColumnSpacing
   = ColumnSpacingLeaf Int
   | ColumnSpacingRef Int Int
 
+type ColumnBlock :: Type -> Type
 type ColumnBlock a = [a]
+type ColumnBlocks :: Type -> Type
 type ColumnBlocks a = Seq [a]
+type ColMap1 :: Type
 type ColMap1
   = IntMapL.IntMap {- ColIndex -}
                    (Bool, ColumnBlocks ColumnSpacing)
+type ColMap2 :: Type
 type ColMap2
   = IntMapL.IntMap {- ColIndex -}
                    (Float, ColumnBlock Int, ColumnBlocks Int)
                                           -- (ratio of hasSpace, maximum, raw)
 
+type ColInfo :: Type
 data ColInfo
   = ColInfoStart -- start value to begin the mapAccumL.
   | ColInfoNo BriDoc
@@ -60,11 +67,13 @@ instance Show ColInfo where
   show (ColInfo ind sig list) =
     "ColInfo " ++ show ind ++ " " ++ show sig ++ " " ++ show list
 
+type ColBuildState :: Type
 data ColBuildState = ColBuildState
   { _cbs_map :: ColMap1
   , _cbs_index :: ColIndex
   }
 
+type LayoutConstraints :: (Type -> Type) -> Constraint
 type LayoutConstraints m
   = ( MonadMultiReader Config m
     , MonadMultiReader ExactPrintCompat.Anns m
@@ -709,7 +718,7 @@ processInfo maxSpace m = \case
         _ -> posXs
     let
       spacings =
-        zipWith (-) (List.tail fixedPosXs ++ [min maxX colMax]) fixedPosXs
+        zipWith (-) (drop 1 fixedPosXs ++ [min maxX colMax]) fixedPosXs
     -- tellDebugMess $ "ind = " ++ show ind
     -- tellDebugMess $ "maxCols = " ++ show maxCols
     -- tellDebugMess $ "fixedPosXs = " ++ show fixedPosXs

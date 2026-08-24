@@ -2,6 +2,8 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE RoleAnnotations #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -10,6 +12,7 @@ module Language.Haskell.Brittany.Internal.Config.Types where
 import Data.CZipWith
 import Data.Coerce (Coercible, coerce)
 import Data.Data (Data)
+import Data.Kind (Type)
 import qualified Data.Semigroup as Semigroup
 import Data.Semigroup (Last)
 import Data.Semigroup.Generic
@@ -22,6 +25,8 @@ import Language.Haskell.Brittany.Internal.PreludeUtils ()
 confUnpack :: Coercible a b => Identity a -> b
 confUnpack (Identity x) = coerce x
 
+type CDebugConfig :: (Type -> Type) -> Type
+type role CDebugConfig representational
 data CDebugConfig f = DebugConfig
   { _dconf_dump_config :: f (Semigroup.Last Bool)
   , _dconf_dump_fallbacks :: f (Semigroup.Last Bool)
@@ -39,6 +44,8 @@ data CDebugConfig f = DebugConfig
   }
   deriving Generic
 
+type CLayoutConfig :: (Type -> Type) -> Type
+type role CLayoutConfig representational
 data CLayoutConfig f = LayoutConfig
   { _lconfig_cols :: f (Last Int) -- the thing that has default 80.
   , _lconfig_indentPolicy :: f (Last IndentPolicy)
@@ -144,11 +151,15 @@ data CLayoutConfig f = LayoutConfig
   }
   deriving Generic
 
+type CForwardOptions :: (Type -> Type) -> Type
+type role CForwardOptions representational
 data CForwardOptions f = ForwardOptions
   { _options_ghc :: f [String]
   }
   deriving Generic
 
+type CErrorHandlingConfig :: (Type -> Type) -> Type
+type role CErrorHandlingConfig representational
 data CErrorHandlingConfig f = ErrorHandlingConfig
   { _econf_produceOutputOnErrors :: f (Semigroup.Last Bool)
   , _econf_Werror :: f (Semigroup.Last Bool)
@@ -165,12 +176,16 @@ data CErrorHandlingConfig f = ErrorHandlingConfig
   }
   deriving Generic
 
+type CPreProcessorConfig :: (Type -> Type) -> Type
+type role CPreProcessorConfig representational
 data CPreProcessorConfig f = PreProcessorConfig
   { _ppconf_CPPMode :: f (Semigroup.Last CPPMode)
   , _ppconf_hackAroundIncludes :: f (Semigroup.Last Bool)
   }
   deriving Generic
 
+type CConfig :: (Type -> Type) -> Type
+type role CConfig representational
 data CConfig f = Config
   { _conf_version :: f (Semigroup.Last Int)
   , _conf_debug :: CDebugConfig f
@@ -192,10 +207,15 @@ data CConfig f = Config
   }
   deriving Generic
 
+type DebugConfig :: Type
 type DebugConfig = CDebugConfig Identity
+type LayoutConfig :: Type
 type LayoutConfig = CLayoutConfig Identity
+type ForwardOptions :: Type
 type ForwardOptions = CForwardOptions Identity
+type ErrorHandlingConfig :: Type
 type ErrorHandlingConfig = CErrorHandlingConfig Identity
+type Config :: Type
 type Config = CConfig Identity
 
 -- i wonder if any Show1 stuff could be leveraged.
@@ -267,6 +287,7 @@ instance Monoid (CConfig Maybe) where
   mempty = gmempty
 
 
+type IndentPolicy :: Type
 data IndentPolicy = IndentPolicyLeft -- never create a new indentation at more
                                      -- than old indentation + amount
                   | IndentPolicyFree -- can create new indentations whereever
@@ -274,6 +295,7 @@ data IndentPolicy = IndentPolicyLeft -- never create a new indentation at more
                                          -- at any n * amount.
   deriving (Eq, Show, Generic, Data)
 
+type AltChooser :: Type
 data AltChooser = AltChooserSimpleQuick -- always choose last alternative.
                                         -- leads to tons of sparsely filled
                                         -- lines.
@@ -286,6 +308,7 @@ data AltChooser = AltChooserSimpleQuick -- always choose last alternative.
                                         -- options having sufficient space.
   deriving (Show, Generic, Data)
 
+type ColumnAlignMode :: Type
 data ColumnAlignMode
   = ColumnAlignModeDisabled
     -- ^ Make no column alignments whatsoever
@@ -309,6 +332,7 @@ data ColumnAlignMode
     -- ^ Always respect column alignments, even if it makes stuff overflow.
   deriving (Show, Generic, Data)
 
+type CPPMode :: Type
 data CPPMode = CPPModeAbort  -- abort program on seeing -XCPP
              | CPPModeWarn   -- warn about CPP and non-roundtripping in its
                              -- presence.
@@ -316,6 +340,7 @@ data CPPMode = CPPModeAbort  -- abort program on seeing -XCPP
                              -- file.)
   deriving (Show, Generic, Data)
 
+type ExactPrintFallbackMode :: Type
 data ExactPrintFallbackMode
   = ExactPrintFallbackModeNever  -- never fall back on exactprinting
   | ExactPrintFallbackModeInline -- fall back only if there are no newlines in

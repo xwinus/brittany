@@ -3,21 +3,23 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
+-- GHC extension constructors are retained as exact-print fallbacks even when
+-- their GhcPs instantiations are uninhabited in GHC 9.14.
+{-# OPTIONS_GHC -Wno-overlapping-patterns #-}
 
 module Language.Haskell.Brittany.Internal.Layouters.Decl where
 
 import qualified Data.Data
 import qualified Data.Foldable
+import Data.Kind (Type)
 import qualified Data.Maybe
 import qualified Data.Map as Map
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
 import GHC (GenLocated(L))
-import GHC.Data.Bag (bagToList, emptyBag)
 import qualified GHC.Data.FastString as FastString
-import GHC.Hs
-import GHC.Hs.Decls (AnnSynDecl(..), FamEqn(..), TyFamInstDecl(..))
-import GHC.Hs.Type (FieldOcc(..), HsBndrKind(..), HsBndrVar(..), HsSigType(HsSig), HsTyVarBndr(..), HsOuterTyVarBndrs(HsOuterExplicit, HsOuterImplicit), HsWildCardBndrs(HsWC))
+import GHC.Hs hiding (anns)
 import qualified GHC.OldList as List
 import qualified Data.List.NonEmpty as NonEmpty
 import GHC.Types.Basic
@@ -29,9 +31,7 @@ import GHC.Types.Basic
 import GHC.Types.Name.Occurrence (isSymOcc)
 import GHC.Types.Name.Reader (rdrNameOcc)
 import Language.Haskell.Syntax.Basic (LexicalFixity(..))
-import Language.Haskell.Syntax.Binds (RecordPatSynField(recordPatSynField))
-import GHC.Parser.Annotation (getLocA)
-import GHC.Types.SrcLoc (Located, RealSrcSpan, SrcSpan(..), getLoc, noSrcSpan, srcSpanStartLine, srcSpanEndLine, unLoc)
+import GHC.Types.SrcLoc (Located, SrcSpan(..), getLoc, noSrcSpan, srcSpanStartLine, srcSpanEndLine, unLoc)
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey, Anns, mkAnnKey, Comment(..))
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
@@ -58,7 +58,6 @@ import Language.Haskell.Brittany.Internal.TypeFallbacks
   , requiresExactTypeDeclaration
   )
 import Language.Haskell.Brittany.Internal.Types
-import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
 import qualified Language.Haskell.GHC.ExactPrint.Utils as ExactPrint
 
 
@@ -145,11 +144,11 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
 
   layoutExact fallback declaration source = case source of
     Just text -> do
-      anns :: Anns <- mAsk
+      annotationMap :: Anns <- mAsk
       briDocByExactTextWithAnnsNoComment
         fallback
         declaration
-        (Map.keysSet anns)
+        (Map.keysSet annotationMap)
         text
     Nothing -> briDocByExactNoComment fallback declaration
 
@@ -248,16 +247,16 @@ layoutSig lsig@(L _loc sig) = case sig of
               contextDoc = docWrapNode lcntxts' $ case cntxtDocs of
                 [] -> docLit $ Text.pack "()"
                 [x] -> x
-                _ -> docAlt
+                firstContext : remainingContexts -> docAlt
                   [ let open = docLit $ Text.pack "("
                         close = docLit $ Text.pack ")"
                         list = List.intersperse docCommaSep
                              $ docForceSingleline <$> cntxtDocs
                     in docSeq ([open] ++ list ++ [close])
                   , let open = docCols ColTyOpPrefix
-                          [docParenLSep, docAddBaseY (BrIndentSpecial 2) $ head cntxtDocs]
+                          [docParenLSep, docAddBaseY (BrIndentSpecial 2) firstContext]
                         close = docLit $ Text.pack ")"
-                        list = List.tail cntxtDocs <&> \cntxtDoc ->
+                        list = remainingContexts <&> \cntxtDoc ->
                           docCols ColTyOpPrefix
                             [docCommaSep, docAddBaseY (BrIndentSpecial 2) cntxtDoc]
                     in docPar open $ docLines $ list ++ [close]
@@ -406,6 +405,7 @@ layoutIPBind lipbind@(L _ bind) = case bind of
     _ -> briDocByExactNoComment ImplicitParameterFallback (toL lipbind)
 
 
+type BagBindOrSig :: Type
 data BagBindOrSig = BagBind (LHsBindLR GhcPs GhcPs)
                   | BagSig (LSig GhcPs)
 
@@ -1001,6 +1001,16 @@ layoutTyVarBndr needsSep lbndr@(L _ bndr) = do
            , docForceSingleline $ layoutType (toL kind)
            , docLit $ Text.pack ")"
            ]
+    HsTvb _ _ (HsBndrWildCard _) (HsBndrNoKind _) ->
+      docSeq $ [docSeparator | needsSep] ++ [docLit $ Text.pack "_"]
+    HsTvb _ _ (HsBndrWildCard _) (HsBndrKind _ kind) ->
+      docSeq
+        $ [docSeparator | needsSep]
+        ++ [ docLit $ Text.pack "(_ ::"
+           , docSeparator
+           , docForceSingleline $ layoutType (toL kind)
+           , docLit $ Text.pack ")"
+           ]
 
 
 --------------------------------------------------------------------------------
@@ -1059,6 +1069,7 @@ layoutTyFamInstDecl inClass outerNode tfid = do
     layoutLhsAndType hasComments' lhs "=" typeDoc
 
 
+layoutHsTyPats :: HsFamEqnPats GhcPs -> [ToBriDocM BriDocNumbered]
 layoutHsTyPats pats = pats <&> \case
   HsValArg _ tm -> layoutType (toL tm)
   HsTypeArg _ ty -> docSeq [docLit $ Text.pack "@", layoutType (toL ty)]
@@ -1066,6 +1077,7 @@ layoutHsTyPats pats = pats <&> \case
     -- is a bit strange. Hopefully this does not ignore any important
     -- annotations.
   HsArgPar _ -> error "brittany internal error: HsArgPar{}"
+  XArg _ -> error "brittany internal error: XArg{}"
 
 --------------------------------------------------------------------------------
 -- ClsInstDecl
@@ -1145,8 +1157,8 @@ layoutClsInst lcid@(L _ cid) = docLines
 
   -- | ExactPrint adds indentation/newlines to @data@/@type@ declarations
   stripWhitespace :: BriDocF f -> BriDocF f
-  stripWhitespace (BDFExternal ann anns b t) =
-    BDFExternal ann anns b $ stripWhitespace' t
+  stripWhitespace (BDFExternal ann annotationKeys b t) =
+    BDFExternal ann annotationKeys b $ stripWhitespace' t
   stripWhitespace b = b
 
   -- | This fixes two issues of output coming from Exactprinting
@@ -1205,11 +1217,11 @@ layoutClsInst lcid@(L _ cid) = docLines
           let keyIndent = Text.length line1 - Text.length st
           in st : map (stripNSpaces keyIndent) lineR
         | otherwise -> st : go lineR
-    stripNSpaces n t
-      | n <= 0 = t
-      | otherwise = case Text.uncons t of
+    stripNSpaces n textValue
+      | n <= 0 = textValue
+      | otherwise = case Text.uncons textValue of
           Just (' ', rest) -> stripNSpaces (n - 1) rest
-          _ -> t
+          _ -> textValue
     isTypeOrData t' =
       (Text.pack "type" `Text.isPrefixOf` t')
         || (Text.pack "newtype" `Text.isPrefixOf` t')
