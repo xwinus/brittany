@@ -11,6 +11,8 @@
   retaining exact-source safety for commented and extended constructor forms.
 * Added a machine-readable fallback inventory and opt-in `--dump-fallbacks`
   diagnostics for exact-source and whole-module pass-through paths.
+* Added `--fail-on-fallback` for CI and library users that require every
+  reached syntax path to use native layout.
 * Re-enabled output syntax validation for the GHC 9.14 test suite.
 * Re-enabled the unused-comment check so comment loss fails formatting instead
   of silently producing incomplete output.
@@ -26,8 +28,6 @@
   original positions within module export lists.
 * Preserved intentional vertical spacing between module headers, imports,
   top-level comments, and declaration groups.
-* Known limitation: 18 comment-layout tests remain pending.
-
 ## 0.14.0.0 -- November 2021
 
 * #357: Added support for GHC 9.0. Dropped support for all other versions of GHC.

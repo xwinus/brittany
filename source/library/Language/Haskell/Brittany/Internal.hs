@@ -340,11 +340,19 @@ parsePrintModule configWithDebugs inputText = runExceptT $ do
       let
         isWarningOrError ExactSourceFallback{} = False
         isWarningOrError _ = True
+        isFallback ExactSourceFallback{} = True
+        isFallback _ = False
       let
+        failOnFallback =
+          moduleConfig
+            & _conf_errorHandling
+            & _econf_failOnExactSourceFallback
+            & confUnpack
         hasErrors =
-          if moduleConfig & _conf_errorHandling & _econf_Werror & confUnpack
-            then any isWarningOrError errsWarns
-            else 0 < maximum (-1 : fmap customErrOrder errsWarns)
+          (failOnFallback && any isFallback errsWarns)
+            || if moduleConfig & _conf_errorHandling & _econf_Werror & confUnpack
+              then any isWarningOrError errsWarns
+              else 0 < maximum (-1 : fmap customErrOrder errsWarns)
       if hasErrors
         then throwE $ errsWarns
         else pure $ TextL.toStrict outputTextL
@@ -395,17 +403,28 @@ pPrintModuleWithSource originalSource conf inlineConf anns parsedModule =
     -- When we fell back to exactprint for any node, use exactPrint for the
     -- whole module to preserve pragmas and structure (emptyAnns loses these).
     -- Don't treat ErrorUnknownNode as fatal when we used this fallback.
-    hasUnknownNode = any (\case { ErrorUnknownNode{} -> True; _ -> False }) errs
+    unknownNodeLocations = Data.Maybe.mapMaybe (\case
+      ErrorUnknownNode _ ast -> Just $ show $ GHC.getLoc ast
+      _ -> Nothing
+      ) errs
+    hasUnknownNode = not $ null unknownNodeLocations
     fallbackOutput = maybe
       (TextL.pack $ ExactPrint.exactPrint parsedModule)
       TextL.fromStrict
       originalSource
     reportFallbacks =
-      conf & _conf_debug & _dconf_dump_fallbacks & confUnpack
+      (conf & _conf_debug & _dconf_dump_fallbacks & confUnpack)
+        || ( conf
+          & _conf_errorHandling
+          & _econf_failOnExactSourceFallback
+          & confUnpack
+           )
     wholeModuleNotice =
       [ ExactSourceFallback
-        $ renderFallbackNotice WholeModuleFallback "module"
-      | hasUnknownNode && reportFallbacks
+        $ renderFallbackNotice WholeModuleFallback
+        $ location
+      | reportFallbacks
+      , location <- take 1 unknownNodeLocations
       ]
     errs' = if hasUnknownNode
       then filter (\case { ErrorUnknownNode{} -> False; _ -> True }) errs
@@ -506,10 +525,16 @@ parsePrintModuleTests conf filename input = do
             perItemConf
             anns
             parsedModule
-      let actionableErrors = filter (\case
-            ExactSourceFallback{} -> False
-            _ -> True
-            ) errs
+      let
+        failOnFallback =
+          moduleConf
+            & _conf_errorHandling
+            & _econf_failOnExactSourceFallback
+            & confUnpack
+        actionableErrors = filter (\case
+          ExactSourceFallback{} -> failOnFallback
+          _ -> True
+          ) errs
       if null actionableErrors
         then pure $ TextL.toStrict $ ltext
         else

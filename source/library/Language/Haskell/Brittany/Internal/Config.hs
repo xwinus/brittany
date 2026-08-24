@@ -65,6 +65,7 @@ staticDefaultConfig = Config
   , _conf_errorHandling = ErrorHandlingConfig
     { _econf_produceOutputOnErrors = coerce False
     , _econf_Werror = coerce False
+    , _econf_failOnExactSourceFallback = coerce False
     , _econf_ExactPrintFallback = coerce ExactPrintFallbackModeRisky
     , _econf_omit_output_valid_check = coerce False
     , _econf_omit_unused_comment_check = coerce False
@@ -121,6 +122,7 @@ cmdlineConfigParser = do
 
   outputOnErrors <- addSimpleBoolFlag "" ["output-on-errors"] (flagHelp $ parDoc "even when there are errors, produce output (or try to to the degree possible)")
   wError <- addSimpleBoolFlag "" ["werror"] (flagHelp $ parDoc "treat warnings as errors")
+  failOnFallback <- addSimpleBoolFlag "" ["fail-on-fallback"] (flagHelp $ parDoc "fail when exact-source or whole-module fallback is used")
   omitValidCheck <- addSimpleBoolFlag "" ["omit-output-check"] (flagHelp $ parDoc "omit checking if the output is syntactically valid (debugging)")
   omitUnusedCommentCheck <- addSimpleBoolFlag "" ["omit-unused-comment-check"] (flagHelp $ parDoc "omit reporting unprocessed comments as errors (debugging)")
 
@@ -169,6 +171,7 @@ cmdlineConfigParser = do
     , _conf_errorHandling = ErrorHandlingConfig
       { _econf_produceOutputOnErrors = wrapLast $ falseToNothing outputOnErrors
       , _econf_Werror = wrapLast $ falseToNothing wError
+      , _econf_failOnExactSourceFallback = wrapLast $ falseToNothing failOnFallback
       , _econf_ExactPrintFallback = mempty
       , _econf_omit_output_valid_check = wrapLast $ falseToNothing omitValidCheck
       , _econf_omit_unused_comment_check = wrapLast $ falseToNothing omitUnusedCommentCheck

@@ -152,6 +152,7 @@ data CForwardOptions f = ForwardOptions
 data CErrorHandlingConfig f = ErrorHandlingConfig
   { _econf_produceOutputOnErrors :: f (Semigroup.Last Bool)
   , _econf_Werror :: f (Semigroup.Last Bool)
+  , _econf_failOnExactSourceFallback :: f (Semigroup.Last Bool)
   , _econf_ExactPrintFallback :: f (Semigroup.Last ExactPrintFallbackMode)
     -- ^ Determines when to fall back on the exactprint'ed output when
     -- syntactical constructs are encountered which are not yet handled by
