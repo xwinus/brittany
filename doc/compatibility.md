@@ -67,6 +67,13 @@ rendering where native layout would change syntax or detach comments. Comments
 at pattern, guard, statement, operator, and tuple punctuation boundaries are
 preserved.
 
+Issue #18 verifies Template Haskell quotes and splices, quasiquotes,
+`SPECIALISE` and expression pragmas, `RULES`, `ANN`, warning and deprecation
+pragmas, and foreign imports and exports. These parser-boundary constructs use
+exact-source rendering, including `CApiFFI`, so their syntax and comments remain
+unchanged. CPP remains unsupported: Brittany rejects it before preprocessing
+or formatting and directs users to preprocess the input or remove `-XCPP`.
+
 Adding a fixture that enables an unclassified extension therefore fails the
 test suite and CI. The manifest's `tracking-issue` fields identify the roadmap
 issue responsible for auditing and improving each classification.

@@ -47,6 +47,7 @@ isCommentSensitive = \case
   InvisPat{} -> True
   LazyPat{} -> True
   OrPat{} -> True
+  SplicePat{} -> True
   SumPat{} -> True
   TuplePat{} -> True
   ViewPat{} -> True
@@ -58,5 +59,6 @@ requiresExactSource = \case
   InvisPat{} -> True
   LazyPat{} -> True
   OrPat{} -> True
+  SplicePat{} -> True
   SumPat{} -> True
   _ -> False

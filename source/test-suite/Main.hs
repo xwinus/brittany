@@ -6,6 +6,7 @@ import Data.Kind (Type)
 import qualified Data.List as List
 import qualified Data.Set as Set
 import qualified Language.Haskell.Brittany.Main as Brittany
+import qualified PreprocessorSpec
 import qualified RegressionSpec
 import qualified System.Directory as Directory
 import qualified System.FilePath as FilePath
@@ -57,6 +58,7 @@ main = Hspec.hspec $ do
 
   RegressionSpec.spec projectRoot
   CompatibilitySpec.spec projectRoot
+  PreprocessorSpec.spec projectRoot
 
 type Literal :: Type
 newtype Literal

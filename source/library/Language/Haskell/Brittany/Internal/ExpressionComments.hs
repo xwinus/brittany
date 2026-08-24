@@ -62,7 +62,12 @@ requiresExactSource = \case
   ExplicitSum{} -> True
   HsForAll{} -> True
   HsFunArr{} -> True
+  HsPragE{} -> True
   HsQual{} -> True
+  HsTypedBracket{} -> True
+  HsTypedSplice{} -> True
+  HsUntypedBracket{} -> True
+  HsUntypedSplice{} -> True
   HsDo _ (DoExpr (Just _)) _ -> True
   HsDo _ (MDoExpr (Just _)) _ -> True
   RecordUpd _ _ (OverloadedRecUpdFields _ _) -> True

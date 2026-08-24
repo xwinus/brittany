@@ -145,6 +145,7 @@ library
     Language.Haskell.Brittany.Internal.ExactSource
     Language.Haskell.Brittany.Internal.ExpressionComments
     Language.Haskell.Brittany.Internal.PatternComments
+    Language.Haskell.Brittany.Internal.Preprocessor
     Language.Haskell.Brittany.Internal.TypeFallbacks
 
 executable brittany
@@ -163,5 +164,6 @@ test-suite brittany-test-suite
   other-modules:
     CompatibilityMatrix
     CompatibilitySpec
+    PreprocessorSpec
     RegressionSpec
   type: exitcode-stdio-1.0

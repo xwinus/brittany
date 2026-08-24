@@ -36,6 +36,7 @@ requiresExactSource :: HsType GhcPs -> Bool
 requiresExactSource = \case
   HsExplicitTupleTy{} -> True
   HsOpTy{} -> True
+  HsSpliceTy{} -> True
   HsSumTy{} -> True
   _ -> False
 

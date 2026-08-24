@@ -55,6 +55,10 @@ features:
     kind: extension
     support: unsupported
     tracking-issue: 18
+  - name: CApiFFI
+    kind: extension
+    support: exact-source
+    tracking-issue: 18
   - name: DatatypeContexts
     kind: extension
     support: exact-source
@@ -101,7 +105,7 @@ features:
     tracking-issue: 15
   - name: ForeignFunctionInterface
     kind: extension
-    support: unsupported
+    support: exact-source
     tracking-issue: 18
   - name: GADTs
     kind: extension
@@ -189,6 +193,22 @@ features:
     tracking-issue: 14
   - name: QuasiQuotes
     kind: extension
+    support: exact-source
+    tracking-issue: 18
+  - name: AnnotationPragmas
+    kind: syntax
+    support: exact-source
+    tracking-issue: 18
+  - name: ExpressionPragmas
+    kind: syntax
+    support: exact-source
+    tracking-issue: 18
+  - name: RulePragmas
+    kind: syntax
+    support: exact-source
+    tracking-issue: 18
+  - name: SpecialisePragmas
+    kind: syntax
     support: exact-source
     tracking-issue: 18
   - name: QuantifiedConstraints
@@ -378,11 +398,11 @@ cases:
     fixture: source/test-suite/fixtures/ExplicitLevelImportsInvalid.hs
     features: [ExplicitLevelImports]
     expected-result: parse-failure
-  - name: rejects unsafe foreign declaration comments
-    kind: unsupported
+  - name: preserves a legacy foreign declaration comment
+    kind: edge
     fixture: source/test-suite/fixtures/CommentPreservationForeignLost.hs
     features: [ForeignFunctionInterface]
-    expected-result: formatting-failure
+    expected-result: formats
   - name: classifies GADTs and type family dependencies
     kind: edge
     fixture: source/test-suite/fixtures/FamilyCommentsEdge.hs
@@ -653,6 +673,21 @@ cases:
     fixture: data/Test255.hs
     features: [QuasiQuotes]
     expected-result: formats
+  - name: preserves expression pattern type and declaration quasiquotes
+    kind: expected
+    fixture: source/test-suite/fixtures/QuasiQuoteSyntaxExpected.hs
+    features: [QuasiQuotes]
+    expected-result: formats
+  - name: preserves quasiquote boundaries and raw comment-like content
+    kind: edge
+    fixture: source/test-suite/fixtures/QuasiQuoteSyntaxEdge.hs
+    features: [QuasiQuotes]
+    expected-result: formats
+  - name: rejects an unterminated quasiquote
+    kind: malformed
+    fixture: source/test-suite/fixtures/QuasiQuoteSyntaxInvalid.hs
+    features: [QuasiQuotes]
+    expected-result: parse-failure
   - name: classifies record wildcards
     kind: expected
     fixture: data/Test312.hs
@@ -688,6 +723,21 @@ cases:
     fixture: data/Test322.hs
     features: [TemplateHaskell]
     expected-result: formats
+  - name: preserves Template Haskell quotes splices and quoted names
+    kind: expected
+    fixture: source/test-suite/fixtures/TemplateHaskellSyntaxExpected.hs
+    features: [TemplateHaskell]
+    expected-result: formats
+  - name: preserves comments within Template Haskell boundaries
+    kind: edge
+    fixture: source/test-suite/fixtures/TemplateHaskellSyntaxEdge.hs
+    features: [TemplateHaskell]
+    expected-result: formats
+  - name: rejects an unterminated Template Haskell quote
+    kind: malformed
+    fixture: source/test-suite/fixtures/TemplateHaskellSyntaxInvalid.hs
+    features: [TemplateHaskell]
+    expected-result: parse-failure
   - name: classifies visible type applications
     kind: expected
     fixture: data/Test307.hs
@@ -713,8 +763,63 @@ cases:
     fixture: source/test-suite/fixtures/WarningPragmasInvalid.hs
     features: [WarningPragmas]
     expected-result: parse-failure
+  - name: preserves specialise opaque and expression pragmas
+    kind: expected
+    fixture: source/test-suite/fixtures/SpecialisePragmasExpected.hs
+    features: [ExpressionPragmas, SpecialisePragmas, TypeApplications]
+    expected-result: formats
+  - name: preserves comments in specialise and expression pragmas
+    kind: edge
+    fixture: source/test-suite/fixtures/SpecialisePragmasEdge.hs
+    features: [ExpressionPragmas, SpecialisePragmas, TypeApplications]
+    expected-result: formats
+  - name: rejects a malformed specialise pragma
+    kind: malformed
+    fixture: source/test-suite/fixtures/SpecialisePragmasInvalid.hs
+    features: [SpecialisePragmas, TypeApplications]
+    expected-result: parse-failure
+  - name: preserves rules annotations warnings and deprecations
+    kind: expected
+    fixture: source/test-suite/fixtures/DeclarationPragmasExpected.hs
+    features: [AnnotationPragmas, RulePragmas, TemplateHaskell, WarningPragmas]
+    expected-result: formats
+  - name: preserves comments within declaration pragmas
+    kind: edge
+    fixture: source/test-suite/fixtures/DeclarationPragmasEdge.hs
+    features: [AnnotationPragmas, RulePragmas, TemplateHaskell, WarningPragmas]
+    expected-result: formats
+  - name: rejects a malformed rules pragma
+    kind: malformed
+    fixture: source/test-suite/fixtures/DeclarationPragmasInvalid.hs
+    features: [RulePragmas, TemplateHaskell]
+    expected-result: parse-failure
+  - name: preserves ccall capi imports and foreign exports
+    kind: expected
+    fixture: source/test-suite/fixtures/ForeignSyntaxExpected.hs
+    features: [CApiFFI, ForeignFunctionInterface]
+    expected-result: formats
+  - name: preserves comments within foreign declarations
+    kind: edge
+    fixture: source/test-suite/fixtures/ForeignSyntaxEdge.hs
+    features: [CApiFFI, ForeignFunctionInterface]
+    expected-result: formats
+  - name: rejects a malformed foreign import signature
+    kind: malformed
+    fixture: source/test-suite/fixtures/ForeignSyntaxInvalid.hs
+    features: [CApiFFI, ForeignFunctionInterface]
+    expected-result: parse-failure
   - name: rejects unsupported CPP input
     kind: unsupported
     fixture: source/test-suite/fixtures/CompatibilityCppUnsupported.hs
+    features: [CPP]
+    expected-result: parse-failure
+  - name: rejects CPP include directives before formatting
+    kind: edge
+    fixture: source/test-suite/fixtures/CompatibilityCppEdge.hs
+    features: [CPP]
+    expected-result: parse-failure
+  - name: applies the CPP policy before parsing malformed directives
+    kind: malformed
+    fixture: source/test-suite/fixtures/CompatibilityCppInvalid.hs
     features: [CPP]
     expected-result: parse-failure
