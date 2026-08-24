@@ -26,6 +26,7 @@ import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.Obfuscation
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
+import Language.Haskell.Brittany.Internal.Preprocessor (cppUnsupportedMessage)
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Utils
 import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
@@ -292,7 +293,7 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
       cppCheckFunc dynFlags = if GHC.xopt GHC.Cpp dynFlags
         then case cppMode of
           CPPModeAbort -> do
-            return $ Left "Encountered -XCPP. Aborting."
+            return $ Left cppUnsupportedMessage
           CPPModeWarn -> do
             putErrorLnIO
               $ "Warning: Encountered -XCPP."
@@ -377,8 +378,14 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
                     .> confUnpack
               (ews, outRaw) <- if hasCPP || omitCheck
                 then return
-                  $ pPrintModule moduleConf perItemConf anns parsedSource
-                else liftIO $ pPrintModuleAndCheck
+                  $ pPrintModuleWithSource
+                    (Just originalContents)
+                    moduleConf
+                    perItemConf
+                    anns
+                    parsedSource
+                else liftIO $ pPrintModuleAndCheckWithSource
+                  (Just originalContents)
                   moduleConf
                   perItemConf
                   anns

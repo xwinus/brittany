@@ -6,7 +6,9 @@ module Language.Haskell.Brittany.Internal
   ( parsePrintModule
   , parsePrintModuleTests
   , pPrintModule
+  , pPrintModuleWithSource
   , pPrintModuleAndCheck
+  , pPrintModuleAndCheckWithSource
    -- re-export from utils:
   , parseModule
   , parseModuleFromString
@@ -58,6 +60,7 @@ import Language.Haskell.Brittany.Internal.Layouters.Decl
 import Language.Haskell.Brittany.Internal.Layouters.Module
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
+import Language.Haskell.Brittany.Internal.Preprocessor (cppUnsupportedMessage)
 import Language.Haskell.Brittany.Internal.Transformations.Alt
 import Language.Haskell.Brittany.Internal.Transformations.Columns
 import Language.Haskell.Brittany.Internal.Transformations.Floating
@@ -267,7 +270,7 @@ parsePrintModule configWithDebugs inputText = runExceptT $ do
     let
       cppCheckFunc dynFlags = if GHC.xopt GHC.Cpp dynFlags
         then case cppMode of
-          CPPModeAbort -> return $ Left "Encountered -XCPP. Aborting."
+          CPPModeAbort -> return $ Left cppUnsupportedMessage
           CPPModeWarn -> return $ Right True
           CPPModeNowarn -> return $ Right True
         else return $ Right False
@@ -296,9 +299,20 @@ parsePrintModule configWithDebugs inputText = runExceptT $ do
               & _econf_omit_output_valid_check
               & confUnpack
         (ews, outRaw) <- if hasCPP || omitCheck
-          then return $ pPrintModule moduleConfig perItemConf anns parsedSource
+          then return
+            $ pPrintModuleWithSource
+              (Just inputText)
+              moduleConfig
+              perItemConf
+              anns
+              parsedSource
           else lift
-            $ pPrintModuleAndCheck moduleConfig perItemConf anns parsedSource
+            $ pPrintModuleAndCheckWithSource
+              (Just inputText)
+              moduleConfig
+              perItemConf
+              anns
+              parsedSource
         let
           hackF s = fromMaybe s
             $ TextL.stripPrefix (TextL.pack "-- BRITANY_INCLUDE_HACK ") s
@@ -339,6 +353,16 @@ pPrintModule
   -> GHC.ParsedSource
   -> ([BrittanyError], TextL.Text)
 pPrintModule conf inlineConf anns parsedModule =
+  pPrintModuleWithSource Nothing conf inlineConf anns parsedModule
+
+pPrintModuleWithSource
+  :: Maybe Text.Text
+  -> Config
+  -> PerItemConfig
+  -> Anns
+  -> GHC.ParsedSource
+  -> ([BrittanyError], TextL.Text)
+pPrintModuleWithSource originalSource conf inlineConf anns parsedModule =
   let
     ((out, errs), debugStrings) =
       runIdentity
@@ -353,7 +377,7 @@ pPrintModule conf inlineConf anns parsedModule =
         $ do
             traceIfDumpConf "bridoc annotations raw" _dconf_dump_annotations
               $ annsDoc anns
-            ppModule parsedModule
+            ppModule originalSource parsedModule
     tracer = if Seq.null debugStrings
       then id
       else
@@ -363,7 +387,10 @@ pPrintModule conf inlineConf anns parsedModule =
     -- whole module to preserve pragmas and structure (emptyAnns loses these).
     -- Don't treat ErrorUnknownNode as fatal when we used this fallback.
     hasUnknownNode = any (\case { ErrorUnknownNode{} -> True; _ -> False }) errs
-    fallbackOutput = TextL.pack $ ExactPrint.exactPrint parsedModule
+    fallbackOutput = maybe
+      (TextL.pack $ ExactPrint.exactPrint parsedModule)
+      TextL.fromStrict
+      originalSource
     errs' = if hasUnknownNode
       then filter (\case { ErrorUnknownNode{} -> False; _ -> True }) errs
       else errs
@@ -385,8 +412,19 @@ pPrintModuleAndCheck
   -> GHC.ParsedSource
   -> IO ([BrittanyError], TextL.Text)
 pPrintModuleAndCheck conf inlineConf anns parsedModule = do
+  pPrintModuleAndCheckWithSource Nothing conf inlineConf anns parsedModule
+
+pPrintModuleAndCheckWithSource
+  :: Maybe Text.Text
+  -> Config
+  -> PerItemConfig
+  -> Anns
+  -> GHC.ParsedSource
+  -> IO ([BrittanyError], TextL.Text)
+pPrintModuleAndCheckWithSource originalSource conf inlineConf anns parsedModule = do
   let ghcOptions = conf & _conf_forward & _options_ghc & runIdentity
-  let (errs, output) = pPrintModule conf inlineConf anns parsedModule
+  let (errs, output) =
+        pPrintModuleWithSource originalSource conf inlineConf anns parsedModule
   parseResult <- parseModuleFromString
     ghcOptions
     "output"
@@ -437,9 +475,20 @@ parsePrintModuleTests conf filename input = do
             .> _econf_omit_output_valid_check
             .> confUnpack
       (errs, ltext) <- if omitCheck
-        then return $ pPrintModule moduleConf perItemConf anns parsedModule
+        then return
+          $ pPrintModuleWithSource
+            (Just input)
+            moduleConf
+            perItemConf
+            anns
+            parsedModule
         else lift
-          $ pPrintModuleAndCheck moduleConf perItemConf anns parsedModule
+          $ pPrintModuleAndCheckWithSource
+            (Just input)
+            moduleConf
+            perItemConf
+            anns
+            parsedModule
       if null errs
         then pure $ TextL.toStrict $ ltext
         else
@@ -494,9 +543,9 @@ toLocal conf anns m = do
   MultiRWSS.mGetRawW >>= \w -> MultiRWSS.mPutRawW (w `mappend` write)
   pure x
 
-ppModule :: GenLocated SrcSpan (HsModule GhcPs) -> PPM ()
-ppModule lmod@(L _loc _m@(HsModule _ _name _exports imports decls)) = do
-  let exactSource = Text.pack $ ExactPrint.exactPrint lmod
+ppModule :: Maybe Text.Text -> GenLocated SrcSpan (HsModule GhcPs) -> PPM ()
+ppModule originalSource lmod@(L _loc _m@(HsModule _ _name _exports imports decls)) = do
+  let exactSource = fromMaybe (Text.pack $ ExactPrint.exactPrint lmod) originalSource
   let sourceCommentPositions = collectCommentPositions lmod
   defaultAnns <- do
     anns <- mAsk

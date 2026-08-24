@@ -9,6 +9,7 @@ module Language.Haskell.Brittany.Internal.Layouters.Decl where
 import qualified Data.Data
 import qualified Data.Foldable
 import qualified Data.Maybe
+import qualified Data.Map as Map
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
 import GHC (GenLocated(L))
@@ -32,7 +33,7 @@ import Language.Haskell.Syntax.Binds (RecordPatSynField(recordPatSynField))
 import GHC.Parser.Annotation (getLocA)
 import GHC.Types.SrcLoc (Located, RealSrcSpan, SrcSpan(..), getLoc, noSrcSpan, srcSpanStartLine, srcSpanEndLine, unLoc)
 import Language.Haskell.Brittany.Internal.Config.Types
-import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey, mkAnnKey, Comment(..))
+import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey, Anns, mkAnnKey, Comment(..))
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.ExpressionComments
   ( commentSensitiveExpressions
@@ -69,6 +70,8 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
   SigD _ sig@TypeSig{}
     | requiresExactTypes d -> layoutExact d exactText
     | otherwise -> layoutExactWhenCommented d $ layoutSig (L loc sig)
+  SigD _ sig
+    | requiresExactSignature sig -> layoutExact d exactText
   SigD _ sig -> withTransformedAnns d $ docWrapNode d $ layoutSig (L loc sig)
   ValD _ bind -> layoutValueDeclaration d bind
   TyClD _ tycl
@@ -90,6 +93,11 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
       docSeq $ [briDocByExactNoComment d]
         ++ [docLitS (" " ++ commentContents c)
            | (c, _) <- followComments]
+  ForD{} -> layoutExact d exactText
+  WarningD{} -> layoutExact d exactText
+  AnnD{} -> layoutExact d exactText
+  RuleD{} -> layoutExact d exactText
+  SpliceD{} -> layoutExact d exactText
   _ -> withTransformedAnns d $ docWrapNode d $ briDocByExactNoComment d
  where
   layoutValueDeclaration declaration bind = do
@@ -133,13 +141,21 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
       else formatted
 
   layoutExact declaration source = case source of
-    Just text -> briDocByExactTextNoComment declaration text
+    Just text -> do
+      anns :: Anns <- mAsk
+      briDocByExactTextWithAnnsNoComment declaration (Map.keysSet anns) text
     Nothing -> briDocByExactNoComment declaration
 
   requiresExactTypes = not . null . exactSourceTypes
 
   requiresExactBinding = \case
     PatSynBind{} -> True
+    _ -> False
+
+  requiresExactSignature = \case
+    SpecSig{} -> True
+    SpecSigE{} -> True
+    SpecInstSig{} -> True
     _ -> False
 
 --------------------------------------------------------------------------------
@@ -315,6 +331,7 @@ specStringCompat ast = \case
   Inline _ -> pure "INLINE "
   Inlinable _ -> pure "INLINABLE "
   NoInline _ -> pure "NOINLINE "
+  Opaque _ -> pure "OPAQUE "
 
 layoutGuardLStmt :: ToBriDoc' (Stmt GhcPs (LHsExpr GhcPs))
 layoutGuardLStmt lgstmt@(L _ stmtLR) = docWrapNode (toL lgstmt) $ case stmtLR of

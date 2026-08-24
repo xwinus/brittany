@@ -279,7 +279,12 @@ validateMatrix matrix discoveredPragmas = concat
   mustFormat matrixCase =
     [ "expected or edge case must format successfully: " ++ matrixCaseName matrixCase
     | matrixCaseExpectedResult matrixCase /= Formats
+    , not $ all featureIsUnsupported $ matrixCaseFeatures matrixCase
     ]
+
+  featureIsUnsupported name = case Map.lookup name featureMap of
+    Just feature -> featureSupport feature == Unsupported
+    Nothing -> False
 
   supportResultErrors matrixCase = concatMap validateResult
     $ matrixCaseFeatures matrixCase

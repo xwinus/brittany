@@ -43,15 +43,9 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
     idempotentFormattingExample projectRoot
       "preserves a type family equation comment"
       "CommentPreservationFamilyLost.hs"
-    Hspec.it "rejects output that would lose a foreign declaration comment" $ do
-      let fixture = fixturePath projectRoot "CommentPreservationForeignLost.hs"
-          output = outputPath projectRoot "CommentPreservationForeignLost.hs"
-      expected <- readFile fixture
-      Directory.copyFile fixture output
-      Brittany.mainWith "brittany" (formatterArgs projectRoot output)
-        `Hspec.shouldThrow` isFormattingFailure
-      actual <- readFile output
-      actual `Hspec.shouldBe` expected
+    idempotentFormattingExample projectRoot
+      "preserves a foreign declaration comment"
+      "CommentPreservationForeignLost.hs"
 
   Hspec.describe "type declaration comments" $ do
     idempotentFormattingExample projectRoot
@@ -173,6 +167,3 @@ formatterArgs projectRoot input =
 
 isParseFailure :: Exit.ExitCode -> Bool
 isParseFailure exitCode = exitCode == Exit.ExitFailure 60
-
-isFormattingFailure :: Exit.ExitCode -> Bool
-isFormattingFailure exitCode = exitCode == Exit.ExitFailure 70
