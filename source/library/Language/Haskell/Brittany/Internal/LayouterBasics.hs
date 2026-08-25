@@ -860,6 +860,10 @@ docPar lineM indentedM = do
 docForceSingleline :: ToBriDocM BriDocNumbered -> ToBriDocM BriDocNumbered
 docForceSingleline bdm = allocateNode . BDFForceSingleline =<< bdm
 
+docColumnsLimit
+  :: Int -> ToBriDocM BriDocNumbered -> ToBriDocM BriDocNumbered
+docColumnsLimit limit bdm = allocateNode . BDFColumnsLimit limit =<< bdm
+
 docForceMultiline :: ToBriDocM BriDocNumbered -> ToBriDocM BriDocNumbered
 docForceMultiline bdm = allocateNode . BDFForceMultiline =<< bdm
 

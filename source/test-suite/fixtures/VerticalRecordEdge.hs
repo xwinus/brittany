@@ -8,10 +8,11 @@ smallTwo settingOne settingTwo = Settings { settingOne, settingTwo }
 
 smallFour = Tiny { a = one, b = two, c = three, d = four }
 
-smallThree = Settings { firstSetting  = someLongValue
-                      , secondSetting = anotherLongValue
-                      , thirdSetting  = finalLongValue
-                      }
+smallThree =
+  Settings { firstSetting  = someLongValue
+           , secondSetting = anotherLongValue
+           , thirdSetting  = finalLongValue
+           }
 
 headroomStyle =
   HeadroomStyle

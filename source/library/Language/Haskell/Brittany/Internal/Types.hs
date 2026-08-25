@@ -277,6 +277,7 @@ data BriDoc
   -- after the alt transformation.
   | BDForceMultiline BriDoc
   | BDForceSingleline BriDoc
+  | BDColumnsLimit Int BriDoc
   | BDNonBottomSpacing Bool BriDoc
   | BDSetParSpacing BriDoc
   | BDForceParSpacing BriDoc
@@ -323,6 +324,7 @@ data BriDocF f
   | BDFEnsureIndent BrIndent (f (BriDocF f))
   | BDFForceMultiline (f (BriDocF f))
   | BDFForceSingleline (f (BriDocF f))
+  | BDFColumnsLimit Int (f (BriDocF f))
   | BDFNonBottomSpacing Bool (f (BriDocF f))
   | BDFSetParSpacing (f (BriDocF f))
   | BDFForceParSpacing (f (BriDocF f))
@@ -363,6 +365,7 @@ instance Uniplate.Uniplate BriDoc where
   uniplate (BDEnsureIndent ind bd  ) = plate BDEnsureIndent |- ind |* bd
   uniplate (BDForceMultiline  bd   ) = plate BDForceMultiline |* bd
   uniplate (BDForceSingleline bd   ) = plate BDForceSingleline |* bd
+  uniplate (BDColumnsLimit limit bd) = plate BDColumnsLimit |- limit |* bd
   uniplate (BDNonBottomSpacing b bd) = plate BDNonBottomSpacing |- b |* bd
   uniplate (BDSetParSpacing   bd   ) = plate BDSetParSpacing |* bd
   uniplate (BDForceParSpacing bd   ) = plate BDForceParSpacing |* bd
@@ -398,6 +401,7 @@ unwrapBriDocNumbered tpl = case snd tpl of
   BDFEnsureIndent ind bd       -> BDEnsureIndent ind $ rec bd
   BDFForceMultiline  bd        -> BDForceMultiline $ rec bd
   BDFForceSingleline bd        -> BDForceSingleline $ rec bd
+  BDFColumnsLimit limit bd     -> BDColumnsLimit limit $ rec bd
   BDFNonBottomSpacing b bd     -> BDNonBottomSpacing b $ rec bd
   BDFSetParSpacing   bd        -> BDSetParSpacing $ rec bd
   BDFForceParSpacing bd        -> BDForceParSpacing $ rec bd
@@ -435,6 +439,7 @@ briDocSeqSpine = \case
   BDEnsureIndent _ind bd         -> briDocSeqSpine bd
   BDForceMultiline  bd           -> briDocSeqSpine bd
   BDForceSingleline bd           -> briDocSeqSpine bd
+  BDColumnsLimit _ bd            -> briDocSeqSpine bd
   BDNonBottomSpacing _ bd        -> briDocSeqSpine bd
   BDSetParSpacing   bd           -> briDocSeqSpine bd
   BDForceParSpacing bd           -> briDocSeqSpine bd
