@@ -3,7 +3,9 @@
 
 module Language.Haskell.Brittany.Internal.TopLevelSpacing
   ( TopLevelUnit(..)
+  , moduleKeywordSpan
   , moduleWhereSpan
+  , preambleSeparatorLines
   , topLevelSeparatorLines
   , topLevelUnit
   ) where
@@ -63,9 +65,22 @@ topLevelSeparatorLines previous next = max 1
     = srcSpanEndLine span' - 1
     | otherwise = srcSpanEndLine span'
 
+-- | Preserve source-aware preamble spacing, capped at two blank lines.
+preambleSeparatorLines :: RealSrcSpan -> TopLevelUnit -> Int
+preambleSeparatorLines previous next = min 3 $ topLevelSeparatorLines
+  (topLevelUnit previous Nothing)
+  next
+
 moduleWhereSpan :: HsModule GhcPs -> Maybe RealSrcSpan
 moduleWhereSpan HsModule{hsmodExt = extension} =
   case hsmodAnn extension of
     EpAnn _ annotations _ -> case am_where annotations of
+      EpTok (EpaSpan (RealSrcSpan span' _)) -> Just span'
+      _ -> Nothing
+
+moduleKeywordSpan :: HsModule GhcPs -> Maybe RealSrcSpan
+moduleKeywordSpan HsModule{hsmodExt = extension} =
+  case hsmodAnn extension of
+    EpAnn _ annotations _ -> case am_mod annotations of
       EpTok (EpaSpan (RealSrcSpan span' _)) -> Just span'
       _ -> Nothing

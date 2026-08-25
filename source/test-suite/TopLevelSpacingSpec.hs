@@ -30,6 +30,31 @@ spec = Hspec.describe "top-level separator calculation" $ do
           []
     topLevelSeparatorLines previous next `Hspec.shouldBe` 3
 
+  Hspec.describe "preamble separator calculation" $ do
+    Hspec.it "keeps adjacent preamble units adjacent" $
+      preambleSeparatorLines
+        (spanAt 2 1 2 30)
+        (TopLevelUnit (spanAt 3 1 3 7) [] [])
+        `Hspec.shouldBe` 1
+
+    Hspec.it "preserves one intentional blank line" $
+      preambleSeparatorLines
+        (spanAt 2 1 2 30)
+        (TopLevelUnit (spanAt 4 1 4 7) [] [])
+        `Hspec.shouldBe` 2
+
+    Hspec.it "caps larger preamble gaps at two blank lines" $
+      preambleSeparatorLines
+        (spanAt 2 1 2 30)
+        (TopLevelUnit (spanAt 9 1 9 7) [] [])
+        `Hspec.shouldBe` 3
+
+    Hspec.it "uses comments owned by an implicit module follower" $
+      preambleSeparatorLines
+        (spanAt 2 1 2 30)
+        (TopLevelUnit (spanAt 4 1 4 7) [spanAt 3 1 3 24] [])
+        `Hspec.shouldBe` 1
+
 separator :: RealSrcSpan -> RealSrcSpan -> Int
 separator previous next = topLevelSeparatorLines
   (TopLevelUnit previous [] [])
