@@ -9,7 +9,7 @@ module Language.Haskell.Brittany.Internal.PatternComments
 import Data.Data (Data)
 import qualified Data.Generics as SYB
 import GHC (GenLocated(L), Located, unLoc)
-import GHC.Hs (HsConDetails(..), LPat, Pat(..))
+import GHC.Hs (HsConDetails(..), HsUntypedSplice(..), LPat, Pat(..))
 import GHC.Parser.Annotation (getLocA)
 import Language.Haskell.Brittany.Internal.Prelude
 
@@ -59,6 +59,7 @@ requiresExactSource = \case
   InvisPat{} -> True
   LazyPat{} -> True
   OrPat{} -> True
+  SplicePat _ HsQuasiQuote{} -> False
   SplicePat{} -> True
   SumPat{} -> True
   _ -> False

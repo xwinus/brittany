@@ -143,8 +143,10 @@ fallbackInfo fallback = FallbackInfo
       , ExactSourceSupport
       , "patterns outside the native pattern subset"
       , "exact source preserves extension-specific pattern punctuation"
-      , ["OrPatterns", "PatternSynonyms"]
-      , ["source/test-suite/fixtures/OrPatternSyntaxEdge.hs"]
+      , ["OrPatterns", "PatternSynonyms", "QuasiQuotes"]
+      , [ "source/test-suite/fixtures/OrPatternSyntaxEdge.hs"
+        , "source/test-suite/fixtures/ScopedPatternFallbackInput.hs"
+        ]
       )
     StatementFallback ->
       ( InlineScope
