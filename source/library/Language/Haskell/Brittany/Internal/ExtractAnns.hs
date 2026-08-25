@@ -38,6 +38,7 @@ import GHC.Hs
   , HsModule(..)
   , HsSigType
   , HsType
+  , HsUntypedSplice(..)
   , IE(..)
   , ImportDecl(..)
   , LIE
@@ -96,7 +97,9 @@ import qualified Language.Haskell.GHC.ExactPrint.Utils as EPUtils
 -- in the parsed AST, and adds missing ones to the module annotation.
 recoverMissingComments :: String -> String -> ParsedSource -> ParsedSource
 recoverMissingComments src fp lmod@(L l p) =
-  let sourceComments = scanLineComments fp src
+  let quasiQuoteSpans = collectQuasiQuoteContentSpans lmod
+      sourceComments = filter (not . isInsideQuasiQuote quasiQuoteSpans . fst)
+        $ scanLineComments fp src
       astComments = collectAstComments lmod
       astPositions = Map.fromList [((SrcLoc.srcSpanStartLine sp, SrcLoc.srcSpanStartCol sp), ())
                                   | sp <- astComments]
@@ -111,6 +114,23 @@ recoverMissingComments src fp lmod@(L l p) =
            in L l (p { hsmodExt = (hsmodExt p) { hsmodAnn = EpAnn anc an cs' }})
          _ -> lmod
   where
+    isInsideQuasiQuote :: [RealSrcSpan] -> (Int, Int) -> Bool
+    isInsideQuasiQuote spans position = any
+      (\spanR -> position >= ss2pos spanR && position < ss2posEnd spanR)
+      spans
+
+    collectQuasiQuoteContentSpans :: ParsedSource -> [RealSrcSpan]
+    collectQuasiQuoteContentSpans = SYB.everything (++) query
+     where
+      query :: SYB.GenericQ [RealSrcSpan]
+      query = const [] `SYB.extQ` fromUntypedSplice
+
+      fromUntypedSplice :: HsUntypedSplice GhcPs -> [RealSrcSpan]
+      fromUntypedSplice splice = case splice of
+        HsQuasiQuote _ _ content ->
+          maybeToList $ SrcLoc.srcSpanToRealSrcSpan $ getLocA content
+        _ -> []
+
     -- Scan source text for line comments (-- ...)
     -- Handles string literals and block comments to avoid false positives.
     scanLineComments :: String -> String -> [((Int, Int), String)]

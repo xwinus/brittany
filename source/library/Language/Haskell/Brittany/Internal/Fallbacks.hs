@@ -125,8 +125,10 @@ fallbackInfo fallback = FallbackInfo
       , ExactSourceSupport
       , "expressions without a comment-safe native layout"
       , "inline exact source preserves extension-specific punctuation"
-      , ["OverloadedRecordUpdate", "TemplateHaskell"]
-      , ["source/test-suite/fixtures/TemplateHaskellSyntaxEdge.hs"]
+      , ["OverloadedRecordUpdate", "QuasiQuotes", "TemplateHaskell"]
+      , [ "source/test-suite/fixtures/TemplateHaskellSyntaxEdge.hs"
+        , "source/test-suite/fixtures/ScopedExpressionFallbackInput.hs"
+        ]
       )
     TypeFallback ->
       ( InlineScope

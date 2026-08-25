@@ -258,8 +258,8 @@ data BriDoc
                             -- to be printed via exactprint
                Bool -- should print extra comment ?
                Text
-  | BDPlain !Text -- used for QuasiQuotes, content can be multi-line
-                  -- (contrast to BDLit)
+  | BDPlain Bool !Text -- used for QuasiQuotes, content can be multi-line
+                       -- (contrast to BDLit); Bool permits hanging layout
   | BDAnnotationPrior AnnKey BriDoc
   | BDAnnotationKW AnnKey (Maybe AnnKeywordId) BriDoc
   | BDAnnotationRest  AnnKey BriDoc
@@ -306,8 +306,8 @@ data BriDocF f
                             -- to be printed via exactprint
                Bool -- should print extra comment ?
                Text
-  | BDFPlain !Text -- used for QuasiQuotes, content can be multi-line
-                   -- (contrast to BDLit)
+  | BDFPlain Bool !Text -- used for QuasiQuotes, content can be multi-line
+                        -- (contrast to BDLit); Bool permits hanging layout
   | BDFAnnotationPrior AnnKey (f (BriDocF f))
   | BDFAnnotationKW AnnKey (Maybe AnnKeywordId) (f (BriDocF f))
   | BDFAnnotationRest  AnnKey (f (BriDocF f))
@@ -379,7 +379,7 @@ unwrapBriDocNumbered tpl = case snd tpl of
   BDFAlt             alts      -> BDAlt $ rec <$> alts -- not that this will happen
   BDFForwardLineMode bd        -> BDForwardLineMode $ rec bd
   BDFExternal k ks c t         -> BDExternal k ks c t
-  BDFPlain t                   -> BDPlain t
+  BDFPlain canHang t           -> BDPlain canHang t
   BDFAnnotationPrior annKey bd -> BDAnnotationPrior annKey $ rec bd
   BDFAnnotationKW annKey kw bd -> BDAnnotationKW annKey kw $ rec bd
   BDFAnnotationRest annKey bd  -> BDAnnotationRest annKey $ rec bd

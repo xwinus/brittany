@@ -971,7 +971,9 @@ layoutExpr' lexpr@(L _ expr) = do
       -- TODO
       briDocByExactInlineOnly ExpressionFallback lexpr
     HsUntypedSplice _ (HsQuasiQuote _ quoter content) -> do
-      allocateNode $ BDFPlain
+      reportFallback ExpressionFallback lexpr
+      hasPriorComments <- hasAnyRegularCommentsConnectedNoFollowing lexpr
+      allocateNode $ BDFPlain (not hasPriorComments)
         (Text.pack
         $ "["
         ++ showOutputable quoter

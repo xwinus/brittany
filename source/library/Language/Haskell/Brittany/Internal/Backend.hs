@@ -155,7 +155,9 @@ layoutBriDocM = \case
       mSet $ state
         { _lstate_comments = Map.filterWithKey filterF $ _lstate_comments state
         }
-  BDPlain t -> do
+  BDPlain _ t -> do
+    layoutIndentRestorePostComment
+    layoutRemoveIndentLevelLinger
     layoutWriteAppend t
   BDAnnotationPrior annKey bd -> do
     layoutRemoveIndentLevelLinger
@@ -352,7 +354,7 @@ briDocLineLength briDoc = flip StateS.evalState False $ rec briDoc
     BDForceSingleline bd -> rec bd
     BDForwardLineMode bd -> rec bd
     BDExternal _ _ _ t -> return $ Text.length t
-    BDPlain t -> return $ Text.length t
+    BDPlain _ t -> return $ Text.length t
     BDAnnotationPrior _ bd -> rec bd
     BDAnnotationKW _ _ bd -> rec bd
     BDAnnotationRest _ bd -> rec bd
@@ -389,8 +391,8 @@ briDocIsMultiLine briDoc = rec briDoc
     BDForwardLineMode bd -> rec bd
     BDExternal _ _ _ t | [_] <- Text.lines t -> False
     BDExternal{} -> True
-    BDPlain t | [_] <- Text.lines t -> False
-    BDPlain _ -> True
+    BDPlain _ t | [_] <- Text.lines t -> False
+    BDPlain{} -> True
     BDAnnotationPrior _ bd -> rec bd
     BDAnnotationKW _ _ bd -> rec bd
     BDAnnotationRest _ bd -> rec bd

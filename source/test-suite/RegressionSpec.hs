@@ -179,6 +179,19 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects malformed result type syntax without changing the input"
       "FinalResultHaddockInvalid.hs"
 
+  Hspec.describe "scoped expression fallbacks" $ do
+    idempotentFormattingFromInputExample projectRoot
+      "uses native indentation around a quasiquote fallback"
+      "ScopedExpressionFallbackInput.hs"
+      "ScopedExpressionFallbackExpected.hs"
+    idempotentFormattingFromInputExample projectRoot
+      "preserves nested fragment comments and raw content"
+      "ScopedExpressionFallbackEdgeInput.hs"
+      "ScopedExpressionFallbackEdge.hs"
+    parseFailureExample projectRoot
+      "rejects an unterminated quasiquote without changing the input"
+      "ScopedExpressionFallbackInvalid.hs"
+
   Hspec.describe "module export-list comments" $ do
     idempotentFormattingExample projectRoot
       "keeps Haddock section headings before their exports"
@@ -219,6 +232,22 @@ idempotentFormattingExample projectRoot description fixtureName =
         output = outputPath projectRoot fixtureName
     expected <- readFile fixture
     Directory.copyFile fixture output
+    Brittany.mainWith "brittany" (formatterArgs projectRoot output)
+    firstPass <- readFile output
+    firstPass `Hspec.shouldBe` expected
+    Brittany.mainWith "brittany" (formatterArgs projectRoot output)
+    secondPass <- readFile output
+    secondPass `Hspec.shouldBe` firstPass
+
+idempotentFormattingFromInputExample
+  :: FilePath -> String -> FilePath -> FilePath -> Hspec.SpecWith ()
+idempotentFormattingFromInputExample
+  projectRoot description inputName expectedName = Hspec.it description $ do
+    let input = fixturePath projectRoot inputName
+        expectedFixture = fixturePath projectRoot expectedName
+        output = outputPath projectRoot inputName
+    expected <- readFile expectedFixture
+    Directory.copyFile input output
     Brittany.mainWith "brittany" (formatterArgs projectRoot output)
     firstPass <- readFile output
     firstPass `Hspec.shouldBe` expected

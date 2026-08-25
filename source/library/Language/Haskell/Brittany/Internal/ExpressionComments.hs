@@ -12,6 +12,7 @@ import GHC (GenLocated(L), Located, unLoc)
 import GHC.Hs
   ( HsExpr(..)
   , HsDoFlavour(..)
+  , HsUntypedSplice(..)
   , LHsExpr
   , LHsRecUpdFields(..)
   )
@@ -67,6 +68,7 @@ requiresExactSource = \case
   HsTypedBracket{} -> True
   HsTypedSplice{} -> True
   HsUntypedBracket{} -> True
+  HsUntypedSplice _ HsQuasiQuote{} -> False
   HsUntypedSplice{} -> True
   HsDo _ (DoExpr (Just _)) _ -> True
   HsDo _ (MDoExpr (Just _)) _ -> True

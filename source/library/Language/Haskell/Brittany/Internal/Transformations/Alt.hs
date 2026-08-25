@@ -459,7 +459,7 @@ getSpacing !bridoc = rec bridoc
       BDFExternal _ _ _ txt -> return $ LineModeValid $ case Text.lines txt of
         [t] -> VerticalSpacing (Text.length t) VerticalSpacingParNone False
         _ -> VerticalSpacing 999 VerticalSpacingParNone False
-      BDFPlain txt -> return $ LineModeValid $ case Text.lines txt of
+      BDFPlain _ txt -> return $ LineModeValid $ case Text.lines txt of
         [t] -> VerticalSpacing (Text.length t) VerticalSpacingParNone False
         _ -> VerticalSpacing 999 VerticalSpacingParNone False
       BDFAnnotationPrior _annKey bd -> rec bd
@@ -755,14 +755,14 @@ getSpacings limit bridoc = preFilterLimit <$> rec bridoc
         return $ [VerticalSpacing (Text.length t) VerticalSpacingParNone False]
       BDFExternal{} -> return $ [] -- yes, we just assume that we cannot properly layout
                     -- this.
-      BDFPlain t -> return
+      BDFPlain canHang t -> return
         [ case Text.lines t of
             [] -> VerticalSpacing 0 VerticalSpacingParNone False
             [t1] ->
               VerticalSpacing (Text.length t1) VerticalSpacingParNone False
             (t1 : _) ->
               VerticalSpacing (Text.length t1) (VerticalSpacingParAlways 0) True
-        | allowHangingQuasiQuotes
+        | allowHangingQuasiQuotes && canHang
         ]
       BDFAnnotationPrior _annKey bd -> rec bd
       BDFAnnotationKW _annKey _kw bd -> rec bd
