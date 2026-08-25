@@ -1038,7 +1038,7 @@ recordExpression True _ lexpr nameDoc [] = docSeq -- this case might still be in
   ]
 recordExpression dotdot indentPolicy lexpr nameDoc rFs@(rF1 : rFr) = do
   let (rF1f, rF1n, rF1e) = rF1
-      useHangingLayout = length rFs < 5
+      useHangingLayout = length rFs < 4
   runFilteredAlternative $ do
     -- container { fieldA = blub, fieldB = blub }
     addAlternative $ docSeq

@@ -1,10 +1,9 @@
 module VerticalRecordExpected where
 
-envFileSystem =
-  FileSystem
-    { fsCreateDirectory = undefined
-    , fsDoesFileExist   = undefined
-    , fsFindFiles       = undefined
-    , fsGetPermissions  = undefined
-    , fsWriteFile       = undefined
+fileSupport =
+  FileSupport
+    { fsSyntaxAnalysis      = syntaxAnalysis
+    , fsExtractTemplateData = extractTemplateData
+    , fsExtractVariables    = extractVariables
+    , fsFileType            = Haskell
     }
