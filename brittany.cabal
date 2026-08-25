@@ -170,6 +170,7 @@ test-suite brittany-test-suite
     CompatibilitySpec
     ExtractAnnsSpec
     FallbackSpec
+    PreambleSpacingSpec
     PreprocessorSpec
     RegressionSpec
     TopLevelSpacingSpec

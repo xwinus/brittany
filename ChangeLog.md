@@ -52,6 +52,8 @@
   separators while preserving structural layout for other comment forms.
 * Preferred structural layout for multiline small and nested records while
   keeping complete records compact when they fit on one line.
+* Preserved intentional blank lines between leading pragmas or comments and
+  module declarations, including implicit modules.
 
 ## 0.14.0.0 -- November 2021
 

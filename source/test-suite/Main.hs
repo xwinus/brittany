@@ -8,6 +8,7 @@ import qualified Data.Set as Set
 import qualified ExtractAnnsSpec
 import qualified FallbackSpec
 import qualified Language.Haskell.Brittany.Main as Brittany
+import qualified PreambleSpacingSpec
 import qualified PreprocessorSpec
 import qualified RegressionSpec
 import qualified System.Directory as Directory
@@ -63,6 +64,7 @@ main = Hspec.hspec $ do
   ExtractAnnsSpec.spec
   CompatibilitySpec.spec projectRoot
   FallbackSpec.spec projectRoot
+  PreambleSpacingSpec.spec projectRoot
   PreprocessorSpec.spec projectRoot
   TopLevelSpacingSpec.spec
 

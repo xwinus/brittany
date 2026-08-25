@@ -734,8 +734,9 @@ ppPreamble
   :: GenLocated SrcSpan (HsModule GhcPs)
   -> PPM ([(KeywordId, EP.DeltaPos)], Bool)
 ppPreamble lmod@(L loc m@HsModule{}) = do
-  filteredAnns <- mAsk <&> \annMap ->
-    Map.findWithDefault Map.empty (mkAnnKey (toL lmod)) annMap
+  annGroups <- mAsk
+  let filteredAnns =
+        Map.findWithDefault Map.empty (mkAnnKey (toL lmod)) annGroups
     -- Since ghc-exactprint adds annotations following (implicit)
     -- modules to both HsModule and the elements in the module
     -- this can cause duplication of comments. So strip
@@ -781,7 +782,7 @@ ppPreamble lmod@(L loc m@HsModule{}) = do
   -- ExtractAnns puts these in annPriorComments.
   let modKey = mkAnnKey (toL lmod)
   let modPriorComments = maybe [] annPriorComments (Map.lookup modKey filteredAnns)
-  when canReformatPreamble $
+  when canReformatPreamble $ do
     forM_ (zip [0::Int ..] modPriorComments) $
       \(idx, (c, dp)) -> do
         -- For comments after the first, the DP accounts for the newline we
@@ -794,6 +795,20 @@ ppPreamble lmod@(L loc m@HsModule{}) = do
         ppmMoveToExactLoc dp'
         mTell $ Text.Builder.fromString (commentContents c)
         mTell $ Text.Builder.fromString "\n"
+    let sourceSeparatorLines = do
+          (lastComment, _) <- Data.Maybe.listToMaybe $ reverse modPriorComments
+          commentSpan <- EP.srcSpanToRealSpan $ commentIdentifier lastComment
+          let annotatedUnit node = do
+                nodeSpan <- EP.srcSpanToRealSpan $ getLocA node
+                let nodeKey = mkAnnKey $ toL node
+                pure $ topLevelUnit nodeSpan
+                  $ Map.lookup nodeKey annGroups >>= Map.lookup nodeKey
+          followerUnit <- ((`topLevelUnit` Nothing) <$> moduleKeywordSpan m)
+            <|> (Data.Maybe.listToMaybe (hsmodImports m) >>= annotatedUnit)
+            <|> (Data.Maybe.listToMaybe (hsmodDecls m) >>= annotatedUnit)
+          pure $ preambleSeparatorLines commentSpan followerUnit
+    replicateM_ (max 0 $ fromMaybe 1 sourceSeparatorLines - 1)
+      $ mTell (Text.Builder.fromString "\n")
 
   -- Clear prior comments after the native path emits them so layoutBriDoc
   -- does not re-output them via BDAnnotationPrior.
