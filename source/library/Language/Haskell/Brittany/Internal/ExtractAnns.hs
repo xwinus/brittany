@@ -44,6 +44,7 @@ import GHC.Hs
   , LIE
   , LImportDecl
   , LConDecl
+  , LHsConDeclRecField
   , LHsDecl
   , LHsExpr
   , LHsBind
@@ -102,9 +103,11 @@ recoverMissingComments src fp lmod@(L l p) =
       sourceComments = filter (not . isInsideQuasiQuote quasiQuoteSpans . fst)
         $ scanLineComments fp src
       astComments = collectAstComments lmod
-      astPositions = Map.fromList [((SrcLoc.srcSpanStartLine sp, SrcLoc.srcSpanStartCol sp), ())
-                                  | sp <- astComments]
-      missing = [c | c <- sourceComments, not (Map.member (fst c) astPositions)]
+      missing =
+        [ comment
+        | comment@(position, _) <- sourceComments
+        , not (any (`containsPosition` position) astComments)
+        ]
   in if null missing then lmod
      else
        let modAnn = hsmodAnn (hsmodExt p)
@@ -117,8 +120,12 @@ recoverMissingComments src fp lmod@(L l p) =
   where
     isInsideQuasiQuote :: [RealSrcSpan] -> (Int, Int) -> Bool
     isInsideQuasiQuote spans position = any
-      (\spanR -> position >= ss2pos spanR && position < ss2posEnd spanR)
+      (`containsPosition` position)
       spans
+
+    containsPosition :: RealSrcSpan -> (Int, Int) -> Bool
+    containsPosition spanR position =
+      position >= ss2pos spanR && position < ss2posEnd spanR
 
     collectQuasiQuoteContentSpans :: ParsedSource -> [RealSrcSpan]
     collectQuasiQuoteContentSpans = SYB.everything (++) query
@@ -267,15 +274,20 @@ extractAnnsFromModule lmod =
       declAnns = extractDeclAnns (hsmodDecls mod')
       nestedAnns = extractNestedEpAnns (hsmodDecls mod')
       -- Step 6: Apply remaining comment patches to import/decl annotations
-      patchAnns anns = Map.mapWithKey (\k ann ->
+      patchAnns recomputeDeclPriors anns = Map.mapWithKey (\k ann ->
         let priorPatch = Map.findWithDefault [] k childPriorPatches
             followPatch = Map.findWithDefault [] k childFollowingPatches
-        in ann { annPriorComments = priorPatch ++ annPriorComments ann
+            combinedPriors = priorPatch ++ annPriorComments ann
+            priorComments' =
+              if recomputeDeclPriors && not (null priorPatch)
+                then recomputeMergedPriorDPs combinedPriors
+                else combinedPriors
+        in ann { annPriorComments = priorComments'
                , annFollowingComments = annFollowingComments ann ++ followPatch
                }
         ) anns
-      importAnns' = patchAnns importAnns
-      declAnns' = patchAnns declAnns
+      importAnns' = patchAnns False importAnns
+      declAnns' = patchAnns True declAnns
       -- Step 7: Module annotation gets only its own comments
       modKey = mkAnnKeyL lmod'
       modAnns = case Map.lookup modKey modAnnsRaw of
@@ -690,6 +702,16 @@ extractNestedEpAnns decls =
       extractLPat = extractFromLocatedWithLoc
       extractLConDecl :: LConDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
       extractLConDecl = extractFromLocatedWithLoc
+      extractLConDeclRecField
+        :: LHsConDeclRecField GhcPs
+        -> [(AnnKey, RealSrcSpan, EpAnnComments)]
+      extractLConDeclRecField = extractFromLocatedWithLoc
+      extractLConDeclFields
+        :: GenLocated
+          (EpAnn (AnnList ()))
+          [LHsConDeclRecField GhcPs]
+        -> [(AnnKey, RealSrcSpan, EpAnnComments)]
+      extractLConDeclFields = extractFromLocatedWithLoc
       extractLTyFamInst :: LTyFamInstDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
       extractLTyFamInst = extractFromLocatedWithLoc
       extractLDataFamInst :: LDataFamInstDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
@@ -730,6 +752,8 @@ extractNestedEpAnns decls =
           `SYB.extQ` extractLHsSigType
           `SYB.extQ` extractLPat
           `SYB.extQ` extractLConDecl
+          `SYB.extQ` extractLConDeclRecField
+          `SYB.extQ` extractLConDeclFields
           `SYB.extQ` extractLTyFamInst
           `SYB.extQ` extractLDataFamInst
           `SYB.extQ` extractHsLocalBinds
@@ -1772,6 +1796,20 @@ recomputeComDPs ref coms = snd $ List.mapAccumL go ref coms
               nextPos = (SrcLoc.srcSpanEndLine rspan, SrcLoc.srcSpanEndCol rspan)
           in (nextPos, (com, dp))
         Nothing -> (prev, (com, DP (0, 1)))  -- fallback
+
+-- | Merge declaration priors supplied by different GHC annotation owners.
+-- Their original deltas use different reference points, so recompute the
+-- complete source-ordered sequence before emitting it from one wrapper.
+recomputeMergedPriorDPs :: [(Comment, DeltaPos)] -> [(Comment, DeltaPos)]
+recomputeMergedPriorDPs coms = case sortedComs of
+  [] -> []
+  ((firstCom, _) : _) -> case srcSpanToRealSpan (commentIdentifier firstCom) of
+    Just firstSpan -> recomputeComDPs (ss2pos firstSpan) sortedComs
+    Nothing -> sortedComs
+ where
+  sortedComs = List.sortOn
+    (\(com, _) -> ss2pos <$> srcSpanToRealSpan (commentIdentifier com))
+    coms
 
 posToDP :: (Int, Int) -> (Int, Int) -> DeltaPos
 posToDP (prevL, prevC) (curL, curC)

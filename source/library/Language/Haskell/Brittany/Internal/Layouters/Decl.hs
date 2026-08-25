@@ -79,7 +79,7 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
     | requiresExactTypeDeclaration tycl || requiresExactTypes d ->
         layoutExact TypeClassDeclarationFallback d exactText
     | supportsCommentedDataDecl tycl ->
-        withTransformedAnns d $ layoutTyCl (L loc tycl)
+        withTransformedAnns d $ docWrapNode d $ layoutTyCl (L loc tycl)
     | otherwise -> layoutExactWhenCommented d $ layoutTyCl (L loc tycl)
   InstD _ (TyFamInstD _ tfid) ->
     layoutExactWhenCommented d $ layoutTyFamInstDecl False d tfid
