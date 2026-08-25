@@ -6,3 +6,4 @@ instance
   )
   => FromJSON (PtPostProcessConfig c)
   where
+    parseJSON = parser

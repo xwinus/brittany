@@ -1,1 +1,2 @@
-instance Display (Broken value where
+instance Display Int where
+  display :: Int ->

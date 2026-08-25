@@ -26,8 +26,14 @@ spec projectRoot = Hspec.describe "instance head layout" $ do
     "InstanceHeadEdgeInput.hs"
     "InstanceHeadEdge.hs"
     False
+  columnsIdempotentFormattingExample projectRoot
+    "nests compact and multiline instance members at a narrow width"
+    40
+    "InstanceHeadEdgeInput.hs"
+    "InstanceHeadEdgeNarrow.hs"
+    False
   parseFailureExample projectRoot
-    "rejects a malformed instance head without changing the input"
+    "rejects a malformed instance member without changing the input"
     "InstanceHeadInvalid.hs"
 
 columnsIdempotentFormattingExample
