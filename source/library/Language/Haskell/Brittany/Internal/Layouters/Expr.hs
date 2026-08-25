@@ -1038,6 +1038,7 @@ recordExpression True _ lexpr nameDoc [] = docSeq -- this case might still be in
   ]
 recordExpression dotdot indentPolicy lexpr nameDoc rFs@(rF1 : rFr) = do
   let (rF1f, rF1n, rF1e) = rF1
+      useHangingLayout = length rFs < 5
   runFilteredAlternative $ do
     -- container { fieldA = blub, fieldB = blub }
     addAlternative $ docSeq
@@ -1059,7 +1060,9 @@ recordExpression dotdot indentPolicy lexpr nameDoc rFs@(rF1 : rFr) = do
     -- container { fieldA = blub
     --           , fieldB = blub
     --           }
-    addAlternativeCond (indentPolicy == IndentPolicyFree) $ docSeq
+    addAlternativeCond
+      (indentPolicy == IndentPolicyFree && useHangingLayout)
+      $ docSeq
       [ docNodeAnnKW lexpr Nothing $ docForceSingleline $ appSep nameDoc
       , docSetBaseY
       $ docLines
@@ -1099,7 +1102,10 @@ recordExpression dotdot indentPolicy lexpr nameDoc rFs@(rF1 : rFr) = do
     -- , fieldB = potentially
     --     multiline
     -- }
-    addAlternative $ docSetParSpacing $ docAddBaseY BrIndentRegular $ docPar
+    addAlternative
+      $ (if useHangingLayout then docSetParSpacing else docForceParSpacing)
+      $ docAddBaseY BrIndentRegular
+      $ docPar
       (docNodeAnnKW lexpr Nothing nameDoc)
       (docNonBottomSpacing
       $ docLines

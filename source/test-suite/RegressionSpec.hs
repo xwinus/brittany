@@ -225,6 +225,17 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects malformed spaced do syntax without changing the input"
       "StatementSpacingInvalid.hs"
 
+  Hspec.describe "vertical record layout" $ do
+    idempotentFormattingExample projectRoot
+      "formats a five-field record as a structural vertical block"
+      "VerticalRecordExpected.hs"
+    idempotentFormattingExample projectRoot
+      "keeps small records compact and preserves complex record syntax"
+      "VerticalRecordEdge.hs"
+    parseFailureExample projectRoot
+      "rejects malformed record construction without changing the input"
+      "VerticalRecordInvalid.hs"
+
 formattingExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
 formattingExample projectRoot description fixtureName =
   Hspec.it description $ do
