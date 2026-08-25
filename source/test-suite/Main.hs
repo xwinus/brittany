@@ -7,6 +7,7 @@ import qualified Data.List as List
 import qualified Data.Set as Set
 import qualified ExtractAnnsSpec
 import qualified FallbackSpec
+import qualified InstanceHeadSpec
 import qualified Language.Haskell.Brittany.Main as Brittany
 import qualified PreambleSpacingSpec
 import qualified PreprocessorSpec
@@ -65,6 +66,7 @@ main = Hspec.hspec $ do
   ExtractAnnsSpec.spec
   CompatibilitySpec.spec projectRoot
   FallbackSpec.spec projectRoot
+  InstanceHeadSpec.spec projectRoot
   PreambleSpacingSpec.spec projectRoot
   TemplateHaskellFallbackSpec.spec projectRoot
   PreprocessorSpec.spec projectRoot
