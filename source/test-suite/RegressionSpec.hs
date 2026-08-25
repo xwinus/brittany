@@ -215,6 +215,19 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects an unterminated quasiquote without changing the input"
       "ScopedExpressionFallbackInvalid.hs"
 
+  Hspec.describe "scoped pattern fallbacks" $ do
+    columnsIdempotentFormattingFromInputExample projectRoot
+      "uses native indentation around a pattern quasiquote fallback"
+      "ScopedPatternFallbackInput.hs"
+      "ScopedPatternFallbackExpected.hs"
+    columnsIdempotentFormattingFromInputExample projectRoot
+      "preserves nested pattern context and raw comment-like content"
+      "ScopedPatternFallbackEdgeInput.hs"
+      "ScopedPatternFallbackEdge.hs"
+    parseFailureExample projectRoot
+      "rejects an unterminated pattern quasiquote without changing the input"
+      "ScopedPatternFallbackInvalid.hs"
+
   Hspec.describe "module export-list comments" $ do
     idempotentFormattingFromInputExample projectRoot
       "rebases Haddock section headings to the export content column"
@@ -299,6 +312,24 @@ idempotentFormattingFromInputExample
     firstPass <- readFile output
     firstPass `Hspec.shouldBe` expected
     Brittany.mainWith "brittany" (formatterArgs projectRoot output)
+    secondPass <- readFile output
+    secondPass `Hspec.shouldBe` firstPass
+
+columnsIdempotentFormattingFromInputExample
+  :: FilePath -> String -> FilePath -> FilePath -> Hspec.SpecWith ()
+columnsIdempotentFormattingFromInputExample
+  projectRoot description inputName expectedName = Hspec.it description $ do
+    let input = fixturePath projectRoot inputName
+        expectedFixture = fixturePath projectRoot expectedName
+        output = outputPath projectRoot inputName
+        args = "--columns" : "80" : formatterArgs projectRoot output
+    expected <- readFile expectedFixture
+    Directory.copyFile input output
+    Brittany.mainWith "brittany" args
+    firstPass <- readFile output
+    firstPass `Hspec.shouldBe` expected
+    filter ((> 80) . length) (lines firstPass) `Hspec.shouldBe` []
+    Brittany.mainWith "brittany" args
     secondPass <- readFile output
     secondPass `Hspec.shouldBe` firstPass
 

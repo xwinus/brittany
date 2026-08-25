@@ -7,7 +7,7 @@ import qualified Data.Foldable as Foldable
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
-import GHC (GenLocated(L), ol_val)
+import GHC (GenLocated(L), ol_val, unLoc)
 import GHC.Hs
 import qualified GHC.OldList as List
 import GHC.Types.Basic
@@ -19,6 +19,7 @@ import Language.Haskell.Brittany.Internal.Layouters.Type
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
+import Language.Haskell.Brittany.Internal.Utils (showOutputable)
 
 
 
@@ -209,6 +210,19 @@ layoutPat lpat@(L _ pat) = docWrapNode (toL lpat) $ case pat of
       singleDoc <- docSeq
         $ List.intersperse (docLit $ Text.pack " ; ") (map return patDocs)
       return $ Seq.singleton singleDoc
+
+  SplicePat _ (HsQuasiQuote _ quoter content) -> do
+    reportFallback PatternFallback (toL lpat)
+    hasPriorComments <- hasAnyRegularCommentsConnectedNoFollowing (toL lpat)
+    fallbackDoc <- allocateNode $ BDFPlain (not hasPriorComments)
+      (Text.pack
+      $ "["
+      ++ showOutputable quoter
+      ++ "|"
+      ++ showOutputable (unLoc content)
+      ++ "|]"
+      )
+    pure $ Seq.singleton fallbackDoc
 
   _ -> return <$> briDocByExactInlineOnly PatternFallback (toL lpat)
 
