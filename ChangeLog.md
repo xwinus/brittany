@@ -32,6 +32,8 @@
   lambda-case, case, do, and multi-way-if expressions.
 * Wrapped long prefix-constructor patterns at the configured column limit while
   keeping short constructor patterns compact.
+* Wrapped long prefix constructors in data declarations, including basic GADT
+  signatures, while preserving constructor comments.
 * Kept final Haddock result comments aligned with multiline type signatures
   instead of moving them to the following value declaration.
 * Scoped quasiquote fallback to the expression leaf so surrounding bindings,

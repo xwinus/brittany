@@ -168,6 +168,17 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects a malformed multiline constructor pattern"
       "MultilineConstructorPatternInvalid.hs"
 
+  Hspec.describe "long prefix constructors" $ do
+    strictColumnsIdempotentFormattingExample projectRoot
+      "wraps Headroom-style prefix constructors at 80 columns"
+      "LongPrefixConstructorExpected.hs"
+    strictColumnsIdempotentFormattingExample projectRoot
+      "keeps short constructors compact and preserves ADT and GADT comments"
+      "LongPrefixConstructorEdge.hs"
+    parseFailureExample projectRoot
+      "rejects a malformed long prefix constructor"
+      "LongPrefixConstructorInvalid.hs"
+
   Hspec.describe "final result Haddock comments" $ do
     idempotentFormattingExample projectRoot
       "keeps a final result comment aligned with its signature"

@@ -31,7 +31,7 @@ trigger, rationale, compatibility features, and regression fixtures.
 
 | Identifier | Scope | Support | Trigger and rationale |
 | --- | --- | --- | --- |
-| `DataDeclarationFallback` | declaration | exact source | Extended data/newtype constructors or comments whose annotations are not safely reconstructed. |
+| `DataDeclarationFallback` | declaration | exact source | Data/newtype constructors outside the supported Haskell 98 and basic GADT subset. |
 | `DeclarationFallback` | declaration | exact source | Foreign declarations, pragmas, splices, and experimental top-level forms outside the native declaration model. |
 | `SignatureFallback` | declaration | exact source | Specialisation, fixity, and other signatures outside the native signature subset. |
 | `ImplicitParameterFallback` | declaration | exact source | Implicit-parameter bindings outside the native binding subset. |
@@ -54,6 +54,7 @@ A fallback can be narrowed or removed only after all of these cases exist:
 3. A malformed fixture proving parse failures do not modify input.
 
 All successful cases continue through the output reparse, idempotence, and
-comment-preservation checks. Issue #19 promotes simple multi-constructor
-Haskell 98 data declarations to native layout under this contract. Extended or
-commented constructor forms retain `DataDeclarationFallback`.
+comment-preservation checks. Issues #19 and #55 promote simple
+multi-constructor Haskell 98 declarations, constructor comments, and basic GADT
+signatures to native layout under this contract. Extended constructor forms
+retain `DataDeclarationFallback`.

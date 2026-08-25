@@ -43,6 +43,7 @@ import GHC.Hs
   , ImportDecl(..)
   , LIE
   , LImportDecl
+  , LConDecl
   , LHsDecl
   , LHsExpr
   , LHsBind
@@ -317,7 +318,8 @@ extractAnnsFromModule lmod =
       allWithInner = declWithInner <> nestedWithInner
       nonDeclKeys = Map.fromList
         [(k, ()) | k <- Map.keys merged, not (Map.member k allWithInner)]
-  in redistributeInnerComments fullSpanMap nonDeclKeys merged
+  in redistributeInnerCommentsWithChildSkips
+    fullSpanMap nonDeclKeys Map.empty merged
 
 -- | Redistribute intra-declaration comments from the module annotation to
 -- individual AST nodes. Uses ghc-exactprint's bottom-up traversal to claim
@@ -657,6 +659,7 @@ extractNestedSpanMap decls =
         `SYB.extQ` (extractFromLocatedWithLoc :: LHsType GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocatedWithLoc :: LHsSigType GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocatedWithLoc :: LPat GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
+        `SYB.extQ` (extractFromLocatedWithLoc :: LConDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocatedWithLoc :: LTyFamInstDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocatedWithLoc :: LDataFamInstDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
       )
@@ -685,6 +688,8 @@ extractNestedEpAnns decls =
       extractLHsSigType = extractFromLocatedWithLoc
       extractLPat :: LPat GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
       extractLPat = extractFromLocatedWithLoc
+      extractLConDecl :: LConDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
+      extractLConDecl = extractFromLocatedWithLoc
       extractLTyFamInst :: LTyFamInstDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
       extractLTyFamInst = extractFromLocatedWithLoc
       extractLDataFamInst :: LDataFamInstDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
@@ -724,6 +729,7 @@ extractNestedEpAnns decls =
           `SYB.extQ` extractLHsType
           `SYB.extQ` extractLHsSigType
           `SYB.extQ` extractLPat
+          `SYB.extQ` extractLConDecl
           `SYB.extQ` extractLTyFamInst
           `SYB.extQ` extractLDataFamInst
           `SYB.extQ` extractHsLocalBinds
@@ -871,7 +877,16 @@ redistributeInnerComments
   -> Map.Map AnnKey ()  -- override keys to skip
   -> Anns  -- input annotations
   -> Anns  -- output with inner comments redistributed
-redistributeInnerComments spanMap skipKeys anns =
+redistributeInnerComments spanMap skipKeys =
+  redistributeInnerCommentsWithChildSkips spanMap skipKeys skipKeys
+
+redistributeInnerCommentsWithChildSkips
+  :: Map.Map AnnKey ((Int, Int), (Int, Int))
+  -> Map.Map AnnKey ()
+  -> Map.Map AnnKey ()
+  -> Anns
+  -> Anns
+redistributeInnerCommentsWithChildSkips spanMap skipKeys childSkipKeys anns =
   let -- Collect all inner comments that need redistribution
       -- Skip nodes handled by overrides (HsIf, HsDo) to avoid double comments
       parentInnerComs = Map.toList $ Map.mapMaybeWithKey (\k ann ->
@@ -889,7 +904,7 @@ redistributeInnerComments spanMap skipKeys anns =
         let children = List.sortOn (\(_, s, _) -> s)
               [ (k, s, e) | (k, s, e) <- allChildren
               , k /= parentKey
-              , not (Map.member k skipKeys)
+              , not (Map.member k childSkipKeys)
               , s >= pStart && e <= pEnd
               ]
             -- For declaration-level parents (InstD, TyClD), inter-child

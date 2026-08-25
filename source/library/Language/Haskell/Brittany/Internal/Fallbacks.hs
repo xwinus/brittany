@@ -76,7 +76,7 @@ fallbackInfo fallback = FallbackInfo
       ( DeclarationScope
       , ExactSourceSupport
       , "data and newtype declaration shapes without a safe native layout"
-      , "extended constructors and comments must remain attached"
+      , "unsupported Haskell 98 and GADT constructors must remain attached"
       , ["DatatypeContexts", "ExistentialQuantification", "GADTs"]
       , ["source/test-suite/FallbackSpec.hs"]
       )

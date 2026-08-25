@@ -4,17 +4,14 @@
 
 module Language.Haskell.Brittany.Internal.Layouters.DataDecl where
 
-import qualified Data.Data
-import qualified Data.Semigroup as Semigroup
-import qualified Data.Text as Text
 import GHC (GenLocated(L), Located, unLoc)
 import GHC.Hs
 import GHC.Types.SrcLoc (noSrcSpan)
 import qualified GHC.OldList as List
-import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..))
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.LayouterBasics
+import Language.Haskell.Brittany.Internal.Layouters.DataDecl.Constructor
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import Language.Haskell.Brittany.Internal.Layouters.Type
 import Language.Haskell.Brittany.Internal.Prelude
@@ -30,7 +27,13 @@ layoutDataDecl
   -> HsDataDefn GhcPs
   -> ToBriDocM BriDocNumbered
 layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
-  HsDataDefn { dd_ctxt = mCtxt, dd_cons = cons, dd_derivs = mDerivs } -> case cons of
+  HsDataDefn
+    { dd_ctxt = mCtxt
+    , dd_cType = mCType
+    , dd_kindSig = mKindSig
+    , dd_cons = cons
+    , dd_derivs = mDerivs
+    } -> case cons of
   -- newtype MyType a b = MyType ..
     NewTypeCon lcons ->
       case lcons of
@@ -66,14 +69,19 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
           ]
 
   -- data MyData = First | Second ..
-    DataTypeCons _ constructors@(_ : _ : _) -> do
-      hasComments <- hasAnyRegularCommentsConnected ltycl
+    DataTypeCons _ constructors@(_ : _ : _) ->
       case traverse simpleConstructor constructors of
-        Just simpleConstructors | not hasComments ->
+        Just simpleConstructors ->
           layoutMultipleConstructors mCtxt mDerivs simpleConstructors
-        _ -> briDocByExactNoComment DataDeclarationFallback ltycl
+        Nothing -> case (mCType, mKindSig, traverse simpleGadtConstructor constructors) of
+          (Nothing, Nothing, Just simpleConstructors) ->
+            layoutGadtConstructors mCtxt mDerivs simpleConstructors
+          _ -> briDocByExactNoComment DataDeclarationFallback ltycl
     DataTypeCons _ [lcons] ->
-      (case lcons of
+      (case (mCType, mKindSig, simpleGadtConstructor lcons) of
+        (Nothing, Nothing, Just constructor) ->
+          layoutGadtConstructors mCtxt mDerivs [constructor]
+        _ -> case lcons of {
         (L _ (ConDeclH98 _ext consName _hasExt qvars mRhsContext details _conDoc))
           -> docWrapNode ltycl do
               let lhsContext = unLoc (maybe (L noSrcSpan []) toL mCtxt)
@@ -202,14 +210,26 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
                   )
                 ])
               createDerivingPar mDerivs consAltDoc
-        _ -> briDocByExactNoComment DataDeclarationFallback ltycl)
+        ; _ -> briDocByExactNoComment DataDeclarationFallback ltycl })
 
   _ -> briDocByExactNoComment DataDeclarationFallback ltycl
  where
   simpleConstructor = \case
-    L _ (ConDeclH98 _ constructorName False [] context details _)
-      | contextIsEmpty context -> Just (constructorName, details)
+    lcons@(L _ (ConDeclH98 _ constructorName False [] context details _))
+      | contextIsEmpty context -> Just (lcons, constructorName, details)
     _ -> Nothing
+
+  simpleGadtConstructor = \case
+    lcons@(L _ (ConDeclGADT _ (constructorName :| [])
+      (L _ (HsOuterImplicit _)) [] Nothing
+      (PrefixConGADT _ arguments) resultType _))
+      | all simpleGadtArgument arguments ->
+          Just (lcons, constructorName, arguments, resultType)
+    _ -> Nothing
+
+  simpleGadtArgument = \case
+    CDF _ NoSrcUnpack NoSrcStrict (HsUnannotated _) _ Nothing -> True
+    _ -> False
 
   contextIsEmpty Nothing = True
   contextIsEmpty (Just (L _ context)) = null context
@@ -219,10 +239,11 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
       $ unLoc (maybe (L noSrcSpan []) toL context)
     nameStr <- lrdrNameToTextAnn name
     tyVarLine <- return <$> createBndrDoc bndrs
-    constructorDocs <- constructors `forM` \(constructorName, details) -> do
+    constructorDocs <- constructors `forM` \(lcons, constructorName, details) -> do
       constructorNameStr <- applyNameAdornment constructorName
         <$> lrdrNameToTextAnn (toL constructorName)
-      return <$> createDetailsDoc constructorNameStr details
+      return <$> docWrapNode (toL lcons)
+        (createMultipleDetailsDoc constructorNameStr details)
     let header = docNodeAnnKW ltycl (Just AnnData) $ docSeq
           [ appSep $ docLitS "data"
           , docForceSingleline lhsContextDoc
@@ -241,6 +262,57 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
       $ docAddBaseY BrIndentRegular
       $ docPar header
       $ docLines constructorLines
+
+  layoutGadtConstructors context derivings constructors = docWrapNode ltycl $ do
+    lhsContextDoc <- docSharedWrapper createContextDoc
+      $ unLoc (maybe (L noSrcSpan []) toL context)
+    nameStr <- lrdrNameToTextAnn name
+    tyVarLine <- return <$> createBndrDoc bndrs
+    constructorDocs <- constructors `forM`
+      \(lcons, constructorName, arguments, resultType) -> do
+        constructorNameStr <- applyNameAdornment constructorName
+          <$> lrdrNameToTextAnn (toL constructorName)
+        return <$> docWrapNode (toL lcons)
+          (createGadtDetailsDoc constructorNameStr arguments resultType)
+    let header = docNodeAnnKW ltycl (Just AnnData) $ docSeq
+          [ appSep $ docLitS "data"
+          , docForceSingleline lhsContextDoc
+          , appSep $ docLit nameStr
+          , appSep tyVarLine
+          , docLitS "where"
+          ]
+    createDerivingPar derivings
+      $ docAddBaseY BrIndentRegular
+      $ docPar header
+      $ docLines constructorDocs
+
+supportsCommentedDataDecl :: TyClDecl GhcPs -> Bool
+supportsCommentedDataDecl = \case
+  DataDecl _ _ _ _ HsDataDefn
+    { dd_cType = Nothing
+    , dd_kindSig = Nothing
+    , dd_cons = DataTypeCons _ constructors
+    } -> case constructors of
+      _ : _ : _ -> all simpleH98 constructors || all simpleGadt constructors
+      [constructor] -> simpleGadt constructor
+      _ -> False
+  _ -> False
+ where
+  simpleH98 = \case
+    L _ (ConDeclH98 _ _ False [] context _ _) -> contextIsEmpty context
+    _ -> False
+
+  simpleGadt = \case
+    L _ (ConDeclGADT _ (_ :| []) (L _ (HsOuterImplicit _)) [] Nothing
+      (PrefixConGADT _ arguments) _ _) -> all simpleArgument arguments
+    _ -> False
+
+  simpleArgument = \case
+    CDF _ NoSrcUnpack NoSrcStrict (HsUnannotated _) _ Nothing -> True
+    _ -> False
+
+  contextIsEmpty Nothing = True
+  contextIsEmpty (Just (L _ context)) = null context
 
 createContextDoc :: HsContext GhcPs -> ToBriDocM BriDocNumbered
 createContextDoc [] = docEmpty
@@ -342,141 +414,8 @@ derivingClauseDoc (L _ (HsDerivingClause _ext mStrategy lTys)) =
 docDeriving :: ToBriDocM BriDocNumbered
 docDeriving = docLitS "deriving"
 
-createDetailsDoc
-  :: Text -> HsConDeclH98Details GhcPs -> (ToBriDocM BriDocNumbered)
-createDetailsDoc consNameStr details = case details of
-  PrefixCon args -> do
-    indentPolicy <- mAsk <&> _conf_layout .> _lconfig_indentPolicy .> confUnpack
-    let argTypes = fmap (toL . cdf_type) args
-        singleLine = docSeq
-          [ docLit consNameStr
-          , docSeparator
-          , docForceSingleline
-          $ docSeq
-          $ List.intersperse docSeparator
-          $ (layoutType <$> argTypes)
-          ]
-        leftIndented =
-          docSetParSpacing
-            . docAddBaseY BrIndentRegular
-            . docPar (docLit consNameStr)
-            . docLines
-            $ layoutType <$> argTypes
-        multiAppended = docSeq
-          [ docLit consNameStr
-          , docSeparator
-          , docSetBaseY $ docLines $ layoutType <$> argTypes
-          ]
-        multiIndented = docSetBaseY $ docAddBaseY BrIndentRegular $ docPar
-          (docLit consNameStr)
-          (docLines $ layoutType <$> argTypes)
-    case indentPolicy of
-      IndentPolicyLeft -> docAlt [singleLine, leftIndented]
-      IndentPolicyMultiple -> docAlt [singleLine, multiAppended, leftIndented]
-      IndentPolicyFree ->
-        docAlt [singleLine, multiAppended, multiIndented, leftIndented]
-  RecCon (L _ []) ->
-    docSeq [docLit consNameStr, docSeparator, docLit $ Text.pack "{}"]
-  RecCon lRec@(L _ fields@(_ : _)) -> do
-    let ((fName1, fType1) : fDocR) = mkFieldDocs fields
-    -- allowSingleline <- mAsk <&> _conf_layout .> _lconfig_allowSinglelineRecord .> confUnpack
-    let allowSingleline = False
-    docAddBaseY BrIndentRegular $ runFilteredAlternative $ do
-        -- single-line: { i :: Int, b :: Bool }
-      addAlternativeCond allowSingleline $ docSeq
-        [ docLit consNameStr
-        , docSeparator
-        , docWrapNodePrior (toL lRec) $ docLitS "{"
-        , docSeparator
-        , docWrapNodeRest (toL lRec)
-        $ docForceSingleline
-        $ docSeq
-        $ join
-        $ [fName1, docSeparator, docLitS "::", docSeparator, fType1]
-        : [ [ docLitS ","
-            , docSeparator
-            , fName
-            , docSeparator
-            , docLitS "::"
-            , docSeparator
-            , fType
-            ]
-          | (fName, fType) <- fDocR
-          ]
-        , docSeparator
-        , docLitS "}"
-        ]
-      addAlternative $ docPar
-        (docLit consNameStr)
-        (docWrapNodePrior (toL lRec) $ docNonBottomSpacingS $ docLines
-          [ docAlt
-            [ docCols
-              ColRecDecl
-              [ appSep (docLitS "{")
-              , appSep $ docForceSingleline fName1
-              , docSeq [docLitS "::", docSeparator]
-              , docForceSingleline $ fType1
-              ]
-            , docSeq
-              [ docLitS "{"
-              , docSeparator
-              , docSetBaseY $ docAddBaseY BrIndentRegular $ docPar
-                fName1
-                (docSeq [docLitS "::", docSeparator, fType1])
-              ]
-            ]
-          , docWrapNodeRest (toL lRec) $ docLines $ fDocR <&> \(fName, fType) ->
-            docAlt
-              [ docCols
-                ColRecDecl
-                [ docCommaSep
-                , appSep $ docForceSingleline fName
-                , docSeq [docLitS "::", docSeparator]
-                , docForceSingleline fType
-                ]
-              , docSeq
-                [ docLitS ","
-                , docSeparator
-                , docSetBaseY $ docAddBaseY BrIndentRegular $ docPar
-                  fName
-                  (docSeq [docLitS "::", docSeparator, fType])
-                ]
-              ]
-          , docLitS "}"
-          ]
-        )
-  InfixCon arg1 arg2 -> docSeq
-    [ layoutType $ toL (cdf_type arg1)
-    , docSeparator
-    , docLit consNameStr
-    , docSeparator
-    , layoutType $ toL (cdf_type arg2)
-    ]
- where
-  mkFieldDocs
-    :: [LHsConDeclRecField GhcPs]
-    -> [(ToBriDocM BriDocNumbered, ToBriDocM BriDocNumbered)]
-  mkFieldDocs = fmap $ \lField -> case lField of
-    L _ (HsConDeclRecField { cdrf_spec = cdf, cdrf_names = nameList }) ->
-      let t = cdf_type cdf
-      in createNamesAndTypeDoc (toL lField) nameList (toL t)
-
 createForallDoc
   :: [LHsTyVarBndr flag GhcPs] -> Maybe (ToBriDocM BriDocNumbered)
 createForallDoc [] = Nothing
 createForallDoc lhsTyVarBndrs =
   Just $ docSeq [docLitS "forall ", createBndrDoc lhsTyVarBndrs]
-
-createNamesAndTypeDoc
-  :: Data.Data.Data ast
-  => Located ast
-  -> [GenLocated t (FieldOcc GhcPs)]
-  -> Located (HsType GhcPs)
-  -> (ToBriDocM BriDocNumbered, ToBriDocM BriDocNumbered)
-createNamesAndTypeDoc lField names t =
-  ( docNodeAnnKW lField Nothing $ docWrapNodePrior lField $ docSeq
-    [ docSeq $ List.intersperse docCommaSep $ names <&> \case
-        L _ (FieldOcc _ lname) -> docLit =<< lrdrNameToTextAnn (toL lname)
-    ]
-  , docWrapNodeRest lField $ layoutType t
-  )
