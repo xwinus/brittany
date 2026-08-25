@@ -5,11 +5,9 @@ module LeadingDataCommentEdge where
 
 -- | Standard command.
 data Standard
-  =
-    -- | A short command.
+  = -- | A short command.
     Short Int
-  |
-    -- | A long command.
+  | -- | A long command.
     Long
       VeryLongFirstArgumentTypeName
       VeryLongSecondArgumentTypeName

@@ -31,6 +31,18 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects a malformed constructor"
       "DataDeclMultipleInvalid.hs"
 
+  Hspec.describe "constructor Haddock comments" $ do
+    strictHaddockColumnsIdempotentFormattingFromInputExample projectRoot
+      "keeps single-line Haddock comments beside data separators"
+      "ConstructorHaddockInput.hs"
+      "ConstructorHaddockExpected.hs"
+    strictHaddockColumnsIdempotentFormattingExample projectRoot
+      "preserves mixed comments, constructor forms, GADTs, and deriving clauses"
+      "ConstructorHaddockEdge.hs"
+    parseFailureExample projectRoot
+      "rejects malformed commented constructor syntax without changing input"
+      "ConstructorHaddockInvalid.hs"
+
   Hspec.describe "comment preservation" $ do
     formattingExample projectRoot
       "preserves a top-level comment"
@@ -375,6 +387,31 @@ strictHaddockColumnsIdempotentFormattingExample
 strictHaddockColumnsIdempotentFormattingExample projectRoot description fixtureName =
   columnsIdempotentFormattingExampleWith
     ["--fail-on-fallback"] True projectRoot description fixtureName
+
+strictHaddockColumnsIdempotentFormattingFromInputExample
+  :: FilePath -> String -> FilePath -> FilePath -> Hspec.SpecWith ()
+strictHaddockColumnsIdempotentFormattingFromInputExample
+  projectRoot description inputName expectedName = Hspec.it description $ do
+    let input = fixturePath projectRoot inputName
+        expectedFixture = fixturePath projectRoot expectedName
+        output = outputPath projectRoot inputName
+        args =
+          "--columns" : "80" : "--fail-on-fallback"
+            : formatterArgs projectRoot output
+    expected <- readFile expectedFixture
+    Directory.copyFile input output
+    Brittany.mainWith "brittany" args
+    firstPass <- readFile output
+    firstPass `Hspec.shouldBe` expected
+    filter ((> 80) . length) (lines firstPass) `Hspec.shouldBe` []
+    parsed <- ParseModule.parseModule ["-haddock"] output
+      (const $ pure $ Right ()) firstPass
+    case parsed of
+      Left parseError -> Hspec.expectationFailure parseError
+      Right _ -> pure ()
+    Brittany.mainWith "brittany" args
+    secondPass <- readFile output
+    secondPass `Hspec.shouldBe` firstPass
 
 columnsIdempotentFormattingExample
   :: FilePath -> String -> FilePath -> Hspec.SpecWith ()

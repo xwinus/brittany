@@ -268,12 +268,12 @@ transformAlts =
         return $ x
       BDFExternal{} -> processSpacingSimple bdX $> bdX
       BDFPlain{} -> processSpacingSimple bdX $> bdX
-      BDFAnnotationPrior annKey bd -> do
+      BDFAnnotationPrior priorMode annKey bd -> do
         acp <- mGet
         mSet
           $ acp { _acp_forceMLFlag = altLineModeDecay $ _acp_forceMLFlag acp }
         bd' <- rec bd
-        return $ reWrap $ BDFAnnotationPrior annKey bd'
+        return $ reWrap $ BDFAnnotationPrior priorMode annKey bd'
       BDFAnnotationRest annKey bd ->
         reWrap . BDFAnnotationRest annKey <$> rec bd
       BDFAnnotationKW annKey kw bd ->
@@ -465,7 +465,7 @@ getSpacing !bridoc = rec bridoc
       BDFPlain _ txt -> return $ LineModeValid $ case Text.lines txt of
         [t] -> VerticalSpacing (Text.length t) VerticalSpacingParNone False
         _ -> VerticalSpacing 999 VerticalSpacingParNone False
-      BDFAnnotationPrior _annKey bd -> rec bd
+      BDFAnnotationPrior _ _annKey bd -> rec bd
       BDFAnnotationKW _annKey _kw bd -> rec bd
       BDFAnnotationRest _annKey bd -> rec bd
       BDFMoveToKWDP _annKey _kw _b bd -> rec bd
@@ -769,7 +769,7 @@ getSpacings limit bridoc = preFilterLimit <$> rec bridoc
               VerticalSpacing (Text.length t1) (VerticalSpacingParAlways 0) True
         | allowHangingQuasiQuotes && canHang
         ]
-      BDFAnnotationPrior _annKey bd -> rec bd
+      BDFAnnotationPrior _ _annKey bd -> rec bd
       BDFAnnotationKW _annKey _kw bd -> rec bd
       BDFAnnotationRest _annKey bd -> rec bd
       BDFMoveToKWDP _annKey _kw _b bd -> rec bd

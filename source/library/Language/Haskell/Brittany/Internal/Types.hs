@@ -213,6 +213,11 @@ data BrIndent = BrIndentNone
               | BrIndentSpecial Int
   deriving (Eq, Ord, Data.Data.Data, Show)
 
+data PriorCommentMode
+  = PriorCommentSource
+  | PriorCommentInline
+  deriving (Eq, Ord, Data.Data.Data, Show)
+
 type ToBriDocM = MultiRWSS.MultiRWS
                    '[Config, Anns] -- reader
                    '[[BrittanyError], Seq String] -- writer
@@ -261,7 +266,7 @@ data BriDoc
                Text
   | BDPlain Bool !Text -- used for QuasiQuotes, content can be multi-line
                        -- (contrast to BDLit); Bool permits hanging layout
-  | BDAnnotationPrior AnnKey BriDoc
+  | BDAnnotationPrior PriorCommentMode AnnKey BriDoc
   | BDAnnotationKW AnnKey (Maybe AnnKeywordId) BriDoc
   | BDAnnotationRest  AnnKey BriDoc
   | BDMoveToKWDP AnnKey AnnKeywordId Bool BriDoc -- True if should respect x offset
@@ -310,7 +315,7 @@ data BriDocF f
                Text
   | BDFPlain Bool !Text -- used for QuasiQuotes, content can be multi-line
                         -- (contrast to BDLit); Bool permits hanging layout
-  | BDFAnnotationPrior AnnKey (f (BriDocF f))
+  | BDFAnnotationPrior PriorCommentMode AnnKey (f (BriDocF f))
   | BDFAnnotationKW AnnKey (Maybe AnnKeywordId) (f (BriDocF f))
   | BDFAnnotationRest  AnnKey (f (BriDocF f))
   | BDFMoveToKWDP AnnKey AnnKeywordId Bool (f (BriDocF f)) -- True if should respect x offset
@@ -346,8 +351,8 @@ instance Uniplate.Uniplate BriDoc where
   uniplate (BDForwardLineMode bd   ) = plate BDForwardLineMode |* bd
   uniplate x@BDExternal{}            = plate x
   uniplate x@BDPlain{}               = plate x
-  uniplate (BDAnnotationPrior annKey bd) =
-    plate BDAnnotationPrior |- annKey |* bd
+  uniplate (BDAnnotationPrior priorMode annKey bd) =
+    plate BDAnnotationPrior |- priorMode |- annKey |* bd
   uniplate (BDAnnotationKW annKey kw bd) =
     plate BDAnnotationKW |- annKey |- kw |* bd
   uniplate (BDAnnotationRest annKey bd) =
@@ -384,7 +389,8 @@ unwrapBriDocNumbered tpl = case snd tpl of
   BDFForwardLineMode bd        -> BDForwardLineMode $ rec bd
   BDFExternal k ks c t         -> BDExternal k ks c t
   BDFPlain canHang t           -> BDPlain canHang t
-  BDFAnnotationPrior annKey bd -> BDAnnotationPrior annKey $ rec bd
+  BDFAnnotationPrior priorMode annKey bd ->
+    BDAnnotationPrior priorMode annKey $ rec bd
   BDFAnnotationKW annKey kw bd -> BDAnnotationKW annKey kw $ rec bd
   BDFAnnotationRest annKey bd  -> BDAnnotationRest annKey $ rec bd
   BDFMoveToKWDP annKey kw b bd -> BDMoveToKWDP annKey kw b $ rec bd
@@ -421,7 +427,7 @@ briDocSeqSpine = \case
   BDForwardLineMode bd           -> briDocSeqSpine bd
   BDExternal{}                   -> ()
   BDPlain{}                      -> ()
-  BDAnnotationPrior _annKey bd   -> briDocSeqSpine bd
+  BDAnnotationPrior _ _annKey bd -> briDocSeqSpine bd
   BDAnnotationKW _annKey _kw bd  -> briDocSeqSpine bd
   BDAnnotationRest _annKey bd    -> briDocSeqSpine bd
   BDMoveToKWDP _annKey _kw _b bd -> briDocSeqSpine bd

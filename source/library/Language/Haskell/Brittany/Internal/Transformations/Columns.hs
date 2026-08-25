@@ -49,12 +49,12 @@ transformSimplifyColumns = Uniplate.rewrite $ \case
       BDLines l -> l
       x -> [x]
   -- prior floating in
-  BDAnnotationPrior annKey1 (BDSeq (l : lr)) ->
-    Just $ BDSeq (BDAnnotationPrior annKey1 l : lr)
-  BDAnnotationPrior annKey1 (BDLines (l : lr)) ->
-    Just $ BDLines (BDAnnotationPrior annKey1 l : lr)
-  BDAnnotationPrior annKey1 (BDCols sig (l : lr)) ->
-    Just $ BDCols sig (BDAnnotationPrior annKey1 l : lr)
+  BDAnnotationPrior priorMode annKey1 (BDSeq (l : lr)) ->
+    Just $ BDSeq (BDAnnotationPrior priorMode annKey1 l : lr)
+  BDAnnotationPrior priorMode annKey1 (BDLines (l : lr)) ->
+    Just $ BDLines (BDAnnotationPrior priorMode annKey1 l : lr)
+  BDAnnotationPrior priorMode annKey1 (BDCols sig (l : lr)) ->
+    Just $ BDCols sig (BDAnnotationPrior priorMode annKey1 l : lr)
   -- post floating in
   BDAnnotationRest annKey1 (BDSeq list) ->
     Just $ BDSeq $ List.init list ++ [BDAnnotationRest annKey1 $ List.last list]

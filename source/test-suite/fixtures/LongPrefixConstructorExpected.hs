@@ -1,6 +1,5 @@
 data Command
-  =
-    -- | @run@ command
+  = -- | @run@ command
     Run
       [FilePath]
       [Regex]
@@ -11,6 +10,5 @@ data Command
       (Maybe RunMode)
       Bool
       Bool
-  |
-    -- | @gen@ command
+  | -- | @gen@ command
     Gen Bool (Maybe (LicenseType, FileType))

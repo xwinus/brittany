@@ -608,7 +608,12 @@ docSeparator = allocateNode BDFSeparator
 docAnnotationPrior
   :: AnnKey -> ToBriDocM BriDocNumbered -> ToBriDocM BriDocNumbered
 docAnnotationPrior annKey bdm =
-  allocateNode . BDFAnnotationPrior annKey =<< bdm
+  allocateNode . BDFAnnotationPrior PriorCommentSource annKey =<< bdm
+
+docAnnotationPriorInline
+  :: AnnKey -> ToBriDocM BriDocNumbered -> ToBriDocM BriDocNumbered
+docAnnotationPriorInline annKey bdm =
+  allocateNode . BDFAnnotationPrior PriorCommentInline annKey =<< bdm
 
 docAnnotationKW
   :: AnnKey
@@ -734,14 +739,17 @@ instance DocWrapable (ToBriDocM BriDocNumbered) where
     i2 <- allocNodeIndex
     return
       $ (,) i1
-      $ BDFAnnotationPrior (ExactPrintCompat.mkAnnKey ast)
+      $ BDFAnnotationPrior PriorCommentSource (ExactPrintCompat.mkAnnKey ast)
       $ (,) i2
       $ BDFAnnotationRest (ExactPrintCompat.mkAnnKey ast)
       $ bd
   docWrapNodePrior ast bdm = do
     bd <- bdm
     i1 <- allocNodeIndex
-    return $ (,) i1 $ BDFAnnotationPrior (ExactPrintCompat.mkAnnKey ast) $ bd
+    return
+      $ (,) i1
+      $ BDFAnnotationPrior PriorCommentSource (ExactPrintCompat.mkAnnKey ast)
+      $ bd
   docWrapNodeRest ast bdm = do
     bd <- bdm
     i2 <- allocNodeIndex

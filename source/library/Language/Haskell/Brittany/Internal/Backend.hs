@@ -160,7 +160,7 @@ layoutBriDocM = \case
     layoutIndentRestorePostComment
     layoutRemoveIndentLevelLinger
     layoutWriteAppend t
-  BDAnnotationPrior annKey bd -> do
+  BDAnnotationPrior priorCommentMode annKey bd -> do
     layoutRemoveIndentLevelLinger
     state <- mGet
     let m = _lstate_comments state
@@ -186,16 +186,30 @@ layoutBriDocM = \case
         -- docSetIndentLevel), prior comment x must compensate for the gap
         -- since layoutMoveToCommentPos uses indLevelLinger + x.
         let baseYGap = max 0 (lstate_baseY state - _lstate_indLevelLinger state)
-        priors
-          `forM_` \(ExactPrintCompat.Comment _ _ commentStr, ExactPrintCompat.DP (y, x)) ->
+        let forceInline = priorCommentMode == PriorCommentInline
+        zip [0 :: Int ..] priors
+          `forM_` \(commentIndex,
+                     (ExactPrintCompat.Comment _ _ commentStr,
+                      ExactPrintCompat.DP (y, x))) ->
                     when (commentStr /= "(" && commentStr /= ")") $ do
+                      commentState <- mGet
                       let commentLines = Text.lines $ Text.pack commentStr
-                          adjustedX = if y > 0 then x + baseYGap else x
+                          inlineFirst = forceInline && commentIndex == 0
+                          adjustedY = if inlineFirst then 0 else y
+                          adjustedX
+                            | inlineFirst = 1
+                            | forceInline, y > 0 = max 0
+                                $ fromMaybe x
+                                  (_lstate_commentCol commentState)
+                                - _lstate_indLevelLinger commentState
+                            | y > 0 = x + baseYGap
+                            | otherwise = x
                       case commentStr of
                         ('#' : _) ->
-                          layoutMoveToCommentPos y (-999) (length commentLines)
+                          layoutMoveToCommentPos adjustedY (-999) (length commentLines)
                                    --  ^ evil hack for CPP
-                        _ -> layoutMoveToCommentPos y adjustedX (length commentLines)
+                        _ -> layoutMoveToCommentPos
+                          adjustedY adjustedX (length commentLines)
                       layoutWriteAppendMultiline commentLines
           -- mModify $ \s -> s { _lstate_curYOrAddNewline = Right 0 }
         moveToExactLocationAction
@@ -372,7 +386,7 @@ briDocLineLength briDoc = flip StateS.evalState False $ rec briDoc
     BDForwardLineMode bd -> rec bd
     BDExternal _ _ _ t -> return $ Text.length t
     BDPlain _ t -> return $ Text.length t
-    BDAnnotationPrior _ bd -> rec bd
+    BDAnnotationPrior _ _ bd -> rec bd
     BDAnnotationKW _ _ bd -> rec bd
     BDAnnotationRest _ bd -> rec bd
     BDMoveToKWDP _ _ _ bd -> rec bd
@@ -411,7 +425,7 @@ briDocIsMultiLine briDoc = rec briDoc
     BDExternal{} -> True
     BDPlain _ t | [_] <- Text.lines t -> False
     BDPlain{} -> True
-    BDAnnotationPrior _ bd -> rec bd
+    BDAnnotationPrior _ _ bd -> rec bd
     BDAnnotationKW _ _ bd -> rec bd
     BDAnnotationRest _ bd -> rec bd
     BDMoveToKWDP _ _ _ bd -> rec bd
