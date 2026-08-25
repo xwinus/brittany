@@ -43,7 +43,7 @@
 * Preserved intentional blank lines between statements in `do`, `mdo`, and
   recursive-do blocks without duplicating gaps around comments.
 * Preferred structural vertical layout for record construction and updates
-  with five or more fields when their compact form exceeds the column limit.
+  with four or more fields when their compact form exceeds the column limit.
 * Rebased Haddock section headings in module export lists to the selected
   export content column while preserving their section levels and ownership.
 * Preserved leading comments on natively formatted data declarations, including

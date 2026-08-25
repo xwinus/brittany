@@ -264,10 +264,19 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "StatementSpacingInvalid.hs"
 
   Hspec.describe "vertical record layout" $ do
-    idempotentFormattingExample projectRoot
-      "formats a five-field record as a structural vertical block"
+    columnsIdempotentFormattingFromInputExample projectRoot
+      "formats a four-field record as a structural vertical block"
+      "VerticalRecordInput.hs"
       "VerticalRecordExpected.hs"
-    idempotentFormattingExample projectRoot
+    columnsIdempotentFormattingFromInputExampleAt 80 projectRoot
+      "keeps a compact four-field record on one line at 80 columns"
+      "VerticalRecordWidthInput.hs"
+      "VerticalRecordWidth80Expected.hs"
+    columnsIdempotentFormattingFromInputExampleAt 40 projectRoot
+      "formats the same four-field record vertically at 40 columns"
+      "VerticalRecordWidthInput.hs"
+      "VerticalRecordWidth40Expected.hs"
+    columnsIdempotentFormattingExample projectRoot
       "keeps small records compact and preserves complex record syntax"
       "VerticalRecordEdge.hs"
     parseFailureExample projectRoot
@@ -317,18 +326,23 @@ idempotentFormattingFromInputExample
 
 columnsIdempotentFormattingFromInputExample
   :: FilePath -> String -> FilePath -> FilePath -> Hspec.SpecWith ()
-columnsIdempotentFormattingFromInputExample
-  projectRoot description inputName expectedName = Hspec.it description $ do
+columnsIdempotentFormattingFromInputExample =
+  columnsIdempotentFormattingFromInputExampleAt 80
+
+columnsIdempotentFormattingFromInputExampleAt
+  :: Int -> FilePath -> String -> FilePath -> FilePath -> Hspec.SpecWith ()
+columnsIdempotentFormattingFromInputExampleAt
+  columns projectRoot description inputName expectedName = Hspec.it description $ do
     let input = fixturePath projectRoot inputName
         expectedFixture = fixturePath projectRoot expectedName
         output = outputPath projectRoot inputName
-        args = "--columns" : "80" : formatterArgs projectRoot output
+        args = "--columns" : show columns : formatterArgs projectRoot output
     expected <- readFile expectedFixture
     Directory.copyFile input output
     Brittany.mainWith "brittany" args
     firstPass <- readFile output
     firstPass `Hspec.shouldBe` expected
-    filter ((> 80) . length) (lines firstPass) `Hspec.shouldBe` []
+    filter ((> columns) . length) (lines firstPass) `Hspec.shouldBe` []
     Brittany.mainWith "brittany" args
     secondPass <- readFile output
     secondPass `Hspec.shouldBe` firstPass

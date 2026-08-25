@@ -6,6 +6,13 @@ smallOne value = Settings { settingOne = value }
 
 smallTwo settingOne settingTwo = Settings { settingOne, settingTwo }
 
+smallFour = Tiny { a = one, b = two, c = three, d = four }
+
+smallThree = Settings { firstSetting  = someLongValue
+                      , secondSetting = anotherLongValue
+                      , thirdSetting  = finalLongValue
+                      }
+
 headroomStyle =
   HeadroomStyle
     { field01 = undefined
@@ -57,5 +64,4 @@ largeUpdate record =
         argumentTwo
     , -- Keep this update comment with field four.
       fieldFour  = undefined
-    , fieldFive  = undefined
     }
