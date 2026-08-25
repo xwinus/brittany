@@ -121,6 +121,7 @@ library
     Language.Haskell.Brittany.Internal.Fallbacks
     Language.Haskell.Brittany.Internal.LayouterBasics
     Language.Haskell.Brittany.Internal.Layouters.DataDecl
+    Language.Haskell.Brittany.Internal.Layouters.DataDecl.Constructor
     Language.Haskell.Brittany.Internal.Layouters.Decl
     Language.Haskell.Brittany.Internal.Layouters.Expr
     Language.Haskell.Brittany.Internal.Layouters.IE
