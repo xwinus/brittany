@@ -1208,8 +1208,8 @@ layoutClsInst lcid@(L _ cid) = docLines
 
   -- | ExactPrint adds indentation/newlines to @data@/@type@ declarations
   stripWhitespace :: BriDocF f -> BriDocF f
-  stripWhitespace (BDFExternal ann anns b t) =
-    BDFExternal ann anns b $ stripWhitespace' t
+  stripWhitespace (BDFExternal ann anns comments b t) =
+    BDFExternal ann anns comments b $ stripWhitespace' t
   stripWhitespace b = b
 
   -- | This fixes two issues of output coming from Exactprinting

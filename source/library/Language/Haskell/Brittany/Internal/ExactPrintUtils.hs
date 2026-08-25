@@ -53,6 +53,7 @@ import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.Config.Types
 import qualified Language.Haskell.Brittany.Internal.ParseModule as ParseModule
 import Language.Haskell.Brittany.Internal.Prelude
+import Language.Haskell.Brittany.Internal.Types (OriginalSource)
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrint
 import qualified System.IO
@@ -331,12 +332,12 @@ foldedAnnKeys ast = SYB.everything
 withTransformedAnns
   :: Data ast
   => ast
-  -> MultiRWSS.MultiRWS '[Config , ExactPrint.Anns] w s a
-  -> MultiRWSS.MultiRWS '[Config , ExactPrint.Anns] w s a
+  -> MultiRWSS.MultiRWS '[Config, ExactPrint.Anns, OriginalSource] w s a
+  -> MultiRWSS.MultiRWS '[Config, ExactPrint.Anns, OriginalSource] w s a
 withTransformedAnns ast m = MultiRWSS.mGetRawR >>= \case
-  readers@(conf :+: anns :+: HNil) -> do
+  readers@(conf :+: anns :+: source :+: HNil) -> do
     -- TODO: implement `local` for MultiReader/MultiRWS
-    MultiRWSS.mPutRawR (conf :+: f anns :+: HNil)
+    MultiRWSS.mPutRawR (conf :+: f anns :+: source :+: HNil)
     x <- m
     MultiRWSS.mPutRawR readers
     pure x

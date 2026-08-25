@@ -8,7 +8,8 @@ expressionSplice =
   $( -- Keep the expression splice comment.
      pure [| 1 |]
    )
-declarations = [d|
+declarations =
+  [d|
   -- Keep the declaration quote comment.
   generated = 1
   |]

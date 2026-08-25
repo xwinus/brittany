@@ -38,9 +38,17 @@ type PPM = MultiRWSS.MultiRWS
   '[]
 
 type PPMLocal = MultiRWSS.MultiRWS
-  '[Config, Anns]
+  '[Config, Anns, OriginalSource]
   '[Text.Builder.Builder, [BrittanyError], Seq String]
   '[]
+
+newtype OriginalSource = OriginalSource Text
+
+newtype SourceCommentKey = SourceCommentKey SrcSpan
+  deriving (Data.Data.Data, Eq, Show)
+
+instance Ord SourceCommentKey where
+  compare left right = compare (show left) (show right)
 
 newtype TopLevelDeclNameMap = TopLevelDeclNameMap (Map AnnKey String)
 
@@ -219,7 +227,7 @@ data PriorCommentMode
   deriving (Eq, Ord, Data.Data.Data, Show)
 
 type ToBriDocM = MultiRWSS.MultiRWS
-                   '[Config, Anns] -- reader
+                   '[Config, Anns, OriginalSource] -- reader
                    '[[BrittanyError], Seq String] -- writer
                    '[NodeAllocIndex] -- state
 
@@ -262,6 +270,7 @@ data BriDoc
   | BDExternal AnnKey
                (Set AnnKey) -- set of annkeys contained within the node
                             -- to be printed via exactprint
+               (Maybe (Set SourceCommentKey)) -- comments in a source slice
                Bool -- should print extra comment ?
                Text
   | BDPlain Bool !Text -- used for QuasiQuotes, content can be multi-line
@@ -312,6 +321,7 @@ data BriDocF f
   | BDFExternal AnnKey
                (Set AnnKey) -- set of annkeys contained within the node
                             -- to be printed via exactprint
+               (Maybe (Set SourceCommentKey)) -- comments in a source slice
                Bool -- should print extra comment ?
                Text
   | BDFPlain Bool !Text -- used for QuasiQuotes, content can be multi-line
@@ -390,7 +400,7 @@ unwrapBriDocNumbered tpl = case snd tpl of
   BDFPar ind line indented     -> BDPar ind (rec line) (rec indented)
   BDFAlt             alts      -> BDAlt $ rec <$> alts -- not that this will happen
   BDFForwardLineMode bd        -> BDForwardLineMode $ rec bd
-  BDFExternal k ks c t         -> BDExternal k ks c t
+  BDFExternal k ks cs c t      -> BDExternal k ks cs c t
   BDFPlain canHang t           -> BDPlain canHang t
   BDFAnnotationPrior priorMode annKey bd ->
     BDAnnotationPrior priorMode annKey $ rec bd
