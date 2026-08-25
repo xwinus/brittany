@@ -44,6 +44,9 @@
   with five or more fields when their compact form exceeds the column limit.
 * Rebased Haddock section headings in module export lists to the selected
   export content column while preserving their section levels and ownership.
+* Preserved leading comments on natively formatted data declarations, including
+  mixed section, constructor, record-field, and deriving comments.
+
 ## 0.14.0.0 -- November 2021
 
 * #357: Added support for GHC 9.0. Dropped support for all other versions of GHC.

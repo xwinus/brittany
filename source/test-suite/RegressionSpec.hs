@@ -1,6 +1,7 @@
 module RegressionSpec (spec) where
 
 import qualified Language.Haskell.Brittany.Main as Brittany
+import qualified Language.Haskell.Brittany.Internal.ParseModule as ParseModule
 import qualified System.Directory as Directory
 import qualified System.Exit as Exit
 import qualified System.FilePath as FilePath
@@ -179,6 +180,17 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects a malformed long prefix constructor"
       "LongPrefixConstructorInvalid.hs"
 
+  Hspec.describe "leading data declaration comments" $ do
+    strictHaddockColumnsIdempotentFormattingExample projectRoot
+      "preserves leading Haddock comments on long data declarations"
+      "LeadingDataCommentExpected.hs"
+    strictHaddockColumnsIdempotentFormattingExample projectRoot
+      "preserves mixed comments across H98 and GADT declarations"
+      "LeadingDataCommentEdge.hs"
+    parseFailureExample projectRoot
+      "rejects malformed commented data syntax without changing the input"
+      "LeadingDataCommentInvalid.hs"
+
   Hspec.describe "final result Haddock comments" $ do
     idempotentFormattingExample projectRoot
       "keeps a final result comment aligned with its signature"
@@ -311,15 +323,22 @@ strictColumnsIdempotentFormattingExample
   :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
 strictColumnsIdempotentFormattingExample projectRoot description fixtureName =
   columnsIdempotentFormattingExampleWith
-    ["--fail-on-fallback"] projectRoot description fixtureName
+    ["--fail-on-fallback"] False projectRoot description fixtureName
+
+strictHaddockColumnsIdempotentFormattingExample
+  :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
+strictHaddockColumnsIdempotentFormattingExample projectRoot description fixtureName =
+  columnsIdempotentFormattingExampleWith
+    ["--fail-on-fallback"] True projectRoot description fixtureName
 
 columnsIdempotentFormattingExample
   :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
-columnsIdempotentFormattingExample = columnsIdempotentFormattingExampleWith []
+columnsIdempotentFormattingExample = columnsIdempotentFormattingExampleWith [] False
 
 columnsIdempotentFormattingExampleWith
-  :: [String] -> FilePath -> String -> FilePath -> Hspec.SpecWith ()
-columnsIdempotentFormattingExampleWith extraArgs projectRoot description fixtureName =
+  :: [String] -> Bool -> FilePath -> String -> FilePath -> Hspec.SpecWith ()
+columnsIdempotentFormattingExampleWith
+  extraArgs validateHaddock projectRoot description fixtureName =
   Hspec.it description $ do
     let fixture = fixturePath projectRoot fixtureName
         output = outputPath projectRoot fixtureName
@@ -331,6 +350,14 @@ columnsIdempotentFormattingExampleWith extraArgs projectRoot description fixture
     firstPass <- readFile output
     firstPass `Hspec.shouldBe` expected
     filter ((> 80) . length) (lines firstPass) `Hspec.shouldBe` []
+    if validateHaddock
+      then do
+        parsed <- ParseModule.parseModule ["-haddock"] output
+          (const $ pure $ Right ()) firstPass
+        case parsed of
+          Left parseError -> Hspec.expectationFailure parseError
+          Right _ -> pure ()
+      else pure ()
     Brittany.mainWith "brittany" args
     secondPass <- readFile output
     secondPass `Hspec.shouldBe` firstPass
