@@ -4,12 +4,24 @@
 module Language.Haskell.Brittany.Internal.PatternComments
   ( commentSensitivePatterns
   , exactSourcePatterns
+  , supportedBangPatterns
+  , supportedStrictBindingNames
   ) where
 
 import Data.Data (Data)
 import qualified Data.Generics as SYB
 import GHC (GenLocated(L), Located, unLoc)
-import GHC.Hs (HsConDetails(..), HsUntypedSplice(..), LPat, Pat(..))
+import GHC.Hs
+  ( HsConDetails(..)
+  , HsMatchContext(..)
+  , HsUntypedSplice(..)
+  , LHsExpr
+  , LMatch
+  , LPat
+  , Match(..)
+  , Pat(..)
+  , SrcStrictness(SrcStrict)
+  )
 import GHC.Parser.Annotation (getLocA)
 import Language.Haskell.Brittany.Internal.Prelude
 
@@ -22,6 +34,27 @@ commentSensitivePatterns = collectPatterns isCommentSensitive
 -- comments.
 exactSourcePatterns :: Data ast => ast -> [Located (Pat GhcPs)]
 exactSourcePatterns = collectPatterns requiresExactSource
+
+-- | Find bang patterns that the native pattern layouter can render safely.
+supportedBangPatterns :: Data ast => ast -> [Located (Pat GhcPs)]
+supportedBangPatterns = collectPatterns $ \case
+  BangPat{} -> True
+  _ -> False
+
+-- | Find strict function bindings, which GHC represents separately from
+-- 'BangPat' pattern bindings.
+supportedStrictBindingNames :: Data ast => ast -> [Located RdrName]
+supportedStrictBindingNames = SYB.everything (++) strictBindingQuery
+ where
+  strictBindingQuery :: SYB.GenericQ [Located RdrName]
+  strictBindingQuery = const [] `SYB.extQ` collectStrictBinding
+
+  collectStrictBinding
+    :: LMatch GhcPs (LHsExpr GhcPs) -> [Located RdrName]
+  collectStrictBinding (L _ (Match _ context _ _)) = case context of
+    FunRhs bindingName _ SrcStrict _ ->
+      [L (getLocA bindingName) (unLoc bindingName)]
+    _ -> []
 
 collectPatterns
   :: Data ast
@@ -55,7 +88,6 @@ isCommentSensitive = \case
 
 requiresExactSource :: Pat GhcPs -> Bool
 requiresExactSource = \case
-  BangPat{} -> True
   InvisPat{} -> True
   LazyPat{} -> True
   OrPat{} -> True

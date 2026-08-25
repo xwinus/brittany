@@ -92,6 +92,26 @@ spec projectRoot = Hspec.describe "fallback inventory and reporting" $ do
     messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "WholeModuleFallback")
 
+  Hspec.it "keeps commented bang bindings outside declaration fallback" $ do
+    Monad.forM_
+      [ "TemplateHaskellBangBindingInput.hs"
+      , "TemplateHaskellFallbackEdgeInput.hs"
+      ]
+      $ \fixture -> do
+        (result, messages) <- runFormatterResult projectRoot strictFallbackConfig
+          True
+          fixture
+          Nothing
+        (result == Left 70) `Hspec.shouldBe` True
+        messages `Hspec.shouldSatisfy` any
+          (List.isInfixOf "ExpressionFallback")
+        messages `Hspec.shouldNotSatisfy` any
+          (List.isInfixOf "DeclarationFallback")
+        messages `Hspec.shouldNotSatisfy` any
+          (List.isInfixOf "PatternFallback")
+        messages `Hspec.shouldNotSatisfy` any
+          (List.isInfixOf "WholeModuleFallback")
+
   Hspec.it "keeps a strict quasiquote fallback at inline pattern scope" $ do
     (result, messages) <- runFormatterResult projectRoot strictFallbackConfig
       True

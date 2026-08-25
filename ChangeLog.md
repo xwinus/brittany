@@ -42,6 +42,8 @@
   statements, and `where` clauses retain native indentation.
 * Scoped Template Haskell bracket and splice fallbacks to expression nodes while
   preserving and rebasing their exact source contents and comments.
+* Kept commented local bang bindings on the native declaration path while
+  retaining expression-scoped fallback for their Template Haskell quotes.
 * Scoped pattern quasiquote fallback to the pattern leaf so surrounding case
   alternatives and declarations retain native indentation.
 * Preserved intentional blank lines between statements in `do`, `mdo`, and
