@@ -167,6 +167,7 @@ test-suite brittany-test-suite
   other-modules:
     CompatibilityMatrix
     CompatibilitySpec
+    ExtractAnnsSpec
     FallbackSpec
     PreprocessorSpec
     RegressionSpec
