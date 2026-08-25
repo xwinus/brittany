@@ -31,18 +31,19 @@ transformSimplifyFloating = stepBO .> stepFull
  where
   descendPrior = transformDownMay $ \case
     -- prior floating in
-    BDAnnotationPrior annKey1 (BDPar ind line indented) ->
-      Just $ BDPar ind (BDAnnotationPrior annKey1 line) indented
-    BDAnnotationPrior annKey1 (BDSeq (l : lr)) ->
-      Just $ BDSeq (BDAnnotationPrior annKey1 l : lr)
-    BDAnnotationPrior annKey1 (BDLines (l : lr)) ->
-      Just $ BDLines (BDAnnotationPrior annKey1 l : lr)
-    BDAnnotationPrior annKey1 (BDCols sig (l : lr)) ->
-      Just $ BDCols sig (BDAnnotationPrior annKey1 l : lr)
-    BDAnnotationPrior annKey1 (BDAddBaseY indent x) ->
-      Just $ BDAddBaseY indent $ BDAnnotationPrior annKey1 x
-    BDAnnotationPrior annKey1 (BDDebug s x) ->
-      Just $ BDDebug s $ BDAnnotationPrior annKey1 x
+    BDAnnotationPrior priorMode annKey1 (BDPar ind line indented) ->
+      Just $ BDPar ind
+        (BDAnnotationPrior priorMode annKey1 line) indented
+    BDAnnotationPrior priorMode annKey1 (BDSeq (l : lr)) ->
+      Just $ BDSeq (BDAnnotationPrior priorMode annKey1 l : lr)
+    BDAnnotationPrior priorMode annKey1 (BDLines (l : lr)) ->
+      Just $ BDLines (BDAnnotationPrior priorMode annKey1 l : lr)
+    BDAnnotationPrior priorMode annKey1 (BDCols sig (l : lr)) ->
+      Just $ BDCols sig (BDAnnotationPrior priorMode annKey1 l : lr)
+    BDAnnotationPrior priorMode annKey1 (BDAddBaseY indent x) ->
+      Just $ BDAddBaseY indent $ BDAnnotationPrior priorMode annKey1 x
+    BDAnnotationPrior priorMode annKey1 (BDDebug s x) ->
+      Just $ BDDebug s $ BDAnnotationPrior priorMode annKey1 x
     _ -> Nothing
   descendRest = transformDownMay $ \case
     -- post floating in
@@ -124,8 +125,8 @@ transformSimplifyFloating = stepBO .> stepFull
     -- merge AddIndent and Par
     BDAddBaseY ind1 (BDPar ind2 line indented) ->
       Just $ BDPar (mergeIndents ind1 ind2) line indented
-    BDAddBaseY ind (BDAnnotationPrior annKey1 x) ->
-      Just $ BDAnnotationPrior annKey1 (BDAddBaseY ind x)
+    BDAddBaseY ind (BDAnnotationPrior priorMode annKey1 x) ->
+      Just $ BDAnnotationPrior priorMode annKey1 (BDAddBaseY ind x)
     BDAddBaseY ind (BDAnnotationRest annKey1 x) ->
       Just $ BDAnnotationRest annKey1 (BDAddBaseY ind x)
     BDAddBaseY ind (BDAnnotationKW annKey1 kw x) ->
@@ -177,14 +178,15 @@ transformSimplifyFloating = stepBO .> stepFull
       Just $ BDBaseYPushCur (BDAddBaseY ind x)
     BDAddBaseY ind (BDBaseYPop x) -> Just $ BDBaseYPop (BDAddBaseY ind x)
     -- prior floating in
-    BDAnnotationPrior annKey1 (BDPar ind line indented) ->
-      Just $ BDPar ind (BDAnnotationPrior annKey1 line) indented
-    BDAnnotationPrior annKey1 (BDSeq (l : lr)) ->
-      Just $ BDSeq ((BDAnnotationPrior annKey1 l) : lr)
-    BDAnnotationPrior annKey1 (BDLines (l : lr)) ->
-      Just $ BDLines ((BDAnnotationPrior annKey1 l) : lr)
-    BDAnnotationPrior annKey1 (BDCols sig (l : lr)) ->
-      Just $ BDCols sig ((BDAnnotationPrior annKey1 l) : lr)
+    BDAnnotationPrior priorMode annKey1 (BDPar ind line indented) ->
+      Just $ BDPar ind
+        (BDAnnotationPrior priorMode annKey1 line) indented
+    BDAnnotationPrior priorMode annKey1 (BDSeq (l : lr)) ->
+      Just $ BDSeq ((BDAnnotationPrior priorMode annKey1 l) : lr)
+    BDAnnotationPrior priorMode annKey1 (BDLines (l : lr)) ->
+      Just $ BDLines ((BDAnnotationPrior priorMode annKey1 l) : lr)
+    BDAnnotationPrior priorMode annKey1 (BDCols sig (l : lr)) ->
+      Just $ BDCols sig ((BDAnnotationPrior priorMode annKey1 l) : lr)
     -- EnsureIndent float-in
     -- BDEnsureIndent indent (BDCols sig (col:colr)) ->
     --   Just $ BDCols sig (BDEnsureIndent indent col : (BDAddBaseY indent <$> colr))

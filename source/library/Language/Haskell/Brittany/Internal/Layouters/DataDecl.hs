@@ -4,11 +4,17 @@
 
 module Language.Haskell.Brittany.Internal.Layouters.DataDecl where
 
+import qualified Data.Char as Char
 import GHC (GenLocated(L), Located, unLoc)
 import GHC.Hs
 import GHC.Types.SrcLoc (noSrcSpan)
 import qualified GHC.OldList as List
-import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..))
+import Language.Haskell.Brittany.Internal.ExactPrintCompat
+  ( AnnKeywordId(..)
+  , Annotation(annPriorComments)
+  , Comment(commentContents)
+  , mkAnnKey
+  )
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.DataDecl.Constructor
@@ -242,26 +248,64 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
     constructorDocs <- constructors `forM` \(lcons, constructorName, details) -> do
       constructorNameStr <- applyNameAdornment constructorName
         <$> lrdrNameToTextAnn (toL constructorName)
-      return <$> docWrapNode (toL lcons)
-        (createMultipleDetailsDoc constructorNameStr details)
+      inlineHaddock <- hasInlineHaddockPrior (toL lcons)
+      constructorDoc <- return
+        <$> (if inlineHaddock then docWrapNodeRest else docWrapNode)
+          (toL lcons)
+          (createMultipleDetailsDoc constructorNameStr details)
+      pure (toL lcons, inlineHaddock, constructorDoc)
     let header = docNodeAnnKW ltycl (Just AnnData) $ docSeq
           [ appSep $ docLitS "data"
           , docForceSingleline lhsContextDoc
           , appSep $ docLit nameStr
           , tyVarLine
           ]
-        constructorLines = zipWith
-          (\separator constructorDoc -> docSeq
-            [ docLitS separator
-            , docSeparator
-            , docSetBaseY constructorDoc
-            ])
+        constructorLines = zipWith constructorLine
           ("=" : repeat "|")
           constructorDocs
     createDerivingPar derivings
       $ docAddBaseY BrIndentRegular
       $ docPar header
       $ docLines constructorLines
+
+  constructorLine separator (constructor, inlineHaddock, constructorDoc)
+    | inlineHaddock = docLines
+        [ docSeq
+          [ docLitS separator
+          , docSeparator
+          , docAnnotationPriorInline (mkAnnKey constructor) docEmpty
+          ]
+        , docEnsureIndent BrIndentRegular constructorDoc
+        ]
+    | otherwise = docSeq
+        [ docLitS separator
+        , docSeparator
+        , docSetBaseY constructorDoc
+        ]
+
+  hasInlineHaddockPrior
+    :: Located (ConDecl GhcPs) -> ToBriDocM Bool
+  hasInlineHaddockPrior constructor = astAnn constructor <&> \case
+    Just ann -> case annPriorComments ann of
+      (firstComment, _) : restComments ->
+        isSingleLineHaddock firstComment
+          && all (isSingleLineComment . fst) restComments
+      [] -> False
+    Nothing -> False
+
+  isSingleLineHaddock priorComment =
+    let contents = commentContents priorComment
+        trimmed = dropWhile Char.isSpace contents
+    in case trimmed of
+      '-' : '-' : rest
+        | '|' : _ <- dropWhile Char.isSpace rest ->
+            isSingleLine contents
+      _ -> False
+
+  isSingleLineComment = isSingleLine . commentContents
+
+  isSingleLine contents =
+    '\n' `notElem` contents && '\r' `notElem` contents
 
   layoutGadtConstructors context derivings constructors = docWrapNode ltycl $ do
     lhsContextDoc <- docSharedWrapper createContextDoc

@@ -48,6 +48,8 @@
   export content column while preserving their section levels and ownership.
 * Preserved leading comments on natively formatted data declarations, including
   mixed section, constructor, record-field, and deriving comments.
+* Kept single-line Haddock constructor comments beside Haskell 98 data
+  separators while preserving structural layout for other comment forms.
 
 ## 0.14.0.0 -- November 2021
 
