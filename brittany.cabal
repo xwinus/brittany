@@ -126,6 +126,7 @@ library
     Language.Haskell.Brittany.Internal.Layouters.Expr
     Language.Haskell.Brittany.Internal.Layouters.IE
     Language.Haskell.Brittany.Internal.Layouters.Import
+    Language.Haskell.Brittany.Internal.Layouters.Instance
     Language.Haskell.Brittany.Internal.Layouters.Module
     Language.Haskell.Brittany.Internal.Layouters.Pattern
     Language.Haskell.Brittany.Internal.Layouters.Stmt
@@ -170,6 +171,7 @@ test-suite brittany-test-suite
     CompatibilitySpec
     ExtractAnnsSpec
     FallbackSpec
+    InstanceHeadSpec
     PreambleSpacingSpec
     PreprocessorSpec
     RegressionSpec

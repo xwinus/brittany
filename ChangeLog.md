@@ -56,6 +56,8 @@
   keeping complete records compact when they fit on one line.
 * Preserved intentional blank lines between leading pragmas or comments and
   module declarations, including implicit modules.
+* Added native width-aware layout for common instance heads, including
+  contexts, explicit binders, overlap pragmas, and associated members.
 
 ## 0.14.0.0 -- November 2021
 

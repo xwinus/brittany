@@ -222,6 +222,21 @@ spec projectRoot = Hspec.describe "fallback inventory and reporting" $ do
     messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "DataDeclarationFallback")
 
+  Hspec.it "does not report a fallback for a supported instance head" $ do
+    messages <- runFormatter projectRoot fallbackReportingConfig
+      "InstanceHeadInput.hs"
+    messages `Hspec.shouldNotSatisfy` any
+      (List.isInfixOf "TypeClassDeclarationFallback")
+
+  Hspec.it "reports an unsupported instance head at declaration scope" $ do
+    messages <- runFormatter projectRoot fallbackReportingConfig
+      "InstanceHeadUnsupported.hs"
+    messages `Hspec.shouldSatisfy` any
+      (List.isInfixOf "TypeClassDeclarationFallback")
+    messages `Hspec.shouldSatisfy` any (List.isInfixOf "declaration scope")
+    messages `Hspec.shouldNotSatisfy` any
+      (List.isInfixOf "WholeModuleFallback")
+
   Hspec.it "does not escalate lambda-case formatting to a whole-module fallback" $ do
     messages <- runFormatter projectRoot fallbackReportingConfig
       "LambdaCaseEdge.hs"

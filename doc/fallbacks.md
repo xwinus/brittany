@@ -35,7 +35,7 @@ trigger, rationale, compatibility features, and regression fixtures.
 | `DeclarationFallback` | declaration | exact source | Foreign declarations, pragmas, splices, and experimental top-level forms outside the native declaration model. |
 | `SignatureFallback` | declaration | exact source | Specialisation, fixity, and other signatures outside the native signature subset. |
 | `ImplicitParameterFallback` | declaration | exact source | Implicit-parameter bindings outside the native binding subset. |
-| `TypeClassDeclarationFallback` | declaration | exact source | Type, class, family, and experimental binder forms outside native declaration layout. |
+| `TypeClassDeclarationFallback` | declaration | exact source | Type, class, family, unsupported instance heads, and experimental binder forms outside native declaration layout. |
 | `FamilyDefaultFallback` | declaration | exact source | Default associated family equations whose annotations are not safely reconstructed. |
 | `ExpressionFallback` | inline | exact source | Extension-specific expressions whose punctuation or comments need exact preservation. |
 | `TypeFallback` | inline | exact source | Type operators, splices, sums, and other type forms outside native layout. |

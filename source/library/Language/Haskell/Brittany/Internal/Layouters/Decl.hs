@@ -46,6 +46,7 @@ import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
 import Language.Haskell.Brittany.Internal.Layouters.Pattern
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Stmt
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
+import Language.Haskell.Brittany.Internal.Layouters.Instance
 import Language.Haskell.Brittany.Internal.Layouters.Type
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
@@ -84,7 +85,7 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
   InstD _ (TyFamInstD _ tfid) ->
     layoutExactWhenCommented d $ layoutTyFamInstDecl False d tfid
   InstD _ (ClsInstD _ inst) ->
-    layoutExactWhenCommented d $ do
+    layoutInstanceExactWhenCommented d $ do
       followComments <- astFollowingComments d
       docSeq
         [ layoutClsInst (L loc inst)
@@ -144,6 +145,34 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
     if hasComments
       then layoutExact DeclarationFallback declaration exactText
       else formatted
+
+  layoutInstanceExactWhenCommented declaration formatted = do
+    connectedComments <- astConnectedComments declaration
+    let hasConnectedComments = any
+          (\connectedPair ->
+            isRegularComment connectedPair
+              && not (isPragmaComment connectedPair)
+          )
+          connectedComments
+        hasSourceNonPragmaComments = hasSourceComments && case exactText of
+          Nothing -> True
+          Just source -> sourceHasNonPragmaComment source
+    if hasConnectedComments || hasSourceNonPragmaComments
+      then layoutExact DeclarationFallback declaration exactText
+      else formatted
+
+  isPragmaComment = Text.isPrefixOf (Text.pack "{-#")
+    . Text.stripStart
+    . Text.pack
+    . commentContents
+    . fst
+
+  sourceHasNonPragmaComment source = any hasComment $ Text.lines source
+   where
+    hasComment line = Text.isInfixOf (Text.pack "--") line
+      || ( Text.isInfixOf (Text.pack "{-") line
+        && not (Text.isInfixOf (Text.pack "{-#") line)
+         )
 
   layoutExact fallback declaration source = case source of
     Just text -> do
@@ -1141,7 +1170,7 @@ layoutHsTyPats pats = pats <&> \case
 --   instances using ExactPrint.
 layoutClsInst :: ToBriDoc ClsInstDecl
 layoutClsInst lcid@(L _ cid) = docLines
-  [ layoutInstanceHead
+  [ layoutInstanceHead lcid
   , docEnsureIndent BrIndentRegular
   $ docSetIndentLevel
   $ docSortedLines
@@ -1151,22 +1180,6 @@ layoutClsInst lcid@(L _ cid) = docLines
   ++ fmap (layoutAndLocateDataFamInsts . toL) (cid_datafam_insts cid)
   ]
  where
-  layoutInstanceHead :: ToBriDocM BriDocNumbered
-  layoutInstanceHead =
-    briDocByExactNoComment TypeClassDeclarationFallback
-      $ InstD NoExtField
-      . ClsInstD NoExtField
-      . removeChildren
-      <$> lcid
-
-  removeChildren :: ClsInstDecl GhcPs -> ClsInstDecl GhcPs
-  removeChildren c = c
-    { cid_binds = []
-    , cid_sigs = []
-    , cid_tyfam_insts = []
-    , cid_datafam_insts = []
-    }
-
   -- | Like 'docLines', but sorts the lines based on location
   docSortedLines
     :: [ToBriDocM (Located BriDocNumbered)] -> ToBriDocM BriDocNumbered

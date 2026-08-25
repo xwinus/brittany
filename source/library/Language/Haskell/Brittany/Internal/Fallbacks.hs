@@ -107,10 +107,12 @@ fallbackInfo fallback = FallbackInfo
     TypeClassDeclarationFallback ->
       ( DeclarationScope
       , ExactSourceSupport
-      , "type and class declaration forms outside the native subset"
-      , "the native declaration path cannot preserve every binder shape"
+      , "type, class, and instance head forms outside the native subset"
+      , "the native declaration path cannot preserve every binder and type shape"
       , ["TypeData", "TypeFamilies"]
-      , ["source/test-suite/fixtures/TypeDataEdge.hs"]
+      , [ "source/test-suite/fixtures/TypeDataEdge.hs"
+        , "source/test-suite/fixtures/InstanceHeadUnsupported.hs"
+        ]
       )
     FamilyDefaultFallback ->
       ( DeclarationScope
