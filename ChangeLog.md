@@ -34,6 +34,8 @@
   keeping short constructor patterns compact.
 * Kept final Haddock result comments aligned with multiline type signatures
   instead of moving them to the following value declaration.
+* Scoped quasiquote fallback to the expression leaf so surrounding bindings,
+  statements, and `where` clauses retain native indentation.
 ## 0.14.0.0 -- November 2021
 
 * #357: Added support for GHC 9.0. Dropped support for all other versions of GHC.

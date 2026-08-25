@@ -61,6 +61,20 @@ spec projectRoot = Hspec.describe "fallback inventory and reporting" $ do
     messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "WholeModuleFallback")
 
+  Hspec.it "keeps a strict quasiquote fallback at inline expression scope" $ do
+    (result, messages) <- runFormatterResult projectRoot strictFallbackConfig
+      True
+      "ScopedExpressionFallbackInput.hs"
+      Nothing
+    (result == Left 70) `Hspec.shouldBe` True
+    messages `Hspec.shouldSatisfy` any
+      (List.isInfixOf "ExpressionFallback")
+    messages `Hspec.shouldSatisfy` any (List.isInfixOf "inline scope")
+    messages `Hspec.shouldNotSatisfy` any
+      (List.isInfixOf "DeclarationFallback")
+    messages `Hspec.shouldNotSatisfy` any
+      (List.isInfixOf "WholeModuleFallback")
+
   Hspec.it "succeeds in strict mode when native layout handles the input" $ do
     let input = fixturePath projectRoot "LambdaCaseEdge.hs"
         output = FilePath.combine projectRoot "output/FallbackStrictNative.hs"
