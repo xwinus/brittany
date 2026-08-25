@@ -10,10 +10,10 @@ import Language.Haskell.Brittany.Internal.ParseModule (parseModule)
 import qualified Test.Hspec as Hspec
 
 spec :: Hspec.Spec
-spec = Hspec.describe "declaration annotation extraction" $
+spec = Hspec.describe "annotation extraction" $ do
   Hspec.it "assigns a final post-doc only to the preceding signature" $ do
     parsed <- parseModule [] "FinalResultHaddockAnnotation.hs"
-      (const $ pure $ Right ()) source
+      (const $ pure $ Right ()) finalResultSource
     case parsed of
       Left parseError -> Hspec.expectationFailure parseError
       Right (annotations, L _ parsedModule, ()) ->
@@ -33,8 +33,26 @@ spec = Hspec.describe "declaration annotation extraction" $
           declarations -> Hspec.expectationFailure
             $ "expected signature and value declarations, got "
             ++ show (length declarations)
+  Hspec.it "marks export Haddock sections without changing heading levels" $ do
+    parsed <- parseModule [] "ExportSectionAnnotations.hs"
+      (const $ pure $ Right ()) exportSectionSource
+    case parsed of
+      Left parseError -> Hspec.expectationFailure parseError
+      Right (annotations, _, ()) -> do
+        let comments = allCommentValues annotations
+            sectionComments = List.sort
+              $ filter (List.isPrefixOf "-- *")
+              $ map commentContents comments
+            rebasedComments =
+              [ commentContents comment
+              | comment <- comments
+              , commentOrigin comment == Just AnnHaddockSection
+              ]
+        sectionComments `Hspec.shouldBe`
+          ["-- * Public API", "-- ** Nested values"]
+        List.sort rebasedComments `Hspec.shouldBe` sectionComments
  where
-  source = unlines
+  finalResultSource = unlines
     [ "module FinalResultHaddockAnnotation where"
     , ""
     , "convert"
@@ -43,6 +61,17 @@ spec = Hspec.describe "declaration annotation extraction" $
     , "    -- ^ conversion result"
     , "-- | Documents convert."
     , "convert = (> 0)"
+    ]
+  exportSectionSource = unlines
+    [ "module ExportSectionAnnotations"
+    , "    ( -- * Public API"
+    , "      first"
+    , "      -- ** Nested values"
+    , "    , second"
+    , "    )"
+    , "where"
+    , "first = 1"
+    , "second = 2"
     ]
 
 commentsFor
@@ -57,9 +86,10 @@ commentsFor select declaration annotations =
   key = mkAnnKey $ L (getLocA declaration) (unLoc declaration)
 
 allComments :: Anns -> [String]
-allComments annotations = do
+allComments = map commentContents . allCommentValues
+
+allCommentValues :: Anns -> [Comment]
+allCommentValues annotations = do
   annotation <- Map.elems annotations
-  map commentContents
-    ( map fst (annPriorComments annotation ++ annFollowingComments annotation)
+  map fst (annPriorComments annotation ++ annFollowingComments annotation)
     ++ [comment | (AnnComment comment, _) <- annsDP annotation]
-    )

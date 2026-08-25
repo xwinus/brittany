@@ -193,11 +193,13 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "ScopedExpressionFallbackInvalid.hs"
 
   Hspec.describe "module export-list comments" $ do
-    idempotentFormattingExample projectRoot
-      "keeps Haddock section headings before their exports"
+    idempotentFormattingFromInputExample projectRoot
+      "rebases Haddock section headings to the export content column"
+      "ExportSectionCommentsInput.hs"
       "ExportSectionCommentsExpected.hs"
-    idempotentFormattingExample projectRoot
-      "preserves mixed comments and export forms in source order"
+    idempotentFormattingFromInputExample projectRoot
+      "preserves nested sections, mixed comments, and export forms"
+      "ExportSectionCommentsEdgeInput.hs"
       "ExportSectionCommentsEdge.hs"
     parseFailureExample projectRoot
       "rejects a malformed commented export list without changing the input"

@@ -262,7 +262,7 @@ extractAnnsFromModule lmod =
       importAnns = extractImportAnns (1, 1) (hsmodImports mod')
       exportAnns = case hsmodExports mod' of
         Nothing -> Map.empty
-        Just llies -> extractIEListAnns llies
+        Just llies -> extractIEListAnns ExportIEList llies
       declAnns = extractDeclAnns (hsmodDecls mod')
       nestedAnns = extractNestedEpAnns (hsmodDecls mod')
       -- Step 6: Apply remaining comment patches to import/decl annotations
@@ -527,7 +527,7 @@ extractImportAnns startRef imports =
               -- Also extract IE list annotations from import items
               ieAnns = case ideclImportList idecl of
                 Nothing -> Map.empty
-                Just (_, llies) -> extractIEListAnns llies
+                Just (_, llies) -> extractIEListAnns ImportIEList llies
           in ((importEnd, Just key), (Map.singleton key ann, ieAnns, trailingPatch))
 
     buildComDP prev ((line, col), (content, spanR)) =
@@ -1006,8 +1006,10 @@ redistributeInnerComments spanMap skipKeys anns =
 
 -- | Extract annotations for IE (import/export) list container and items.
 -- Handles both import lists (ideclImportList) and export lists (hsmodExports).
-extractIEListAnns :: GenLocated (EpAnn ann) [LIE GhcPs] -> Anns
-extractIEListAnns llies@(L epann lies) =
+data IEListContext = ImportIEList | ExportIEList deriving Eq
+
+extractIEListAnns :: IEListContext -> GenLocated (EpAnn ann) [LIE GhcPs] -> Anns
+extractIEListAnns listContext llies@(L epann lies) =
   let -- Get IE item positions for comment redistribution
       iePositions = mapMaybe (\lie -> case lie of
         L (EpAnn anc _ _) _ ->
@@ -1053,8 +1055,28 @@ extractIEListAnns llies@(L epann lies) =
                , annPriorComments = pp ++ annPriorComments ann
                }
         ) itemAnns
-  in containerAnns <> mergedItems
+      anns = containerAnns <> mergedItems
+  in if listContext == ExportIEList
+    then Map.map markHaddockSections anns
+    else anns
   where
+    markHaddockSections ann = ann
+      { annFollowingComments = map markSection (annFollowingComments ann)
+      , annPriorComments = map markSection (annPriorComments ann)
+      }
+
+    markSection commentAndDP@(comment, dp)
+      | isHaddockSectionComment comment =
+          (comment { commentOrigin = Just AnnHaddockSection }, dp)
+      | otherwise = commentAndDP
+
+    isHaddockSectionComment comment =
+      case dropWhile Char.isSpace (commentContents comment) of
+        '-' : '-' : rest -> case dropWhile Char.isSpace rest of
+          '*' : _ -> True
+          _ -> False
+        _ -> False
+
     extractIEItem
       :: ((Int, Int), Maybe AnnKey)
       -> LIE GhcPs

@@ -261,6 +261,11 @@ layoutBriDocM = \case
       <&> _conf_layout
       .> _lconfig_experimentalSemicolonNewlines
       .> confUnpack
+    indentAmount <-
+      mAsk
+      <&> _conf_layout
+      .> _lconfig_indentAmount
+      .> confUnpack
     mModify $ \state -> state
       { _lstate_comments = Map.adjust
         (\ann -> ann
@@ -281,14 +286,24 @@ layoutBriDocM = \case
       Just comments -> do
         -- For multi-line following comments (y>0), x is absolute column
         -- (0-indexed) but layoutMoveToCommentPos does indLevelLinger + x.
-        -- Compensate by subtracting indLevelLinger.
+        -- Compensate by subtracting indLevelLinger. Marked export sections
+        -- instead use the current export content column.
         restState <- mGet
         let indLinger = _lstate_indLevelLinger restState
         comments
-          `forM_` \(ExactPrintCompat.Comment _ _ commentStr, ExactPrintCompat.DP (y, x)) ->
+          `forM_` \(ExactPrintCompat.Comment origin _ commentStr, ExactPrintCompat.DP (y, x)) ->
                     when (commentStr /= "(" && commentStr /= ")") $ do
                       let commentLines = Text.lines $ Text.pack commentStr
-                          adjustedX = if y > 0 then x - indLinger else x
+                          adjustedX
+                            | y > 0
+                            , origin == Just ExactPrintCompat.AnnHaddockSection =
+                                max 0
+                                  (lstate_baseY restState
+                                    + indentAmount
+                                    - indLinger
+                                  )
+                            | y > 0 = x - indLinger
+                            | otherwise = x
                       case commentStr of
                         ('#' : _) -> layoutMoveToCommentPos y (-999) 1
                                    --  ^ evil hack for CPP
