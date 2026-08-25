@@ -1,20 +1,21 @@
 module ExportSectionCommentsEdge
-  ( -- * Public API
-    Thing(..)
+    ( -- * Public API
+      Thing(..)
 
-    -- ** Values
-  , value
+      -- ** Values
+    , value
     -- Keep the operator export in this section.
-  , (.+.)
+    , (.+.)
     -- $named
-  , documented
+    , documented
     {-| Multiline export documentation.
         stays with multiline.
     -}
-  , multiline
-  , finalValue
+    , multiline
+    , finalValue
     -- End of exports.
-  ) where
+    )
+where
 data Thing = Thing Int
 value = 1
 left .+. right = left + right

@@ -1,6 +1,7 @@
 module ExportSectionCommentsExpected
   ( -- * First section
     first
+
     -- * Second section
   , second
   ) where

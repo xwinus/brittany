@@ -61,6 +61,7 @@ data AnnKeywordId
   | AnnCloseB
   | AnnData
   | AnnElse
+  | AnnHaddockSection -- Internal marker for export-list section layout.
   deriving (Data, Eq, Ord, Show)
 
 type AnnSpan = [SrcSpan]
@@ -152,4 +153,3 @@ modifyAnnsT f = state $ \anns -> ((), f anns)
 
 runTransform :: Anns -> Transform a -> (Anns, a)
 runTransform anns m = let (a, anns') = runState m anns in (anns', a)
-
