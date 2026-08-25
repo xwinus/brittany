@@ -295,6 +295,23 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects malformed record construction without changing the input"
       "VerticalRecordInvalid.hs"
 
+  Hspec.describe "structural small record layout" $ do
+    columnsIdempotentFormattingFromInputExampleAt 80 projectRoot
+      "formats a Headroom-style two-field record structurally"
+      "StructuralSmallRecordInput.hs"
+      "StructuralSmallRecord80Expected.hs"
+    columnsIdempotentFormattingFromInputExampleAt 40 projectRoot
+      "keeps the structural record within a narrow width"
+      "StructuralSmallRecordInput.hs"
+      "StructuralSmallRecord40Expected.hs"
+    columnsIdempotentFormattingFromInputExampleAt 80 projectRoot
+      "handles compact, nested, update, pun, wildcard, and commented records"
+      "StructuralSmallRecordEdgeInput.hs"
+      "StructuralSmallRecordEdgeExpected.hs"
+    parseFailureExample projectRoot
+      "preserves malformed nested construction and update input"
+      "StructuralSmallRecordInvalid.hs"
+
 formattingExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
 formattingExample projectRoot description fixtureName =
   Hspec.it description $ do

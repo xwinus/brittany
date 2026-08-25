@@ -204,7 +204,7 @@ transformAlts =
               options = -- trace ("considering options:" ++ show (length alts, acp)) $
                 (zip spacings alts
                 <&> \(vs, bd) -> -- trace ("spacing=" ++ show vs ++ ",hasSpace=" ++ show (hasSpace lconf acp vs) ++ ",lineCheck=" ++ show (lineCheck vs))
-                                 (hasSpace1 lconf acp vs && lineCheck vs, bd)
+                                 (hasSpace1For lconf acp bd vs && lineCheck vs, bd)
                 )
             rec
               $ fromMaybe (-- trace ("choosing last") $
@@ -231,7 +231,7 @@ transformAlts =
               options = -- trace ("considering options:" ++ show (length alts, acp)) $
                 (zip spacings alts
                 <&> \(vs, bd) -> -- trace ("spacing=" ++ show vs ++ ",hasSpace=" ++ show (hasSpace lconf acp vs) ++ ",lineCheck=" ++ show (lineCheck vs))
-                      (any (hasSpace2 lconf acp) vs && any lineCheck vs, bd)
+                      (any (hasSpace2For lconf acp bd) vs && any lineCheck vs, bd)
                 )
             let
               checkedOptions :: [Maybe (Int, BriDocNumbered)] =
@@ -256,6 +256,7 @@ transformAlts =
         acp' <- mGet
         mSet $ acp' { _acp_forceMLFlag = _acp_forceMLFlag acp }
         return $ x
+      BDFColumnsLimit _ bd -> rec bd
       BDFForwardLineMode bd -> do
         acp <- mGet
         x <- do
@@ -336,24 +337,55 @@ transformAlts =
       mSet $ acp { _acp_line = _acp_line acp + i }
     LineModeValid VerticalSpacing{} -> error "processSpacingSimple par"
     _ -> error "ghc exhaustive check is insufficient"
-  hasSpace1
-    :: LayoutConfig -> AltCurPos -> LineModeValidity VerticalSpacing -> Bool
-  hasSpace1 _ _ LineModeInvalid = False
-  hasSpace1 lconf acp (LineModeValid vs) = hasSpace2 lconf acp vs
-  hasSpace1 _ _ _ = error "ghc exhaustive check is insufficient"
-  hasSpace2 :: LayoutConfig -> AltCurPos -> VerticalSpacing -> Bool
-  hasSpace2 lconf (AltCurPos line _indent _ _) (VerticalSpacing sameLine VerticalSpacingParNone _)
-    = line + sameLine <= confUnpack (_lconfig_cols lconf)
-  hasSpace2 lconf (AltCurPos line indent indentPrep _) (VerticalSpacing sameLine (VerticalSpacingParSome par) _)
-    = line
+  hasSpace1For
+    :: LayoutConfig
+    -> AltCurPos
+    -> BriDocNumbered
+    -> LineModeValidity VerticalSpacing
+    -> Bool
+  hasSpace1For _ _ _ LineModeInvalid = False
+  hasSpace1For lconf acp alternative (LineModeValid vs) =
+    hasSpace2For lconf acp alternative vs
+  hasSpace1For _ _ _ _ = error "ghc exhaustive check is insufficient"
+  hasSpace2For
+    :: LayoutConfig -> AltCurPos -> BriDocNumbered -> VerticalSpacing -> Bool
+  hasSpace2For lconf acp alternative =
+    case alternativeColumnLimit lconf alternative of
+      Just limit -> hasSpaceFromCurrent limit acp
+      Nothing -> hasSpaceWithin (confUnpack $ _lconfig_cols lconf) acp
+  alternativeColumnLimit :: LayoutConfig -> BriDocNumbered -> Maybe Int
+  alternativeColumnLimit lconf (_, BDFColumnsLimit limit _) =
+    Just $ min limit $ confUnpack $ _lconfig_cols lconf
+  alternativeColumnLimit _ _ = Nothing
+  hasSpaceFromCurrent :: Int -> AltCurPos -> VerticalSpacing -> Bool
+  hasSpaceFromCurrent
+    colMax (AltCurPos line _ _ _) (VerticalSpacing sameLine paragraph _) =
+    line + sameLine <= colMax && case paragraph of
+      VerticalSpacingParNone -> True
+      VerticalSpacingParSome par -> line + par <= colMax
+      VerticalSpacingParAlways par -> line + par <= colMax
+  hasSpaceWithin :: Int -> AltCurPos -> VerticalSpacing -> Bool
+  hasSpaceWithin
+    colMax
+    (AltCurPos line _indent _ _)
+    (VerticalSpacing sameLine VerticalSpacingParNone _) =
+    line + sameLine <= colMax
+  hasSpaceWithin
+    colMax
+    (AltCurPos line indent indentPrep _)
+    (VerticalSpacing sameLine (VerticalSpacingParSome par) _) =
+    line
       + sameLine
-      <= confUnpack (_lconfig_cols lconf)
+      <= colMax
       && indent
       + indentPrep
       + par
-      <= confUnpack (_lconfig_cols lconf)
-  hasSpace2 lconf (AltCurPos line _indent _ _) (VerticalSpacing sameLine VerticalSpacingParAlways{} _)
-    = line + sameLine <= confUnpack (_lconfig_cols lconf)
+      <= colMax
+  hasSpaceWithin
+    colMax
+    (AltCurPos line _indent _ _)
+    (VerticalSpacing sameLine VerticalSpacingParAlways{} _) =
+    line + sameLine <= colMax
 
 getSpacing
   :: forall m
@@ -458,6 +490,7 @@ getSpacing !bridoc = rec bridoc
         return $ mVs >>= _vs_paragraph .> \case
           VerticalSpacingParNone -> mVs
           _ -> LineModeInvalid
+      BDFColumnsLimit _ bd -> rec bd
       BDFForwardLineMode bd -> rec bd
       BDFExternal _ _ _ txt -> return $ LineModeValid $ case Text.lines txt of
         [t] -> VerticalSpacing (Text.length t) VerticalSpacingParNone False
@@ -755,6 +788,7 @@ getSpacings limit bridoc = preFilterLimit <$> rec bridoc
       BDFForceSingleline bd -> do
         mVs <- filterAndLimit <$> rec bd
         return $ filter ((== VerticalSpacingParNone) . _vs_paragraph) mVs
+      BDFColumnsLimit _ bd -> rec bd
       BDFForwardLineMode bd -> rec bd
       BDFExternal _ _ _ txt | [t] <- Text.lines txt ->
         return $ [VerticalSpacing (Text.length t) VerticalSpacingParNone False]

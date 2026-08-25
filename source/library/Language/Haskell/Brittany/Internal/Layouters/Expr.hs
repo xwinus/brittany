@@ -1037,8 +1037,11 @@ recordExpression True _ lexpr nameDoc [] = docSeq -- this case might still be in
   , docLit $ Text.pack " .. }"
   ]
 recordExpression dotdot indentPolicy lexpr nameDoc rFs@(rF1 : rFr) = do
+  layoutColumns <- mAsk <&> _conf_layout .> _lconfig_cols .> confUnpack
   let (rF1f, rF1n, rF1e) = rF1
       useHangingLayout = length rFs < 4
+      -- Leave enough width for nested values instead of spending it on alignment.
+      hangingColumnLimit = layoutColumns * 3 `div` 5
   runFilteredAlternative $ do
     -- container { fieldA = blub, fieldB = blub }
     addAlternative $ docSeq
@@ -1062,6 +1065,7 @@ recordExpression dotdot indentPolicy lexpr nameDoc rFs@(rF1 : rFr) = do
     --           }
     addAlternativeCond
       (indentPolicy == IndentPolicyFree && useHangingLayout)
+      $ docColumnsLimit hangingColumnLimit
       $ docSeq
       [ docNodeAnnKW lexpr Nothing $ docForceSingleline $ appSep nameDoc
       , docSetBaseY
@@ -1103,7 +1107,7 @@ recordExpression dotdot indentPolicy lexpr nameDoc rFs@(rF1 : rFr) = do
     --     multiline
     -- }
     addAlternative
-      $ (if useHangingLayout then docSetParSpacing else docForceParSpacing)
+      $ docForceParSpacing
       $ docAddBaseY BrIndentRegular
       $ docPar
       (docNodeAnnKW lexpr Nothing nameDoc)
@@ -1117,10 +1121,15 @@ recordExpression dotdot indentPolicy lexpr nameDoc rFs@(rF1 : rFr) = do
             , docWrapNodeRest rF1f $ case rF1e of
               Just x -> runFilteredAlternative $ do
                 addAlternativeCond (indentPolicy == IndentPolicyFree) $ do
-                  docSeq [appSep $ docLit $ Text.pack "=", docSetBaseY x]
+                  docSeq
+                    [ appSep $ docLit $ Text.pack "="
+                    , docSetBaseY $ docForceSingleline x
+                    ]
                 addAlternative $ do
                   docSeq
-                    [appSep $ docLit $ Text.pack "=", docForceParSpacing x]
+                    [ appSep $ docLit $ Text.pack "="
+                    , docForceSingleline x
+                    ]
                 addAlternative $ do
                   docAddBaseY BrIndentRegular
                     $ docPar (docLit $ Text.pack "=") x
@@ -1134,10 +1143,15 @@ recordExpression dotdot indentPolicy lexpr nameDoc rFs@(rF1 : rFr) = do
               , case fDoc of
                 Just x -> runFilteredAlternative $ do
                   addAlternativeCond (indentPolicy == IndentPolicyFree) $ do
-                    docSeq [appSep $ docLit $ Text.pack "=", docSetBaseY x]
+                    docSeq
+                      [ appSep $ docLit $ Text.pack "="
+                      , docSetBaseY $ docForceSingleline x
+                      ]
                   addAlternative $ do
                     docSeq
-                      [appSep $ docLit $ Text.pack "=", docForceParSpacing x]
+                      [ appSep $ docLit $ Text.pack "="
+                      , docForceSingleline x
+                      ]
                   addAlternative $ do
                     docAddBaseY BrIndentRegular
                       $ docPar (docLit $ Text.pack "=") x

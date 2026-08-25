@@ -135,6 +135,7 @@ layoutBriDocM = \case
   BDAlt (alt : _) -> layoutBriDocM alt
   BDForceMultiline bd -> layoutBriDocM bd
   BDForceSingleline bd -> layoutBriDocM bd
+  BDColumnsLimit _ bd -> layoutBriDocM bd
   BDForwardLineMode bd -> layoutBriDocM bd
   BDExternal annKey subKeys shouldAddComment t -> do
     let
@@ -383,6 +384,7 @@ briDocLineLength briDoc = flip StateS.evalState False $ rec briDoc
     BDAlt{} -> error "briDocLineLength BDAlt"
     BDForceMultiline bd -> rec bd
     BDForceSingleline bd -> rec bd
+    BDColumnsLimit _ bd -> rec bd
     BDForwardLineMode bd -> rec bd
     BDExternal _ _ _ t -> return $ Text.length t
     BDPlain _ t -> return $ Text.length t
@@ -420,6 +422,7 @@ briDocIsMultiLine briDoc = rec briDoc
     BDAlt{} -> error "briDocIsMultiLine BDAlt"
     BDForceMultiline _ -> True
     BDForceSingleline bd -> rec bd
+    BDColumnsLimit _ bd -> rec bd
     BDForwardLineMode bd -> rec bd
     BDExternal _ _ _ t | [_] <- Text.lines t -> False
     BDExternal{} -> True

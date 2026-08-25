@@ -50,6 +50,8 @@
   mixed section, constructor, record-field, and deriving comments.
 * Kept single-line Haddock constructor comments beside Haskell 98 data
   separators while preserving structural layout for other comment forms.
+* Preferred structural layout for multiline small and nested records while
+  keeping complete records compact when they fit on one line.
 
 ## 0.14.0.0 -- November 2021
 
