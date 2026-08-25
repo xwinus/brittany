@@ -583,10 +583,13 @@ parsePrintModuleTests conf filename input = do
 --           Left $ "pretty printing error(s):\n" ++ List.unlines errStrs
 --         else return $ TextL.toStrict $ Text.Builder.toLazyText out
 
-toLocal :: Config -> Anns -> PPMLocal a -> PPM a
-toLocal conf anns m = do
+toLocal :: Config -> Anns -> Text.Text -> PPMLocal a -> PPM a
+toLocal conf anns source m = do
   (x, write) <-
-    lift $ MultiRWSS.runMultiRWSTAW (conf :+: anns :+: HNil) HNil $ m
+    lift $ MultiRWSS.runMultiRWSTAW
+      (conf :+: anns :+: OriginalSource source :+: HNil)
+      HNil
+      m
   MultiRWSS.mGetRawW >>= \w -> MultiRWSS.mPutRawW (w `mappend` write)
   pure x
 
@@ -679,7 +682,7 @@ ppModule originalSource lmod@(L _loc _m@(HsModule _ _name _exports imports decls
         $ mconcat (catMaybes (mBindingConfs ++ [mDeclConf]))
 
     let exactprintOnly = config' & _conf_roundtrip_exactprint_only & confUnpack
-    toLocal config' filteredAnns $ do
+    toLocal config' filteredAnns exactSource $ do
       bd <- if exactprintOnly
         then briDocMToPPM
           $ briDocByExactNoComment ExactPrintOnlyFallback decl'
@@ -821,7 +824,7 @@ ppPreamble lmod@(L loc m@HsModule{}) = do
           else filteredAnns'
 
   if canReformatPreamble
-    then toLocal config filteredAnns'' $ withTransformedAnns lmod $ do
+    then toLocal config filteredAnns'' exactSource $ withTransformedAnns lmod $ do
       briDoc <- briDocMToPPM $ layoutModuleWithExactText exactSource lmod
       layoutBriDoc briDoc
     else do

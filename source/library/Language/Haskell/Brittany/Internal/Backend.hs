@@ -137,10 +137,9 @@ layoutBriDocM = \case
   BDForceSingleline bd -> layoutBriDocM bd
   BDColumnsLimit _ bd -> layoutBriDocM bd
   BDForwardLineMode bd -> layoutBriDocM bd
-  BDExternal annKey subKeys shouldAddComment t -> do
+  BDExternal annKey subKeys consumedComments shouldAddComment t -> do
     let
       tlines = Text.lines $ t <> Text.pack "\n"
-      tlineCount = length tlines
     anns :: ExactPrintCompat.Anns <- mAsk
     when shouldAddComment $ do
       layoutWriteAppend
@@ -148,15 +147,32 @@ layoutBriDocM = \case
         $ "{-"
         ++ show (annKey, Map.lookup annKey anns)
         ++ "-}"
-    zip [1 ..] tlines `forM_` \(i, l) -> do
-      layoutWriteAppend $ l
-      unless (i == tlineCount) layoutWriteNewlineBlock
+    case (consumedComments, tlines) of
+      (Just{}, firstLine : remainingLines) -> do
+        initialState <- mGet
+        let fragmentColumn = case _lstate_curYOrAddNewline initialState of
+              Left column -> column
+                + fromMaybe 0 (_lstate_addSepSpace initialState)
+              Right{} -> fromMaybe 0 (_lstate_addSepSpace initialState)
+        layoutWriteAppend firstLine
+        remainingLines `forM_` \line -> do
+          layoutWriteNewline
+          unless (Text.null line) $ do
+            layoutWriteAppendSpaces fragmentColumn
+            layoutWriteAppend line
+      _ -> do
+        let tlineCount = length tlines
+        zip [1 ..] tlines `forM_` \(i, line) -> do
+          layoutWriteAppend line
+          unless (i == tlineCount) layoutWriteNewlineBlock
     do
       state <- mGet
-      let filterF k _ = not $ k `Set.member` subKeys
-      mSet $ state
-        { _lstate_comments = Map.filterWithKey filterF $ _lstate_comments state
-        }
+      let remainingComments = case consumedComments of
+            Nothing -> Map.withoutKeys (_lstate_comments state) subKeys
+            Just commentSpans -> Map.mapWithKey
+              (consumeSourceFragment subKeys commentSpans)
+              (_lstate_comments state)
+      mSet $ state { _lstate_comments = remainingComments }
   BDPlain _ t -> do
     layoutIndentRestorePostComment
     layoutRemoveIndentLevelLinger
@@ -386,7 +402,7 @@ briDocLineLength briDoc = flip StateS.evalState False $ rec briDoc
     BDForceSingleline bd -> rec bd
     BDColumnsLimit _ bd -> rec bd
     BDForwardLineMode bd -> rec bd
-    BDExternal _ _ _ t -> return $ Text.length t
+    BDExternal _ _ _ _ t -> return $ Text.length t
     BDPlain _ t -> return $ Text.length t
     BDAnnotationPrior _ _ bd -> rec bd
     BDAnnotationKW _ _ bd -> rec bd
@@ -424,7 +440,7 @@ briDocIsMultiLine briDoc = rec briDoc
     BDForceSingleline bd -> rec bd
     BDColumnsLimit _ bd -> rec bd
     BDForwardLineMode bd -> rec bd
-    BDExternal _ _ _ t | [_] <- Text.lines t -> False
+    BDExternal _ _ _ _ t | [_] <- Text.lines t -> False
     BDExternal{} -> True
     BDPlain _ t | [_] <- Text.lines t -> False
     BDPlain{} -> True
@@ -440,6 +456,30 @@ briDocIsMultiLine briDoc = rec briDoc
     BDForceParSpacing bd -> rec bd
     BDNonBottomSpacing _ bd -> rec bd
     BDDebug _ bd -> rec bd
+
+consumeSourceFragment
+  :: Set.Set ExactPrintCompat.AnnKey
+  -> Set.Set SourceCommentKey
+  -> ExactPrintCompat.AnnKey
+  -> ExactPrintCompat.Annotation
+  -> ExactPrintCompat.Annotation
+consumeSourceFragment subKeys commentSpans key annotation = annotation
+  { ExactPrintCompat.annsDP = filter keepKeyword
+      $ ExactPrintCompat.annsDP annotation
+  , ExactPrintCompat.annFollowingComments = filter keepComment
+      $ ExactPrintCompat.annFollowingComments annotation
+  , ExactPrintCompat.annPriorComments = filter keepComment
+      $ ExactPrintCompat.annPriorComments annotation
+  }
+ where
+  keyIsConsumed = key `Set.member` subKeys
+  keepKeyword (ExactPrintCompat.AnnComment comment, _) =
+    keepCommentValue comment
+  keepKeyword _ = not keyIsConsumed
+  keepComment (comment, _) = keepCommentValue comment
+  keepCommentValue comment =
+    SourceCommentKey (ExactPrintCompat.commentIdentifier comment)
+      `Set.notMember` commentSpans
 
 -- In theory
 -- =========

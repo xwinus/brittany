@@ -38,6 +38,8 @@
   instead of moving them to the following value declaration.
 * Scoped quasiquote fallback to the expression leaf so surrounding bindings,
   statements, and `where` clauses retain native indentation.
+* Scoped Template Haskell bracket and splice fallbacks to expression nodes while
+  preserving and rebasing their exact source contents and comments.
 * Scoped pattern quasiquote fallback to the pattern leaf so surrounding case
   alternatives and declarations retain native indentation.
 * Preserved intentional blank lines between statements in `do`, `mdo`, and

@@ -6,7 +6,8 @@ expressionSplice = $(pure [| 1 |])
 typedSplice = $$(pure [|| 1 ||])
 quotedName = 'map
 quotedType = ''Maybe
-declarations = [d|
+declarations =
+  [d|
   generated = 1
   |]
 $(pure [])

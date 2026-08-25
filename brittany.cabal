@@ -173,5 +173,6 @@ test-suite brittany-test-suite
     PreambleSpacingSpec
     PreprocessorSpec
     RegressionSpec
+    TemplateHaskellFallbackSpec
     TopLevelSpacingSpec
   type: exitcode-stdio-1.0

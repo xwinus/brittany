@@ -90,6 +90,7 @@ briDocByExactTextWithAnnsNoComment fallback ast extraKeys exactText = do
   allocateNode $ BDFExternal
     (ExactPrintCompat.mkAnnKey ast)
     (foldedAnnKeys ast <> extraKeys)
+    Nothing
     False
     (Text.dropWhileEnd (== '\n') $ Text.dropWhile (== '\n') exactText)
 
@@ -116,6 +117,7 @@ briDocByExactInlineOnly fallback ast = do
       allocateNode $ BDFExternal
         (ExactPrintCompat.mkAnnKey ast)
         (foldedAnnKeys ast)
+        Nothing
         False
         t
   let
@@ -550,6 +552,7 @@ docExt
 docExt x anns shouldAddComment = allocateNode $ BDFExternal
   (ExactPrintCompat.mkAnnKey x)
   (foldedAnnKeys x)
+  Nothing
   shouldAddComment
   (Text.dropWhileEnd (== '\n') . Text.dropWhile (== '\n') . Text.pack
     $ ExactPrint.exactPrint x)

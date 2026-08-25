@@ -75,6 +75,23 @@ spec projectRoot = Hspec.describe "fallback inventory and reporting" $ do
     messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "WholeModuleFallback")
 
+  Hspec.it "reports a Template Haskell quote at its expression span" $ do
+    (result, messages) <- runFormatterResult projectRoot strictFallbackConfig
+      True
+      "TemplateHaskellFallbackInput.hs"
+      Nothing
+    (result == Left 70) `Hspec.shouldBe` True
+    length (filter (List.isInfixOf "ExpressionFallback") messages)
+      `Hspec.shouldBe` 1
+    messages `Hspec.shouldSatisfy` any (List.isInfixOf "inline scope")
+    messages `Hspec.shouldSatisfy` any
+      (List.isInfixOf "SrcSpanOneLine")
+    messages `Hspec.shouldSatisfy` any (List.isInfixOf " 5 5 31 ")
+    messages `Hspec.shouldNotSatisfy` any
+      (List.isInfixOf "DeclarationFallback")
+    messages `Hspec.shouldNotSatisfy` any
+      (List.isInfixOf "WholeModuleFallback")
+
   Hspec.it "keeps a strict quasiquote fallback at inline pattern scope" $ do
     (result, messages) <- runFormatterResult projectRoot strictFallbackConfig
       True

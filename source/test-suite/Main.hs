@@ -13,6 +13,7 @@ import qualified PreprocessorSpec
 import qualified RegressionSpec
 import qualified System.Directory as Directory
 import qualified System.FilePath as FilePath
+import qualified TemplateHaskellFallbackSpec
 import qualified Test.Hspec as Hspec
 import qualified TopLevelSpacingSpec
 
@@ -65,6 +66,7 @@ main = Hspec.hspec $ do
   CompatibilitySpec.spec projectRoot
   FallbackSpec.spec projectRoot
   PreambleSpacingSpec.spec projectRoot
+  TemplateHaskellFallbackSpec.spec projectRoot
   PreprocessorSpec.spec projectRoot
   TopLevelSpacingSpec.spec
 
