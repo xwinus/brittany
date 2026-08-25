@@ -38,6 +38,8 @@
   statements, and `where` clauses retain native indentation.
 * Preserved intentional blank lines between statements in `do`, `mdo`, and
   recursive-do blocks without duplicating gaps around comments.
+* Preferred structural vertical layout for record construction and updates
+  with five or more fields when their compact form exceeds the column limit.
 ## 0.14.0.0 -- November 2021
 
 * #357: Added support for GHC 9.0. Dropped support for all other versions of GHC.
