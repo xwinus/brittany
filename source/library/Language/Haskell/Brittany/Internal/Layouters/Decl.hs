@@ -31,9 +31,9 @@ import GHC.Types.Name.Reader (rdrNameOcc)
 import Language.Haskell.Syntax.Basic (LexicalFixity(..))
 import Language.Haskell.Syntax.Binds (RecordPatSynField(recordPatSynField))
 import GHC.Parser.Annotation (getLocA)
-import GHC.Types.SrcLoc (Located, RealSrcSpan, SrcSpan(..), getLoc, noSrcSpan, srcSpanStartLine, srcSpanEndLine, unLoc)
+import GHC.Types.SrcLoc (Located, RealSrcSpan, SrcSpan(..), getLoc, noSrcSpan, srcSpanStartCol, srcSpanStartLine, srcSpanEndCol, srcSpanEndLine, unLoc)
 import Language.Haskell.Brittany.Internal.Config.Types
-import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey, Anns, mkAnnKey, Comment(..))
+import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey, Anns, mkAnnKey, Comment(..), srcSpanToRealSpan)
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.ExpressionComments
@@ -53,6 +53,8 @@ import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.PatternComments
   ( commentSensitivePatterns
   , exactSourcePatterns
+  , supportedBangPatterns
+  , supportedStrictBindingNames
   )
 import Language.Haskell.Brittany.Internal.TypeFallbacks
   ( exactSourceTypes
@@ -109,17 +111,45 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
   layoutValueDeclaration declaration bind = do
     let sensitiveExpressions = commentSensitiveExpressions declaration
     let sensitivePatterns = commentSensitivePatterns declaration
+        directlySensitivePatterns = filter
+          (not . isSupportedBangPattern)
+          sensitivePatterns
+        bangPatterns = supportedBangPatterns declaration
+        strictBindingNames = supportedStrictBindingNames declaration
     hasConnectedExpressionComments <- orM
       $ hasAnyRegularCommentsConnected
       <$> sensitiveExpressions
     hasConnectedPatternComments <- orM
       $ hasAnyRegularCommentsConnected
-      <$> sensitivePatterns
+      <$> directlySensitivePatterns
+    connectedDeclarationComments <- astConnectedComments declaration
+    let regularDeclarationComments = filter
+          isRegularComment
+          connectedDeclarationComments
+    -- GHC attaches end-of-line strict-binding comments to ancestor nodes.
+    -- Their source position distinguishes them from unsafe pattern comments.
+    let hasTrailingBangComments = or
+          [ isAfterNode pattern' sourceComment
+          | pattern' <- bangPatterns
+          , sourceComment <- regularDeclarationComments
+          ]
+        hasTrailingStrictBindingComments = or
+          [ isAfterNode bindingName sourceComment
+          | bindingName <- strictBindingNames
+          , sourceComment <- regularDeclarationComments
+          ]
+        hasTrailingSupportedComments = hasTrailingBangComments
+          || hasTrailingStrictBindingComments
     let hasSensitiveNodes = not
-          $ null sensitiveExpressions && null sensitivePatterns
+          $ null sensitiveExpressions
+          && null sensitivePatterns
+          && null strictBindingNames
     let hasSensitiveComments = hasConnectedExpressionComments
           || hasConnectedPatternComments
-          || (hasSourceComments && hasSensitiveNodes)
+          || ( hasSourceComments
+            && hasSensitiveNodes
+            && not hasTrailingSupportedComments
+             )
     let requiresExactLayout = or
           [ not $ null (exactSourceExpressions declaration)
           , not $ null (exactSourcePatterns declaration)
@@ -133,6 +163,18 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
         $ layoutBind (L loc bind) >>= \case
           Left ns -> docLines $ return <$> ns
           Right n -> return n
+
+  isAfterNode node (sourceComment, _) = case
+    ( srcSpanToRealSpan $ getLoc node
+    , srcSpanToRealSpan $ commentIdentifier sourceComment
+    ) of
+      (Just nodeSpan, Just commentSpan) ->
+        (srcSpanStartLine commentSpan, srcSpanStartCol commentSpan)
+          >= (srcSpanEndLine nodeSpan, srcSpanEndCol nodeSpan)
+      _ -> False
+
+  isSupportedBangPattern (L _ BangPat{}) = True
+  isSupportedBangPattern _ = False
 
   layoutExactWhenCommented declaration formatted = do
     layoutExactOrCommented declaration

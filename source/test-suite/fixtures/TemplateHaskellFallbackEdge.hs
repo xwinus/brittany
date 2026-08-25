@@ -30,3 +30,11 @@ nested action flag value = do
      )
 
 recordFallback value = Holder { held = $(pure [|value|]) }
+
+strictOnly value = result
+ where
+  -- Keep this comment before the named strict binding.
+  !named = value -- Keep this inline strict-binding comment.
+  !_     = named
+  -- Keep this comment after the wildcard strict binding.
+  result = named

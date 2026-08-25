@@ -15,6 +15,11 @@ spec projectRoot = Hspec.describe "scoped Template Haskell fallbacks" $ do
     "TemplateHaskellFallbackExpected.hs"
   idempotentFormattingFromInputExample
     projectRoot
+    "formats Headroom-style quasiquoters with commented strict validation"
+    "TemplateHaskellBangBindingInput.hs"
+    "TemplateHaskellBangBindingExpected.hs"
+  idempotentFormattingFromInputExample
+    projectRoot
     "rebases brackets and splices in nested expression contexts"
     "TemplateHaskellFallbackEdgeInput.hs"
     "TemplateHaskellFallbackEdge.hs"
