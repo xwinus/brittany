@@ -13,6 +13,7 @@ module Language.Haskell.Brittany.Internal.ExtractAnns
   ) where
 
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
+import qualified Data.Char as Char
 import Data.Data (Data, gmapQ, gmapQi)
 import Data.Dynamic (Dynamic, fromDynamic, toDyn)
 import Data.Typeable (Typeable)
@@ -383,13 +384,19 @@ distributeModuleComments targets coms =
                     (\((l, _), _) -> l > fst end && l < fst ns)
                     nonTrailing
                   Nothing -> ([], nonTrailing)
-                trailingCDs = if null trailing then []
-                  else let cds = snd $ List.mapAccumL buildModComDP end (List.sortOn fst trailing)
+                (postDocs, nextPriors) = List.partition
+                  isHaddockPostDoc priorForNext
+                following = List.sortOn fst $ trailing ++ postDocs
+                trailingCDs = if null following then []
+                  else let cds = snd $ List.mapAccumL buildModComDP end following
                        in [(k, FollowingCom, cds)]
                 priorCDs = case rest of
-                  ((nk, _, _) : _) | not (null priorForNext) ->
-                    let sorted = List.sortOn fst priorForNext
-                        cds = snd $ List.mapAccumL buildModComDP end sorted
+                  ((nk, _, _) : _) | not (null nextPriors) ->
+                    let sorted = List.sortOn fst nextPriors
+                        priorRef = case reverse following of
+                          (_, (_, spanR)) : _ -> ss2posEnd spanR
+                          [] -> end
+                        cds = snd $ List.mapAccumL buildModComDP priorRef sorted
                     in [(nk, PriorCom, cds)]
                   _ -> []
             in trailingCDs ++ priorCDs ++ go rest remaining
@@ -406,6 +413,14 @@ buildModComDP prev ((line, col), (content, spanR)) =
         , commentContents = content
         }
   in (nextPos, (bComment, dp))
+
+isHaddockPostDoc :: ((Int, Int), (String, RealSrcSpan)) -> Bool
+isHaddockPostDoc (_, (content, _)) = case dropWhile Char.isSpace content of
+  '-' : '-' : rest -> startsWithCaret rest
+  '{' : '-' : rest -> startsWithCaret rest
+  _ -> False
+ where
+  startsWithCaret = List.isPrefixOf "^" . dropWhile Char.isSpace
 
 extractModuleHeaderAnns :: ParsedSource -> HsModule GhcPs -> Anns
 extractModuleHeaderAnns lmod mod' =
@@ -510,11 +525,10 @@ extractDeclAnns decls =
   let initial = ((1, 1), Nothing)  -- (prevEnd, prevKey)
       (_, rawResults) = List.mapAccumL extractOne initial decls
       mainAnns = mconcat [main | (main, _) <- rawResults]
-      -- Collect trailing comment patches: (prevKey -> trailing comments)
-      trailingPatches = Map.fromListWith (++)
+      -- Collect comments reassigned to the preceding declaration.
+      followingPatches = Map.fromListWith (++)
         [(k, coms) | (_, Just (k, coms)) <- rawResults]
-      -- Apply patches: add trailing comments as followingComments
-      merged = Map.mapWithKey (\k ann -> case Map.lookup k trailingPatches of
+      merged = Map.mapWithKey (\k ann -> case Map.lookup k followingPatches of
         Nothing -> ann
         Just coms -> ann { annFollowingComments = annFollowingComments ann ++ coms }
         ) mainAnns
@@ -543,19 +557,22 @@ extractDeclAnns decls =
               -- priors, those at/after are inner (within the declaration body).
               actualPrior = List.filter
                 (\((line, _), _) -> line < fst declStart) rest
+              (postDocsForPrev, actualPrior') = case prevKey of
+                Just _ -> List.partition isHaddockPostDoc actualPrior
+                Nothing -> ([], actualPrior)
               innerComs = List.filter
                 (\((line, _), _) -> line >= fst declStart) rest
-              -- Actual prior comments: use first comment's own position as
-              -- reference so it gets DP(0,0) = starts at cursor position.
-              priorRef = case actualPrior of
-                ((pos, _) : _) -> pos
+              -- Top-level prior comments are emitted from column one. Keep the
+              -- first comment's source column while avoiding an extra row move.
+              priorRef = case actualPrior' of
+                (((line, _), _) : _) -> (line, 1)
                 [] -> declStart
-              priorComs = snd $ List.mapAccumL buildComDP priorRef actualPrior
+              priorComs = snd $ List.mapAccumL buildComDP priorRef actualPrior'
               -- Entry delta: if there are prior comments, delta from
               -- last prior comment end to declaration start.
-              entryDelta = case actualPrior of
+              entryDelta = case actualPrior' of
                 [] -> DP (0, 0)
-                _ -> let (_, (_, spanR)) = List.last actualPrior
+                _ -> let (_, (_, spanR)) = List.last actualPrior'
                          afterRef = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
                      in posToDP afterRef declStart
               -- Inner comments → annsDP as AnnComment entries so
@@ -563,10 +580,13 @@ extractDeclAnns decls =
               innerDP = snd $ List.mapAccumL buildInnerComDP declStart innerComs
               -- Following comments: relative to declaration end
               followComs = lepaToCommentsWithDP declEnd rawFollowing
-              -- Build trailing comments for previous declaration
-              trailingComs = snd $ List.mapAccumL buildComDP prevEnd trailingPrev
-              trailingPatch = case prevKey of
-                Just pk | not (null trailingComs) -> Just (pk, trailingComs)
+              previousFollowing = List.sortOn fst
+                $ trailingPrev ++ postDocsForPrev
+              followingComs = snd
+                $ List.mapAccumL buildComDP prevEnd previousFollowing
+              followingPatch = case prevKey of
+                Just pk
+                  | not (null followingComs) -> Just (pk, followingComs)
                 _ -> Nothing
               ann = Ann
                 { annCapturedSpan = Nothing
@@ -576,7 +596,7 @@ extractDeclAnns decls =
                 , annPriorComments = priorComs
                 , annEntryDelta = entryDelta
                 }
-          in ((declEnd, Just key), (Map.singleton key ann, trailingPatch))
+          in ((declEnd, Just key), (Map.singleton key ann, followingPatch))
 
     buildComDP prev ((line, col), (content, spanR)) =
       let dp = posToDP prev (line, col)

@@ -168,6 +168,17 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects a malformed multiline constructor pattern"
       "MultilineConstructorPatternInvalid.hs"
 
+  Hspec.describe "final result Haddock comments" $ do
+    idempotentFormattingExample projectRoot
+      "keeps a final result comment aligned with its signature"
+      "FinalResultHaddockExpected.hs"
+    idempotentFormattingExample projectRoot
+      "preserves post-doc forms without taking the next declaration's comment"
+      "FinalResultHaddockEdge.hs"
+    parseFailureExample projectRoot
+      "rejects malformed result type syntax without changing the input"
+      "FinalResultHaddockInvalid.hs"
+
   Hspec.describe "module export-list comments" $ do
     idempotentFormattingExample projectRoot
       "keeps Haddock section headings before their exports"
