@@ -779,15 +779,15 @@ layoutExpr' lexpr@(L _ expr) = do
       -- docSeq [appSep $ docLit "let in", expDoc1]
     HsDo _ stmtCtx (L _ stmts) -> case stmtCtx of
       DoExpr _ -> do
-        stmtDocs <- docSharedWrapper layoutStmt `mapM` (map toL stmts)
+        stmtListDoc <- docSharedWrapper layoutStmtList stmts
         docSetParSpacing $ docAddBaseY BrIndentRegular $ docPar
           (docLit $ Text.pack "do")
-          (docSetBaseAndIndent $ docNonBottomSpacing $ docLines stmtDocs)
+          (docSetBaseAndIndent $ docNonBottomSpacing stmtListDoc)
       MDoExpr _ -> do
-        stmtDocs <- docSharedWrapper layoutStmt `mapM` (map toL stmts)
+        stmtListDoc <- docSharedWrapper layoutStmtList stmts
         docSetParSpacing $ docAddBaseY BrIndentRegular $ docPar
           (docLit $ Text.pack "mdo")
-          (docSetBaseAndIndent $ docNonBottomSpacing $ docLines stmtDocs)
+          (docSetBaseAndIndent $ docNonBottomSpacing stmtListDoc)
       x
         | case x of
           ListComp -> True

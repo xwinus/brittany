@@ -77,6 +77,7 @@ layoutBriDocM :: forall m . LayoutConstraints m => BriDoc -> m ()
 layoutBriDocM = \case
   BDEmpty -> do
     return () -- can it be that simple
+  BDBlankLine -> layoutWriteBlankLine
   BDLit t -> do
     layoutIndentRestorePostComment
     layoutRemoveIndentLevelLinger
@@ -339,6 +340,7 @@ briDocLineLength briDoc = flip StateS.evalState False $ rec briDoc
  where
   rec = \case
     BDEmpty -> return $ 0
+    BDBlankLine -> return 0
     BDLit t -> StateS.put False $> Text.length t
     BDSeq bds -> sum <$> rec `mapM` bds
     BDCols _ bds -> sum <$> rec `mapM` bds
@@ -375,6 +377,7 @@ briDocIsMultiLine briDoc = rec briDoc
   rec :: BriDoc -> Bool
   rec = \case
     BDEmpty -> False
+    BDBlankLine -> False
     BDLit _ -> False
     BDSeq bds -> any rec bds
     BDCols _ bds -> any rec bds

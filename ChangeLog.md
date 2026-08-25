@@ -36,6 +36,8 @@
   instead of moving them to the following value declaration.
 * Scoped quasiquote fallback to the expression leaf so surrounding bindings,
   statements, and `where` clauses retain native indentation.
+* Preserved intentional blank lines between statements in `do`, `mdo`, and
+  recursive-do blocks without duplicating gaps around comments.
 ## 0.14.0.0 -- November 2021
 
 * #357: Added support for GHC 9.0. Dropped support for all other versions of GHC.

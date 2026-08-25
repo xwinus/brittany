@@ -233,6 +233,7 @@ data DocMultiLine
 data BriDoc
   = -- BDWrapAnnKey AnnKey BriDoc
     BDEmpty
+  | BDBlankLine
   | BDLit !Text
   | BDSeq [BriDoc] -- elements other than the last should
                    -- not contains BDPars.
@@ -281,6 +282,7 @@ data BriDoc
 data BriDocF f
   = -- BDWrapAnnKey AnnKey BriDoc
     BDFEmpty
+  | BDFBlankLine
   | BDFLit !Text
   | BDFSeq [f (BriDocF f)] -- elements other than the last should
                    -- not contains BDPars.
@@ -329,6 +331,7 @@ type BriDocNumbered = (Int, BriDocFInt)
 
 instance Uniplate.Uniplate BriDoc where
   uniplate x@BDEmpty{}               = plate x
+  uniplate x@BDBlankLine{}           = plate x
   uniplate x@BDLit{}                 = plate x
   uniplate (BDSeq list     )         = plate BDSeq ||* list
   uniplate (BDCols sig list)         = plate BDCols |- sig ||* list
@@ -366,6 +369,7 @@ newtype NodeAllocIndex = NodeAllocIndex Int
 unwrapBriDocNumbered :: BriDocNumbered -> BriDoc
 unwrapBriDocNumbered tpl = case snd tpl of
   BDFEmpty                     -> BDEmpty
+  BDFBlankLine                 -> BDBlankLine
   BDFLit t                     -> BDLit t
   BDFSeq list                  -> BDSeq $ rec <$> list
   BDFCols sig list             -> BDCols sig $ rec <$> list
@@ -402,6 +406,7 @@ isNotEmpty _       = True
 briDocSeqSpine :: BriDoc -> ()
 briDocSeqSpine = \case
   BDEmpty                        -> ()
+  BDBlankLine                    -> ()
   BDLit _t                       -> ()
   BDSeq list                     -> foldl' ((briDocSeqSpine .) . seq) () list
   BDCols _sig list               -> foldl' ((briDocSeqSpine .) . seq) () list

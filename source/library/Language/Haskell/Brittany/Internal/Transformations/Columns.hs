@@ -15,6 +15,7 @@ transformSimplifyColumns = Uniplate.rewrite $ \case
   -- BDWrapAnnKey annKey bd ->
   --   BDWrapAnnKey annKey $ transformSimplify bd
   BDEmpty -> Nothing
+  BDBlankLine -> Nothing
   BDLit{} -> Nothing
   BDSeq list
     | any
