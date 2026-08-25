@@ -20,8 +20,6 @@ import Language.Haskell.Brittany.Internal.Utils
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKey, Annotation)
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrint
 
-
-
 traceLocal :: (MonadMultiState LayoutState m) => a -> m ()
 traceLocal _ = return ()
 
@@ -45,6 +43,19 @@ layoutWriteAppend t = do
     { _lstate_curYOrAddNewline = Left $ case _lstate_curYOrAddNewline s of
       Left c -> c + Text.length t + spaces
       Right{} -> Text.length t + spaces
+    , _lstate_addSepSpace = Nothing
+    }
+
+layoutWriteBlankLine ::
+  (MonadMultiWriter Text.Builder.Builder m, MonadMultiState LayoutState m) => m ()
+layoutWriteBlankLine = do
+  state <- mGet
+  case _lstate_curYOrAddNewline state of
+    Right newlines -> replicateM_ newlines $ mTell $ Text.Builder.fromString "\n"
+    Left{} -> pure ()
+  mModify $ \s -> s
+    { _lstate_curYOrAddNewline = either Left (const $ Left 0)
+        $ _lstate_curYOrAddNewline s
     , _lstate_addSepSpace = Nothing
     }
 

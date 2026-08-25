@@ -10,6 +10,7 @@ import GHC (GenLocated(L), unLoc)
 import GHC.Hs
 import GHC.Types.SrcLoc (noSrcSpan)
 import Language.Haskell.Brittany.Internal.Config.Types
+import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrintCompat
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import Language.Haskell.Brittany.Internal.LayouterBasics
@@ -18,9 +19,38 @@ import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
 import Language.Haskell.Brittany.Internal.Layouters.Pattern
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
+import Language.Haskell.Brittany.Internal.TopLevelSpacing
 import Language.Haskell.Brittany.Internal.Types
 
 
+
+layoutStmtList
+  :: [ExprLStmt GhcPs]
+  -> ToBriDocM BriDocNumbered
+layoutStmtList stmts = do
+  stmtDocs <- docSharedWrapper layoutStmt `mapM` (map toL stmts)
+  stmtUnits <- forM stmts $ \stmt -> do
+    annotation <- astAnn $ toL stmt
+    pure $ (`topLevelUnit` annotation)
+      <$> ExactPrintCompat.srcSpanToRealSpan (getLocA stmt)
+  docLines $ addSourceSeparators stmtDocs stmtUnits
+ where
+  addSourceSeparators [] [] = []
+  addSourceSeparators (doc : docs) (unit : units) =
+    doc : go unit docs units
+  addSourceSeparators docs _ = docs
+
+  go _ [] [] = []
+  go previous (doc : docs) (current : units) =
+    replicate (separatorLines previous current - 1) docBlankLine
+      ++ (doc : go current docs units)
+  go _ docs _ = docs
+
+  separatorLines (Just previous) (Just current)
+    | not (null $ topLevelFollowingSpans previous)
+      || not (null $ topLevelPriorSpans current) = 1
+    | otherwise = topLevelSeparatorLines previous current
+  separatorLines _ _ = 1
 
 layoutStmt :: ToBriDoc' (StmtLR GhcPs GhcPs (LHsExpr GhcPs))
 layoutStmt lstmt@(L _ stmt) = do
@@ -97,22 +127,24 @@ layoutStmt lstmt@(L _ stmt) = do
             $ docPar
                 (docLit $ Text.pack "let")
                 (docSetBaseAndIndent $ docLines $ return <$> bindDocs)
-    RecStmt _ stmts _ _ _ _ _ -> runFilteredAlternative $ do
-      -- rec stmt1
-      --     stmt2
-      --     stmt3
-      addAlternativeCond (indentPolicy == IndentPolicyFree) $ docSeq
-        [ docLit (Text.pack "rec")
-        , docSeparator
-        , docSetBaseAndIndent $ docLines $ layoutStmt . toL <$> unLoc stmts
-        ]
-      -- rec
-      --   stmt1
-      --   stmt2
-      --   stmt3
-      addAlternative $ docAddBaseY BrIndentRegular $ docPar
-        (docLit (Text.pack "rec"))
-        (docLines $ layoutStmt . toL <$> unLoc stmts)
+    RecStmt _ stmts _ _ _ _ _ -> do
+      stmtListDoc <- docSharedWrapper layoutStmtList $ unLoc stmts
+      runFilteredAlternative $ do
+        -- rec stmt1
+        --     stmt2
+        --     stmt3
+        addAlternativeCond (indentPolicy == IndentPolicyFree) $ docSeq
+          [ docLit (Text.pack "rec")
+          , docSeparator
+          , docSetBaseAndIndent stmtListDoc
+          ]
+        -- rec
+        --   stmt1
+        --   stmt2
+        --   stmt3
+        addAlternative $ docAddBaseY BrIndentRegular $ docPar
+          (docLit (Text.pack "rec"))
+          stmtListDoc
     BodyStmt _ expr _ _ -> do
       expDoc <- docSharedWrapper layoutExpr (toL expr)
       docAddBaseY BrIndentRegular $ expDoc

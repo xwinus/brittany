@@ -131,6 +131,7 @@ transformAlts =
       --   mSet $ acp { _acp_forceMLFlag = altLineModeDecay $ _acp_forceMLFlag acp }
       --   BDWrapAnnKey annKey <$> rec bd
       BDFEmpty{} -> processSpacingSimple bdX $> bdX
+      BDFBlankLine{} -> processSpacingSimple bdX $> bdX
       BDFLit{} -> processSpacingSimple bdX $> bdX
       BDFSeq list -> reWrap . BDFSeq <$> list `forM` rec
       BDFCols sig list -> reWrap . BDFCols sig <$> list `forM` rec
@@ -368,6 +369,8 @@ getSpacing !bridoc = rec bridoc
     result <- case brDc of
       -- BDWrapAnnKey _annKey bd -> rec bd
       BDFEmpty ->
+        return $ LineModeValid $ VerticalSpacing 0 VerticalSpacingParNone False
+      BDFBlankLine ->
         return $ LineModeValid $ VerticalSpacing 0 VerticalSpacingParNone False
       BDFLit t -> return $ LineModeValid $ VerticalSpacing
         (Text.length t)
@@ -667,6 +670,8 @@ getSpacings limit bridoc = preFilterLimit <$> rec bridoc
     result <- case brdc of
       -- BDWrapAnnKey _annKey bd -> rec bd
       BDFEmpty -> return $ [VerticalSpacing 0 VerticalSpacingParNone False]
+      BDFBlankLine ->
+        return $ [VerticalSpacing 0 VerticalSpacingParNone False]
       BDFLit t ->
         return $ [VerticalSpacing (Text.length t) VerticalSpacingParNone False]
       BDFSeq list -> fmap sumVs . mapM filterAndLimit <$> rec `mapM` list

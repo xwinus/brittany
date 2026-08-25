@@ -532,6 +532,9 @@ allocNodeIndex = do
 docEmpty :: ToBriDocM BriDocNumbered
 docEmpty = allocateNode BDFEmpty
 
+docBlankLine :: ToBriDocM BriDocNumbered
+docBlankLine = allocateNode BDFBlankLine
+
 docLit :: Text -> ToBriDocM BriDocNumbered
 docLit t = allocateNode $ BDFLit t
 

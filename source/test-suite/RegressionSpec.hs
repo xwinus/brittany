@@ -214,6 +214,17 @@ spec projectRoot = Hspec.describe "GHC 9.14 regressions" $ do
       "rejects malformed spaced syntax without changing the input"
       "TopLevelSpacingInvalid.hs"
 
+  Hspec.describe "statement spacing" $ do
+    idempotentFormattingExample projectRoot
+      "preserves a blank line between Hspec-style statements"
+      "StatementSpacingExpected.hs"
+    idempotentFormattingExample projectRoot
+      "preserves mixed nested gaps and comment ownership"
+      "StatementSpacingEdge.hs"
+    parseFailureExample projectRoot
+      "rejects malformed spaced do syntax without changing the input"
+      "StatementSpacingInvalid.hs"
+
 formattingExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
 formattingExample projectRoot description fixtureName =
   Hspec.it description $ do
