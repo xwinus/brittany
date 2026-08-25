@@ -5,8 +5,11 @@ instanceHeadAnchor = ()
 instance Display Int where
   display = render
 instance {-# OVERLAPPABLE #-} forall a.
-  (Display (Nested [Maybe a]), Eq (Nested [Maybe a]))
-  => Display (Wrapper (Nested [Maybe a]))
+  ( Display (Nested [Maybe a])
+  , Eq (Nested [Maybe a])
+  )
+  => Display
+       (Wrapper (Nested [Maybe a]))
   where
     type Result a = Maybe a
     data ResultData a = ResultData a

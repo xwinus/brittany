@@ -1165,20 +1165,16 @@ layoutHsTyPats pats = pats <&> \case
 
 -- | Layout an @instance@ declaration
 --
---   Layout signatures and bindings using the corresponding layouters from the
---   top-level. Layout the instance head, type family instances, and data family
---   instances using ExactPrint.
+--   Layout signatures and bindings using the corresponding top-level
+--   layouters. The instance layouter owns head and member indentation while
+--   associated family declarations retain their existing layout paths.
 layoutClsInst :: ToBriDoc ClsInstDecl
-layoutClsInst lcid@(L _ cid) = docLines
-  [ layoutInstanceHead lcid
-  , docEnsureIndent BrIndentRegular
-  $ docSetIndentLevel
+layoutClsInst lcid@(L _ cid) = layoutInstance lcid
   $ docSortedLines
   $ fmap (layoutAndLocateSig . toL) (cid_sigs cid)
   ++ fmap (layoutAndLocateBind . toL) (cid_binds cid)
   ++ fmap (layoutAndLocateTyFamInsts . toL) (cid_tyfam_insts cid)
   ++ fmap (layoutAndLocateDataFamInsts . toL) (cid_datafam_insts cid)
-  ]
  where
   -- | Like 'docLines', but sorts the lines based on location
   docSortedLines

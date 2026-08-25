@@ -14,6 +14,8 @@
 * Added `--fail-on-fallback` for CI and library users that require every
   reached syntax path to use native layout.
 * Re-enabled output syntax validation for the GHC 9.14 test suite.
+* Indented members beneath multiline instance `where` clauses while preserving
+  the existing indentation of compact instances.
 * Re-enabled the unused-comment check so comment loss fails formatting instead
   of silently producing incomplete output.
 * Replaced the SIGSEGV workaround with a standard Hspec runner that verifies

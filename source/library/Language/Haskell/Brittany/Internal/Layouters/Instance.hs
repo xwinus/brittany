@@ -2,11 +2,11 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 
 module Language.Haskell.Brittany.Internal.Layouters.Instance
-  ( layoutInstanceHead
+  ( layoutInstance
   ) where
 
 import qualified Data.Text as Text
-import GHC (GenLocated(L), unLoc)
+import GHC (GenLocated(L), Located, unLoc)
 import GHC.Hs
 import qualified GHC.OldList as List
 import GHC.Types.Basic (OverlapMode(..))
@@ -19,20 +19,25 @@ import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.TypeFallbacks (exactSourceTypes)
 import Language.Haskell.Brittany.Internal.Types
 
-layoutInstanceHead :: ToBriDoc ClsInstDecl
-layoutInstanceHead lcid@(L _ cid) = case cid_poly_ty cid of
+layoutInstance
+  :: Located (ClsInstDecl GhcPs)
+  -> ToBriDocM BriDocNumbered
+  -> ToBriDocM BriDocNumbered
+layoutInstance lcid@(L _ cid) memberAction = case cid_poly_ty cid of
   L _ (HsSig _ binders body)
-    | supportsNativeHead cid -> layoutNativeHead binders body
+    | supportsNativeHead cid -> layoutNativeInstance binders body
   _ -> layoutFallback
  where
-  layoutNativeHead binders body = do
+  layoutNativeInstance binders body = do
     bodyDoc <- docSharedWrapper layoutType (toL body)
     binderDocs <- case binders of
       HsOuterExplicit _ variables -> Just <$> layoutTyVarBndrs variables
       HsOuterImplicit{} -> pure Nothing
       XHsOuterTyVarBndrs{} -> pure Nothing
+    memberDoc <- memberAction
     let pragmaDocs = maybe [] (pure . docLit . Text.pack)
           (overlapPragma =<< cid_overlap_mode cid)
+        members = pure memberDoc
         keywordDocs = docLitS "instance" : pragmaDocs
         forallDocs = case binderDocs of
           Nothing -> []
@@ -51,27 +56,40 @@ layoutInstanceHead lcid@(L _ cid) = case cid_poly_ty cid of
         multilineSignature = case binderDocs of
           Nothing -> bodyDoc
           Just _ -> bodyDoc
+        compactHead = docSeq
+          [ compactPrefix
+          , docForceSingleline compactSignature
+          , docSeparator
+          , docLitS "where"
+          ]
+        compactMembers = docNonBottomSpacingS
+          $ docEnsureIndent BrIndentRegular
+          $ docSetIndentLevel members
+        multilineBody = docEnsureIndent BrIndentRegular
+          $ docSetIndentLevel
+          $ docLines
+            [ multilineSignature
+            , docLitS "where"
+            , docNonBottomSpacingS
+              $ docEnsureIndent BrIndentRegular
+              $ docSetIndentLevel members
+            ]
     docAlt
-      [ docSeq
-        [ compactPrefix
-        , docForceSingleline compactSignature
-        , docSeparator
-        , docLitS "where"
-        ]
+      [ docLines [compactHead, compactMembers]
       , docLines
         [ multilinePrefix
-        , docEnsureIndent BrIndentRegular
-          $ docSetIndentLevel multilineSignature
-        , docEnsureIndent BrIndentRegular $ docLitS "where"
+        , multilineBody
         ]
       ]
 
-  layoutFallback =
-    briDocByExactNoComment TypeClassDeclarationFallback
-      $ InstD NoExtField
-      . ClsInstD NoExtField
-      . removeChildren
-      <$> lcid
+  layoutFallback = do
+    headDoc <- briDocByExactNoComment TypeClassDeclarationFallback
+      $ InstD NoExtField . ClsInstD NoExtField . removeChildren <$> lcid
+    memberDoc <- memberAction
+    docLines
+      [ pure headDoc
+      , docEnsureIndent BrIndentRegular $ docSetIndentLevel $ pure memberDoc
+      ]
 
 supportsNativeHead :: ClsInstDecl GhcPs -> Bool
 supportsNativeHead cid = null (exactSourceTypes $ cid_poly_ty cid)
