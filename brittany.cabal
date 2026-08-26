@@ -147,8 +147,11 @@ library
     Paths_brittany
   other-modules:
     Language.Haskell.Brittany.Internal.CommentUtils
+    Language.Haskell.Brittany.Internal.DerivingComments
     Language.Haskell.Brittany.Internal.ExactSource
     Language.Haskell.Brittany.Internal.ExpressionComments
+    Language.Haskell.Brittany.Internal.FieldComments
+    Language.Haskell.Brittany.Internal.Layouters.DataDecl.Support
     Language.Haskell.Brittany.Internal.PatternComments
     Language.Haskell.Brittany.Internal.Preprocessor
     Language.Haskell.Brittany.Internal.TypeFallbacks
@@ -169,6 +172,7 @@ test-suite brittany-test-suite
   other-modules:
     CompatibilityMatrix
     CompatibilitySpec
+    DataDeclSingleConstructorSpec
     ExtractAnnsSpec
     FallbackSpec
     InstanceHeadSpec

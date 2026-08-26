@@ -242,6 +242,22 @@ spec projectRoot = Hspec.describe "fallback inventory and reporting" $ do
     messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "DataDeclarationFallback")
 
+  Hspec.it "keeps documented single-constructor declarations native" $ do
+    messages <- runFormatter projectRoot fallbackReportingConfig
+      "DocumentedSingleConstructorEdgeInput.hs"
+    messages `Hspec.shouldNotSatisfy` any
+      (List.isInfixOf "DeclarationFallback")
+    messages `Hspec.shouldNotSatisfy` any
+      (List.isInfixOf "DataDeclarationFallback")
+
+  Hspec.it "reports unsupported commented single constructors safely" $ do
+    messages <- runFormatter projectRoot fallbackReportingConfig
+      "DocumentedSingleConstructorUnsupported.hs"
+    messages `Hspec.shouldSatisfy` any
+      (List.isInfixOf "DeclarationFallback")
+    messages `Hspec.shouldNotSatisfy` any
+      (List.isInfixOf "WholeModuleFallback")
+
   Hspec.it "does not report a fallback for a supported instance head" $ do
     messages <- runFormatter projectRoot fallbackReportingConfig
       "InstanceHeadInput.hs"

@@ -62,6 +62,8 @@ data AnnKeywordId
   | AnnData
   | AnnElse
   | AnnHaddockSection -- Internal marker for export-list section layout.
+  | AnnFieldPostDoc -- Internal marker for record-field post-doc layout.
+  | AnnDerivingComment -- Internal marker for deriving-clause comment layout.
   deriving (Data, Eq, Ord, Show)
 
 type AnnSpan = [SrcSpan]

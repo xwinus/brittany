@@ -56,6 +56,7 @@ import GHC.Hs
   , LGRHS
   , LTyFamInstDecl
   , LDataFamInstDecl
+  , LHsDerivingClause
   , MatchGroup(..)
   , AnnsIf(..)
   , AnnsModule(..)
@@ -86,7 +87,9 @@ import qualified GHC.Data.Strict
 import qualified GHC.Parser.Lexer
 import GHC.Types.SrcLoc (EpaLocation'(..), RealSrcSpan, SrcSpan(..))
 import qualified GHC.Types.SrcLoc as SrcLoc
+import qualified Language.Haskell.Brittany.Internal.DerivingComments as DerivingComments
 import Language.Haskell.Brittany.Internal.ExactPrintCompat
+import qualified Language.Haskell.Brittany.Internal.FieldComments as FieldComments
 import Language.Haskell.Brittany.Internal.Prelude
 import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
 import qualified Language.Haskell.GHC.ExactPrint.Types as EPTypes
@@ -330,8 +333,10 @@ extractAnnsFromModule lmod =
       allWithInner = declWithInner <> nestedWithInner
       nonDeclKeys = Map.fromList
         [(k, ()) | k <- Map.keys merged, not (Map.member k allWithInner)]
-  in redistributeInnerCommentsWithChildSkips
-    fullSpanMap nonDeclKeys Map.empty merged
+      redistributed = redistributeInnerCommentsWithChildSkips
+        fullSpanMap nonDeclKeys Map.empty merged
+  in DerivingComments.markDerivingComments
+    $ FieldComments.markFieldPostDocs redistributed
 
 -- | Redistribute intra-declaration comments from the module annotation to
 -- individual AST nodes. Uses ghc-exactprint's bottom-up traversal to claim
@@ -672,6 +677,7 @@ extractNestedSpanMap decls =
         `SYB.extQ` (extractFromLocatedWithLoc :: LHsSigType GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocatedWithLoc :: LPat GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocatedWithLoc :: LConDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
+        `SYB.extQ` (extractFromLocatedWithLoc :: LHsDerivingClause GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocatedWithLoc :: LTyFamInstDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
         `SYB.extQ` (extractFromLocatedWithLoc :: LDataFamInstDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
       )
@@ -702,6 +708,10 @@ extractNestedEpAnns decls =
       extractLPat = extractFromLocatedWithLoc
       extractLConDecl :: LConDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
       extractLConDecl = extractFromLocatedWithLoc
+      extractLHsDerivingClause
+        :: LHsDerivingClause GhcPs
+        -> [(AnnKey, RealSrcSpan, EpAnnComments)]
+      extractLHsDerivingClause = extractFromLocatedWithLoc
       extractLConDeclRecField
         :: LHsConDeclRecField GhcPs
         -> [(AnnKey, RealSrcSpan, EpAnnComments)]
@@ -752,6 +762,7 @@ extractNestedEpAnns decls =
           `SYB.extQ` extractLHsSigType
           `SYB.extQ` extractLPat
           `SYB.extQ` extractLConDecl
+          `SYB.extQ` extractLHsDerivingClause
           `SYB.extQ` extractLConDeclRecField
           `SYB.extQ` extractLConDeclFields
           `SYB.extQ` extractLTyFamInst

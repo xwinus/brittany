@@ -71,6 +71,10 @@ features:
     kind: extension
     support: native
     tracking-issue: 16
+  - name: DerivingStrategies
+    kind: extension
+    support: native
+    tracking-issue: 79
   - name: DerivingVia
     kind: extension
     support: exact-source
@@ -115,6 +119,10 @@ features:
     kind: extension
     support: exact-source
     tracking-issue: 16
+  - name: GeneralizedNewtypeDeriving
+    kind: extension
+    support: native
+    tracking-issue: 79
   - name: HexFloatLiterals
     kind: extension
     support: native
@@ -367,6 +375,11 @@ cases:
     fixture: source/test-suite/fixtures/DataDeclMultipleInvalid.hs
     features: [MultipleConstructorDataDeclarations]
     expected-result: parse-failure
+  - name: formats deriving strategies on documented single constructors
+    kind: expected
+    fixture: source/test-suite/fixtures/DocumentedSingleConstructorExpected.hs
+    features: [DerivingStrategies, GeneralizedNewtypeDeriving]
+    expected-result: formats
   - name: classifies bang patterns
     kind: expected
     fixture: data/Test172.hs
