@@ -66,3 +66,7 @@ operator types remain attached and idempotent.
 Issue #81 promotes unambiguous Haddock post-doc signatures to native layout and
 keeps unsupported type leaves at inline `TypeFallback` scope. Signatures with
 ordinary comments retain declaration fallback when ownership is ambiguous.
+
+Issue #82 promotes supported standalone deriving declarations to native layout.
+Ambiguously attached comments, unstable type forms, explicit binders in via
+types, and unsupported overlap modes retain `DeclarationFallback`.

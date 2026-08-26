@@ -277,6 +277,20 @@ spec projectRoot = Hspec.describe "fallback inventory and reporting" $ do
     messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "WholeModuleFallback")
 
+  Hspec.it "keeps supported standalone deriving on the native path" $ do
+    messages <- runFormatter projectRoot fallbackReportingConfig
+      "StandaloneDerivingEdgeInput.hs"
+    messages `Hspec.shouldNotSatisfy` any (List.isInfixOf "Fallback")
+
+  Hspec.it "reports unsupported standalone deriving at declaration scope" $ do
+    messages <- runFormatter projectRoot fallbackReportingConfig
+      "StandaloneDerivingUnsupported.hs"
+    messages `Hspec.shouldSatisfy` any
+      (List.isInfixOf "DeclarationFallback")
+    messages `Hspec.shouldSatisfy` any (List.isInfixOf "declaration scope")
+    messages `Hspec.shouldNotSatisfy` any
+      (List.isInfixOf "WholeModuleFallback")
+
   Hspec.it "reports unsupported commented single constructors safely" $ do
     messages <- runFormatter projectRoot fallbackReportingConfig
       "DocumentedSingleConstructorUnsupported.hs"

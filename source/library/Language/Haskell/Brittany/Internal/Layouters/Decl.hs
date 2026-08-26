@@ -52,6 +52,7 @@ import Language.Haskell.Brittany.Internal.Layouters.Pattern
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Stmt
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import Language.Haskell.Brittany.Internal.Layouters.Instance
+import Language.Haskell.Brittany.Internal.Layouters.StandaloneDeriving
 import Language.Haskell.Brittany.Internal.Layouters.Type
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
@@ -106,6 +107,9 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
       docSeq $ [briDocByExactNoComment DeclarationFallback d]
         ++ [docLitS (" " ++ commentContents c)
            | (c, _) <- followComments]
+  DerivD _ deriv -> case layoutStandaloneDeriving deriv of
+    Nothing -> layoutExact DeclarationFallback d exactText
+    Just formatted -> layoutExactWhenCommented d formatted
   ForD{} -> layoutExact DeclarationFallback d exactText
   WarningD{} -> layoutExact DeclarationFallback d exactText
   AnnD{} -> layoutExact DeclarationFallback d exactText

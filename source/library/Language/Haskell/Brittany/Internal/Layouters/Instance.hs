@@ -3,6 +3,8 @@
 
 module Language.Haskell.Brittany.Internal.Layouters.Instance
   ( layoutInstance
+  , overlapPragma
+  , supportsOverlapMode
   ) where
 
 import qualified Data.Text as Text
@@ -93,9 +95,12 @@ layoutInstance lcid@(L _ cid) memberAction = case cid_poly_ty cid of
 
 supportsNativeHead :: ClsInstDecl GhcPs -> Bool
 supportsNativeHead cid = null (exactSourceTypes $ cid_poly_ty cid)
-  && case unLoc <$> cid_overlap_mode cid of
-    Just NonCanonical{} -> False
-    _ -> True
+  && supportsOverlapMode (cid_overlap_mode cid)
+
+supportsOverlapMode :: Maybe (GenLocated l OverlapMode) -> Bool
+supportsOverlapMode overlapMode = case unLoc <$> overlapMode of
+  Just NonCanonical{} -> False
+  _ -> True
 
 overlapPragma :: GenLocated l OverlapMode -> Maybe String
 overlapPragma = \case

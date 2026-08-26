@@ -14,6 +14,7 @@ import qualified PreambleSpacingSpec
 import qualified PreprocessorSpec
 import qualified RegressionSpec
 import qualified SignaturePostDocSpec
+import qualified StandaloneDerivingSpec
 import qualified System.Directory as Directory
 import qualified System.FilePath as FilePath
 import qualified TemplateHaskellFallbackSpec
@@ -67,6 +68,7 @@ main = Hspec.hspec $ do
 
   RegressionSpec.spec projectRoot
   SignaturePostDocSpec.spec projectRoot
+  StandaloneDerivingSpec.spec projectRoot
   DataDeclSingleConstructorSpec.spec projectRoot
   ExtractAnnsSpec.spec
   CompatibilitySpec.spec projectRoot
