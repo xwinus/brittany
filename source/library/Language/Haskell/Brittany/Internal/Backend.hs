@@ -21,6 +21,9 @@ import qualified Data.Text.Lazy.Builder as Text.Builder
 import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.BackendUtils
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.ExactSource
+  ( validateExactSourceFragment
+  )
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
@@ -69,6 +72,7 @@ type LayoutConstraints m
   = ( MonadMultiReader Config m
     , MonadMultiReader ExactPrintCompat.Anns m
     , MonadMultiWriter Text.Builder.Builder m
+    , MonadMultiWriter [BrittanyError] m
     , MonadMultiWriter (Seq String) m
     , MonadMultiState LayoutState m
     )
@@ -137,7 +141,8 @@ layoutBriDocM = \case
   BDForceSingleline bd -> layoutBriDocM bd
   BDColumnsLimit _ bd -> layoutBriDocM bd
   BDForwardLineMode bd -> layoutBriDocM bd
-  BDExternal annKey subKeys consumedComments shouldAddComment t -> do
+  BDExternal annKey shouldAddComment externalSource -> do
+    let t = externalSourceText externalSource
     let
       tlines = Text.lines $ t <> Text.pack "\n"
     anns :: ExactPrintCompat.Anns <- mAsk
@@ -147,8 +152,8 @@ layoutBriDocM = \case
         $ "{-"
         ++ show (annKey, Map.lookup annKey anns)
         ++ "-}"
-    case (consumedComments, tlines) of
-      (Just{}, firstLine : remainingLines) -> do
+    case (externalSource, tlines) of
+      (SourceFragment{}, firstLine : remainingLines) -> do
         initialState <- mGet
         let fragmentColumn = case _lstate_curYOrAddNewline initialState of
               Left column -> column
@@ -167,11 +172,15 @@ layoutBriDocM = \case
           unless (i == tlineCount) layoutWriteNewlineBlock
     do
       state <- mGet
-      let remainingComments = case consumedComments of
-            Nothing -> Map.withoutKeys (_lstate_comments state) subKeys
-            Just commentSpans -> Map.mapWithKey
-              (consumeSourceFragment subKeys commentSpans)
-              (_lstate_comments state)
+      remainingComments <- case externalSource of
+        ExactPrintSource subKeys _ -> pure
+          $ Map.withoutKeys (_lstate_comments state) subKeys
+        SourceFragment fragment -> case
+          consumeExactSourceFragment fragment (_lstate_comments state) of
+          Left fragmentError -> do
+            mTell [ErrorUnusedComment fragmentError]
+            pure $ _lstate_comments state
+          Right comments -> pure comments
       mSet $ state { _lstate_comments = remainingComments }
   BDPlain _ t -> do
     layoutIndentRestorePostComment
@@ -423,7 +432,7 @@ briDocLineLength briDoc = flip StateS.evalState False $ rec briDoc
     BDForceSingleline bd -> rec bd
     BDColumnsLimit _ bd -> rec bd
     BDForwardLineMode bd -> rec bd
-    BDExternal _ _ _ _ t -> return $ Text.length t
+    BDExternal _ _ source -> return $ Text.length $ externalSourceText source
     BDPlain _ t -> return $ Text.length t
     BDAnnotationPrior _ _ bd -> rec bd
     BDAnnotationKW _ _ bd -> rec bd
@@ -461,7 +470,8 @@ briDocIsMultiLine briDoc = rec briDoc
     BDForceSingleline bd -> rec bd
     BDColumnsLimit _ bd -> rec bd
     BDForwardLineMode bd -> rec bd
-    BDExternal _ _ _ _ t | [_] <- Text.lines t -> False
+    BDExternal _ _ source
+      | [_] <- Text.lines (externalSourceText source) -> False
     BDExternal{} -> True
     BDPlain _ t | [_] <- Text.lines t -> False
     BDPlain{} -> True
@@ -501,6 +511,19 @@ consumeSourceFragment subKeys commentSpans key annotation = annotation
   keepCommentValue comment =
     SourceCommentKey (ExactPrintCompat.commentIdentifier comment)
       `Set.notMember` commentSpans
+
+consumeExactSourceFragment
+  :: ExactSourceFragment
+  -> ExactPrintCompat.Anns
+  -> Either String ExactPrintCompat.Anns
+consumeExactSourceFragment fragment annotations = do
+  validateExactSourceFragment fragment
+  pure $ Map.mapWithKey
+    ( consumeSourceFragment
+      (fragmentAnnotationKeys fragment)
+      (fragmentCommentKeys fragment)
+    )
+    annotations
 
 -- In theory
 -- =========

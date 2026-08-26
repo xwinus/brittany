@@ -178,6 +178,7 @@ test-suite brittany-test-suite
     CompatibilitySpec
     DataDeclSingleConstructorSpec
     ExtractAnnsSpec
+    ExactSourceFragmentSpec
     FallbackSpec
     InstanceHeadSpec
     PreambleSpacingSpec

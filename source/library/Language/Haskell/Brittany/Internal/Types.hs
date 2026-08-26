@@ -50,6 +50,40 @@ newtype SourceCommentKey = SourceCommentKey SrcSpan
 instance Ord SourceCommentKey where
   compare left right = compare (show left) (show right)
 
+data SourceRange = SourceRange
+  { sourceRangeFile :: String
+  , sourceRangeStartLine :: Int
+  , sourceRangeStartColumn :: Int
+  , sourceRangeEndLine :: Int
+  , sourceRangeEndColumn :: Int
+  }
+  deriving (Data.Data.Data, Eq, Ord, Show)
+
+data ExactSourceFragment = ExactSourceFragment
+  { fragmentText :: Text
+  , fragmentRange :: SourceRange
+  , fragmentAnnotationKeys :: Set AnnKey
+  , fragmentCommentKeys :: Set SourceCommentKey
+  }
+  deriving (Data.Data.Data, Eq, Ord, Show)
+
+data ExternalSource
+  = ExactPrintSource (Set AnnKey) Text
+  | SourceFragment ExactSourceFragment
+  deriving (Data.Data.Data, Eq, Ord, Show)
+
+externalSourceText :: ExternalSource -> Text
+externalSourceText = \case
+  ExactPrintSource _ text -> text
+  SourceFragment fragment -> fragmentText fragment
+
+mapExternalSourceText :: (Text -> Text) -> ExternalSource -> ExternalSource
+mapExternalSourceText mapText = \case
+  ExactPrintSource keys text -> ExactPrintSource keys $ mapText text
+  SourceFragment fragment -> SourceFragment fragment
+    { fragmentText = mapText $ fragmentText fragment
+    }
+
 newtype TopLevelDeclNameMap = TopLevelDeclNameMap (Map AnnKey String)
 
 data LayoutState = LayoutState
@@ -268,11 +302,8 @@ data BriDoc
   | BDAlt [BriDoc]
   | BDForwardLineMode BriDoc
   | BDExternal AnnKey
-               (Set AnnKey) -- set of annkeys contained within the node
-                            -- to be printed via exactprint
-               (Maybe (Set SourceCommentKey)) -- comments in a source slice
                Bool -- should print extra comment ?
-               Text
+               ExternalSource
   | BDPlain Bool !Text -- used for QuasiQuotes, content can be multi-line
                        -- (contrast to BDLit); Bool permits hanging layout
   | BDAnnotationPrior PriorCommentMode AnnKey BriDoc
@@ -319,11 +350,8 @@ data BriDocF f
   | BDFAlt [f (BriDocF f)]
   | BDFForwardLineMode (f (BriDocF f))
   | BDFExternal AnnKey
-               (Set AnnKey) -- set of annkeys contained within the node
-                            -- to be printed via exactprint
-               (Maybe (Set SourceCommentKey)) -- comments in a source slice
                Bool -- should print extra comment ?
-               Text
+               ExternalSource
   | BDFPlain Bool !Text -- used for QuasiQuotes, content can be multi-line
                         -- (contrast to BDLit); Bool permits hanging layout
   | BDFAnnotationPrior PriorCommentMode AnnKey (f (BriDocF f))
@@ -400,7 +428,7 @@ unwrapBriDocNumbered tpl = case snd tpl of
   BDFPar ind line indented     -> BDPar ind (rec line) (rec indented)
   BDFAlt             alts      -> BDAlt $ rec <$> alts -- not that this will happen
   BDFForwardLineMode bd        -> BDForwardLineMode $ rec bd
-  BDFExternal k ks cs c t      -> BDExternal k ks cs c t
+  BDFExternal k c source       -> BDExternal k c source
   BDFPlain canHang t           -> BDPlain canHang t
   BDFAnnotationPrior priorMode annKey bd ->
     BDAnnotationPrior priorMode annKey $ rec bd

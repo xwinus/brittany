@@ -27,6 +27,9 @@ import qualified GHC.Types.SrcLoc as GHC
 import GHC.Parser.Annotation (EpAnn(..), NameAnn(..), NameAdornment(..), getLocA)
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
+import Language.Haskell.Brittany.Internal.ExactSource
+  ( validateExactSourceFragment
+  )
 import Language.Haskell.Brittany.Internal.Fallbacks
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
@@ -74,25 +77,21 @@ briDocByExactNoComment fallback ast = do
     (printTreeWithCustom 100 (customLayouterF anns) ast)
   docExt ast anns False
 
--- | Use caller-provided exact source for a node. This is needed when GHC keeps
--- source comments on a parent node that is not part of the exact-printed AST.
--- This also consumes annotation keys that GHC attached outside the
--- exact-printed node's regular AST fold.
-briDocByExactTextWithAnnsNoComment
+briDocByExactSourceFragmentNoComment
   :: Data ast
   => FallbackId
   -> Located ast
-  -> Set.Set AnnKey
-  -> Text.Text
+  -> ExactSourceFragment
   -> ToBriDocM BriDocNumbered
-briDocByExactTextWithAnnsNoComment fallback ast extraKeys exactText = do
+briDocByExactSourceFragmentNoComment fallback ast fragment = do
   reportFallback fallback ast
+  case validateExactSourceFragment fragment of
+    Left fragmentError -> mTell [ErrorUnusedComment fragmentError]
+    Right () -> pure ()
   allocateNode $ BDFExternal
     (ExactPrintCompat.mkAnnKey ast)
-    (foldedAnnKeys ast <> extraKeys)
-    Nothing
     False
-    (Text.dropWhileEnd (== '\n') $ Text.dropWhile (== '\n') exactText)
+    (SourceFragment fragment)
 
 -- | Use ExactPrint's output for this node, presuming that this output does
 -- not contain any newlines. If this property is not met, the semantics
@@ -116,10 +115,8 @@ briDocByExactInlineOnly fallback ast = do
       reportFallback fallback ast
       allocateNode $ BDFExternal
         (ExactPrintCompat.mkAnnKey ast)
-        (foldedAnnKeys ast)
-        Nothing
         False
-        t
+        (ExactPrintSource (foldedAnnKeys ast) t)
   let
     errorAction = do
       mTell [ErrorUnknownNode (show fallback) ast]
@@ -551,11 +548,11 @@ docExt
   -> ToBriDocM BriDocNumbered
 docExt x anns shouldAddComment = allocateNode $ BDFExternal
   (ExactPrintCompat.mkAnnKey x)
-  (foldedAnnKeys x)
-  Nothing
   shouldAddComment
-  (Text.dropWhileEnd (== '\n') . Text.dropWhile (== '\n') . Text.pack
-    $ ExactPrint.exactPrint x)
+  ( ExactPrintSource (foldedAnnKeys x)
+  $ Text.dropWhileEnd (== '\n') . Text.dropWhile (== '\n') . Text.pack
+  $ ExactPrint.exactPrint x
+  )
 
 docAlt :: [ToBriDocM BriDocNumbered] -> ToBriDocM BriDocNumbered
 docAlt l = allocateNode . BDFAlt =<< sequence l

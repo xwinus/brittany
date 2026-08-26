@@ -27,6 +27,12 @@ The typed, machine-readable registry is exposed as `fallbackInventory` from
 `Language.Haskell.Brittany`. Each entry includes its scope, support mode,
 trigger, rationale, compatibility features, and regression fixtures.
 
+Each scoped fallback carries its source range, annotation keys, and exact
+comment identities. Rendering consumes only the comments explicitly present in
+that source range. A fragment with an out-of-range comment identity is rejected
+and leaves the remaining comment state unchanged, so pass-through output cannot
+hide a comment that it did not render.
+
 ## Inventory
 
 | Identifier | Scope | Support | Trigger and rationale |
