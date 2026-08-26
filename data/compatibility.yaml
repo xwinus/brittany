@@ -77,8 +77,8 @@ features:
     tracking-issue: 79
   - name: DerivingVia
     kind: extension
-    support: exact-source
-    tracking-issue: 16
+    support: native
+    tracking-issue: 82
   - name: DisambiguateRecordFields
     kind: extension
     support: native
@@ -263,6 +263,10 @@ features:
     kind: extension
     support: native
     tracking-issue: 17
+  - name: StandaloneDeriving
+    kind: extension
+    support: native
+    tracking-issue: 82
   - name: StandaloneKindSignatures
     kind: extension
     support: exact-source
@@ -394,6 +398,11 @@ cases:
     kind: edge
     fixture: source/test-suite/fixtures/DeclarationCommentsEdge.hs
     features: [DerivingVia]
+    expected-result: formats
+  - name: formats standalone deriving strategies natively
+    kind: edge
+    fixture: source/test-suite/fixtures/StandaloneDerivingEdgeExpected.hs
+    features: [DerivingStrategies, DerivingVia, ExplicitForAll, StandaloneDeriving]
     expected-result: formats
   - name: classifies existential quantification
     kind: expected

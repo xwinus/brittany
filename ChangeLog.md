@@ -68,6 +68,8 @@
   configured indentation, precedence, and comments.
 * Formatted Haddock-commented multiline type signatures at configured
   indentation while retaining final-result ownership and scoped type fallback.
+* Formatted standalone deriving declarations natively, including deriving
+  strategies, via types, explicit binders, contexts, and overlap pragmas.
 
 ## 0.14.0.0 -- November 2021
 
