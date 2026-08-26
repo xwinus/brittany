@@ -152,9 +152,11 @@ library
     Language.Haskell.Brittany.Internal.ExpressionComments
     Language.Haskell.Brittany.Internal.FieldComments
     Language.Haskell.Brittany.Internal.Layouters.DataDecl.Support
+    Language.Haskell.Brittany.Internal.Layouters.Type.Operator
     Language.Haskell.Brittany.Internal.PatternComments
     Language.Haskell.Brittany.Internal.Preprocessor
     Language.Haskell.Brittany.Internal.TypeFallbacks
+    Language.Haskell.Brittany.Internal.TypeOperatorComments
 
 executable brittany
   import: executable
@@ -181,4 +183,5 @@ test-suite brittany-test-suite
     RegressionSpec
     TemplateHaskellFallbackSpec
     TopLevelSpacingSpec
+    TypeOperatorRecordSpec
   type: exitcode-stdio-1.0

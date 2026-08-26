@@ -91,6 +91,7 @@ import qualified Language.Haskell.Brittany.Internal.DerivingComments as Deriving
 import Language.Haskell.Brittany.Internal.ExactPrintCompat
 import qualified Language.Haskell.Brittany.Internal.FieldComments as FieldComments
 import Language.Haskell.Brittany.Internal.Prelude
+import qualified Language.Haskell.Brittany.Internal.TypeOperatorComments as TypeOperatorComments
 import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
 import qualified Language.Haskell.GHC.ExactPrint.Types as EPTypes
 import qualified Language.Haskell.GHC.ExactPrint.Utils as EPUtils
@@ -335,7 +336,8 @@ extractAnnsFromModule lmod =
         [(k, ()) | k <- Map.keys merged, not (Map.member k allWithInner)]
       redistributed = redistributeInnerCommentsWithChildSkips
         fullSpanMap nonDeclKeys Map.empty merged
-  in DerivingComments.markDerivingComments
+  in TypeOperatorComments.markTypeOperatorComments
+    $ DerivingComments.markDerivingComments
     $ FieldComments.markFieldPostDocs redistributed
 
 -- | Redistribute intra-declaration comments from the module annotation to

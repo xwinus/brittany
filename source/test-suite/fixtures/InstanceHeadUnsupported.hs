@@ -1,3 +1,3 @@
-{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DataKinds #-}
 instanceHeadAnchor = ()
-instance LeftType :*: RightType where
+instance Display '(Int, Bool) where

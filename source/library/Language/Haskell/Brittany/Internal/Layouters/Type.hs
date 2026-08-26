@@ -22,6 +22,7 @@ import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
+import qualified Language.Haskell.Brittany.Internal.Layouters.Type.Operator as Operator
 import Language.Haskell.Brittany.Internal.Utils
   (FirstLastView(..), splitFirstLast)
 import Unsafe.Coerce (unsafeCoerce)
@@ -350,66 +351,8 @@ layoutType ltype = layoutType' (toL ltype)
                 (docAddBaseY (BrIndentSpecial 2) line1)
                 (docLines $ lines ++ [end])
             ]
-    HsOpTy{} -> -- TODO
-      briDocByExactInlineOnly TypeFallback ltype
-  -- HsOpTy typ1 opName typ2 -> do
-  --   -- TODO: these need some proper fixing. precedences don't add up.
-  --   --       maybe the parser just returns some trivial right recursion
-  --   --       parse result for any type level operators.
-  --   --       need to check how things are handled on the expression level.
-  --   let opStr = lrdrNameToText opName
-  --   let opLen = Text.length opStr
-  --   layouter1@(Layouter desc1 _ _) <- layoutType typ1
-  --   layouter2@(Layouter desc2 _ _) <- layoutType typ2
-  --   let line = do -- Maybe
-  --         l1 <- _ldesc_line desc1
-  --         l2 <- _ldesc_line desc2
-  --         let len1 = _lColumns_min l1
-  --         let len2 = _lColumns_min l2
-  --         let len = 2 + opLen + len1 + len2
-  --         return $ LayoutColumns
-  --           { _lColumns_key = ColumnKeyUnique
-  --           , _lColumns_lengths = [len]
-  --           , _lColumns_min = len
-  --           }
-  --   let block = do -- Maybe
-  --         rol1 <- descToBlockStart desc1
-  --         (min2, max2) <- descToMinMax (1+opLen) desc2
-  --         let (minR, maxR) = case descToBlockMinMax desc1 of
-  --               Nothing -> (min2, max2)
-  --               Just (min1, max1) -> (max min1 min2, max max1 max2)
-  --         return $ BlockDesc
-  --           { _bdesc_blockStart = rol1
-  --           , _bdesc_min = minR
-  --           , _bdesc_max = maxR
-  --           , _bdesc_opIndentFloatUp = Just (1+opLen)
-  --           }
-  --   return $ Layouter
-  --     { _layouter_desc = LayoutDesc
-  --       { _ldesc_line = line
-  --       , _ldesc_block = block
-  --       }
-  --     , _layouter_func = \params -> do
-  --         remaining <- getCurRemaining
-  --         let allowSameLine = _params_sepLines params /= SepLineTypeOp
-  --         case line of
-  --           Just (LayoutColumns _ _ m) | m <= remaining && allowSameLine -> do
-  --             applyLayouterRestore layouter1 defaultParams
-  --             layoutWriteAppend $ Text.pack " " <> opStr <> Text.pack " "
-  --             applyLayouterRestore layouter2 defaultParams
-  --           _ -> do
-  --             let upIndent   = maybe (1+opLen) (max (1+opLen)) $ _params_opIndent params
-  --             let downIndent = maybe upIndent (max upIndent) $ _bdesc_opIndentFloatUp =<< _ldesc_block desc2
-  --             layoutWithAddIndentN downIndent $ applyLayouterRestore layouter1 defaultParams
-  --             layoutWriteNewline
-  --             layoutWriteAppend $ opStr <> Text.pack " "
-  --             layoutWriteEnsureBlockPlusN downIndent
-  --             applyLayouterRestore layouter2 defaultParams
-  --               { _params_sepLines = SepLineTypeOp
-  --               , _params_opIndent = Just downIndent
-  --               }
-  --     , _layouter_ast = ltype
-  --     }
+    HsOpTy _ promotion typ1 opName typ2 ->
+      Operator.layoutOperatorType layoutType ltype promotion typ1 opName typ2
     HsIParamTy _ (L _ (HsIPName ipName)) typ1 -> do
       typeDoc1 <- docSharedWrapper layoutType (toL typ1)
       docAlt

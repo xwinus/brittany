@@ -297,8 +297,8 @@ features:
     tracking-issue: 16
   - name: TypeOperators
     kind: extension
-    support: exact-source
-    tracking-issue: 16
+    support: native
+    tracking-issue: 80
   - name: TupleSections
     kind: extension
     support: native

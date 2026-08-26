@@ -135,10 +135,10 @@ fallbackInfo fallback = FallbackInfo
     TypeFallback ->
       ( InlineScope
       , ExactSourceSupport
-      , "type operators, splices, sums, and unsupported type forms"
+      , "type splices, sums, and unsupported type forms"
       , "the type layouter cannot safely reconstruct all delimiters"
-      , ["QuasiQuotes", "TypeOperators", "UnboxedSums"]
-      , ["source/test-suite/fixtures/TypeDataEdge.hs"]
+      , ["QuasiQuotes", "UnboxedSums"]
+      , ["source/test-suite/fixtures/UnliftedSyntaxEdge.hs"]
       )
     PatternFallback ->
       ( InlineScope

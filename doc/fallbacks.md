@@ -38,7 +38,7 @@ trigger, rationale, compatibility features, and regression fixtures.
 | `TypeClassDeclarationFallback` | declaration | exact source | Type, class, family, unsupported instance heads, and experimental binder forms outside native declaration layout. |
 | `FamilyDefaultFallback` | declaration | exact source | Default associated family equations whose annotations are not safely reconstructed. |
 | `ExpressionFallback` | inline | exact source | Extension-specific expressions whose punctuation or comments need exact preservation. |
-| `TypeFallback` | inline | exact source | Type operators, splices, sums, and other type forms outside native layout. |
+| `TypeFallback` | inline | exact source | Type splices, sums, and other type forms outside native layout. |
 | `PatternFallback` | inline | exact source | Extension-specific patterns outside the native pattern subset. |
 | `StatementFallback` | inline | exact source | Statements and qualifiers outside the native statement subset. |
 | `ImportFallback` | declaration | exact source | Explicit-level and comment-sensitive imports. |
@@ -58,3 +58,7 @@ comment-preservation checks. Issues #19 and #55 promote simple
 multi-constructor Haskell 98 declarations, constructor comments, and basic GADT
 signatures to native layout under this contract. Extended constructor forms
 retain `DataDeclarationFallback`.
+
+Issue #80 promotes type operators to native, precedence-preserving layout.
+Containing declarations retain configured indentation, while comments within
+operator types remain attached and idempotent.

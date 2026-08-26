@@ -250,6 +250,16 @@ spec projectRoot = Hspec.describe "fallback inventory and reporting" $ do
     messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "DataDeclarationFallback")
 
+  Hspec.it "keeps type-operator records on native layout paths" $ do
+    messages <- runFormatter projectRoot fallbackReportingConfig
+      "TypeOperatorRecordEdgeInput.hs"
+    messages `Hspec.shouldNotSatisfy` any
+      (List.isInfixOf "TypeClassDeclarationFallback")
+    messages `Hspec.shouldNotSatisfy` any
+      (List.isInfixOf "DeclarationFallback")
+    messages `Hspec.shouldNotSatisfy` any
+      (List.isInfixOf "TypeFallback")
+
   Hspec.it "reports unsupported commented single constructors safely" $ do
     messages <- runFormatter projectRoot fallbackReportingConfig
       "DocumentedSingleConstructorUnsupported.hs"
