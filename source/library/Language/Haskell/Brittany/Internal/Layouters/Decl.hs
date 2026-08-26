@@ -9,7 +9,6 @@ module Language.Haskell.Brittany.Internal.Layouters.Decl where
 import qualified Data.Data
 import qualified Data.Foldable
 import qualified Data.Maybe
-import qualified Data.Map as Map
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
 import GHC (GenLocated(L))
@@ -33,7 +32,7 @@ import Language.Haskell.Syntax.Binds (RecordPatSynField(recordPatSynField))
 import GHC.Parser.Annotation (getLocA)
 import GHC.Types.SrcLoc (Located, RealSrcSpan, SrcSpan(..), getLoc, noSrcSpan, srcSpanStartCol, srcSpanStartLine, srcSpanEndCol, srcSpanEndLine, unLoc)
 import Language.Haskell.Brittany.Internal.Config.Types
-import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey, Anns, mkAnnKey, Comment(..), srcSpanToRealSpan)
+import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey, mkAnnKey, Comment(..), srcSpanToRealSpan)
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.ExpressionComments
@@ -75,7 +74,7 @@ import qualified Language.Haskell.GHC.ExactPrint.Utils as ExactPrint
 layoutDecl :: ToBriDoc HsDecl
 layoutDecl = layoutDeclWithExactText Nothing False
 
-layoutDeclWithExactText :: Maybe Text.Text -> Bool -> ToBriDoc HsDecl
+layoutDeclWithExactText :: Maybe ExactSourceFragment -> Bool -> ToBriDoc HsDecl
 layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl of
   SigD _ sig@TypeSig{}
     -> layoutTypeSignature d sig
@@ -237,7 +236,7 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
           connectedComments
         hasSourceNonPragmaComments = hasSourceComments && case exactText of
           Nothing -> True
-          Just source -> sourceHasNonPragmaComment source
+          Just source -> sourceHasNonPragmaComment $ fragmentText source
     if hasConnectedComments || hasSourceNonPragmaComments
       then layoutExact DeclarationFallback declaration exactText
       else formatted
@@ -256,13 +255,8 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
          )
 
   layoutExact fallback declaration source = case source of
-    Just text -> do
-      anns :: Anns <- mAsk
-      briDocByExactTextWithAnnsNoComment
-        fallback
-        declaration
-        (Map.keysSet anns)
-        text
+    Just fragment -> briDocByExactSourceFragmentNoComment
+      fallback declaration fragment
     Nothing -> briDocByExactNoComment fallback declaration
 
   requiresExactTypes = not . null . exactSourceTypes
@@ -1302,8 +1296,8 @@ layoutClsInst lcid@(L _ cid) = layoutInstance lcid
 
   -- | ExactPrint adds indentation/newlines to @data@/@type@ declarations
   stripWhitespace :: BriDocF f -> BriDocF f
-  stripWhitespace (BDFExternal ann anns comments b t) =
-    BDFExternal ann anns comments b $ stripWhitespace' t
+  stripWhitespace (BDFExternal ann shouldAddComment source) =
+    BDFExternal ann shouldAddComment $ mapExternalSourceText stripWhitespace' source
   stripWhitespace b = b
 
   -- | This fixes two issues of output coming from Exactprinting

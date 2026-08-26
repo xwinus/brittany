@@ -21,9 +21,7 @@ import GHC.Types.SourceText (FractionalLit(..), IntegralLit(..), SourceText(..))
 import Language.Haskell.Syntax.Basic (FieldLabelString(..))
 import Language.Haskell.Brittany.Internal.ExactSource
   ( nodeSourceFragment
-  , sourceCommentKeys
   )
-import Language.Haskell.Brittany.Internal.ExactPrintUtils (foldedAnnKeys)
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified GHC.OldList as List
@@ -68,16 +66,10 @@ layoutExactSourceExpression
 layoutExactSourceExpression expression = do
   OriginalSource source <- mAsk
   anns <- mAsk
-  case nodeSourceFragment source expression of
+  case nodeSourceFragment source expression anns of
     Nothing -> briDocByExactInlineOnly ExpressionFallback expression
-    Just fragment -> do
-      reportFallback ExpressionFallback expression
-      allocateNode $ BDFExternal
-        (ExactPrintCompat.mkAnnKey expression)
-        (foldedAnnKeys expression)
-        (Just $ sourceCommentKeys expression anns)
-        False
-        fragment
+    Just fragment -> briDocByExactSourceFragmentNoComment
+      ExpressionFallback expression fragment
 
 isBlockLikeExpression :: HsExpr GhcPs -> Bool
 isBlockLikeExpression = \case

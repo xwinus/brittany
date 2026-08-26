@@ -4,12 +4,17 @@ module Language.Haskell.Brittany.Internal.ExactSource
   ( nodeSourceSlice
   , nodeSourceFragment
   , sourceCommentKeys
+  , sourceRangeContainsComment
+  , validateExactSourceFragment
   ) where
 
+import Data.Data (Data)
 import qualified Data.Map as Map
+import qualified Data.Maybe as Maybe
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified GHC
+import qualified GHC.Data.FastString as FastString
 import GHC.Parser.Annotation (getLocA)
 import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.ExactPrintCompat
@@ -17,23 +22,23 @@ import Language.Haskell.Brittany.Internal.ExactPrintCompat
   , commentIdentifier
   )
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as EP
-import Language.Haskell.Brittany.Internal.LayouterBasics
-  ( extractAllComments
-  , isRegularComment
-  )
+import Language.Haskell.Brittany.Internal.ExactPrintUtils (foldedAnnKeys)
 import Language.Haskell.Brittany.Internal.Prelude
-import Language.Haskell.Brittany.Internal.Types (SourceCommentKey(..))
+import Language.Haskell.Brittany.Internal.Types
 
 nodeSourceSlice
-  :: Text.Text -> GHC.Located ast -> Anns -> Maybe Text.Text
+  :: Data ast
+  => Text.Text
+  -> GHC.Located ast
+  -> Anns
+  -> Maybe ExactSourceFragment
 nodeSourceSlice source node anns = do
   nodeSpan <- EP.srcSpanToRealSpan $ getLocA node
   let
     commentSpans =
       [ span'
       | annotation <- Map.elems anns
-      , comment <- extractAllComments annotation
-      , isRegularComment comment
+      , comment <- annotationComments annotation
       , Just span' <- [EP.srcSpanToRealSpan $ commentIdentifier $ fst comment]
       ]
     spans = nodeSpan : commentSpans
@@ -42,12 +47,26 @@ nodeSourceSlice source node anns = do
     selectedLines =
       take (lastLine - firstLine + 1)
         $ drop (firstLine - 1)
-        $ Text.lines source
+        $ Text.splitOn (Text.singleton '\n') source
   guard $ not $ null selectedLines
-  pure $ Text.intercalate (Text.singleton '\n') selectedLines
+  let lastColumn = maybe 1 ((+ 1) . Text.length)
+        $ Maybe.listToMaybe $ reverse selectedLines
+      range = SourceRange
+        (FastString.unpackFS $ SrcLoc.srcSpanFile nodeSpan)
+        firstLine
+        1
+        lastLine
+        lastColumn
+  pure $ exactSourceFragment node anns range
+    $ Text.intercalate (Text.singleton '\n') selectedLines
 
-nodeSourceFragment :: Text.Text -> GHC.Located ast -> Maybe Text.Text
-nodeSourceFragment source node = do
+nodeSourceFragment
+  :: Data ast
+  => Text.Text
+  -> GHC.Located ast
+  -> Anns
+  -> Maybe ExactSourceFragment
+nodeSourceFragment source node anns = do
   nodeSpan <- EP.srcSpanToRealSpan $ getLocA node
   let startLine = GHC.srcSpanStartLine nodeSpan
       endLine = GHC.srcSpanEndLine nodeSpan
@@ -58,7 +77,8 @@ nodeSourceFragment source node = do
         $ Text.splitOn (Text.singleton '\n') source
   case selectedLines of
     [] -> Nothing
-    [line] -> pure $ Text.take (endColumn - startColumn)
+    [line] -> pure $ exactSourceFragment node anns (rangeFromSpan nodeSpan)
+      $ Text.take (endColumn - startColumn)
       $ Text.drop (startColumn - 1) line
     firstLine : remainingLines -> case reverse remainingLines of
       [] -> Nothing
@@ -74,7 +94,8 @@ nodeSourceFragment source node = do
                 , not $ Text.null $ Text.strip line
                 ]
             rebase = dropLeadingSpaces continuationIndent
-        pure $ Text.intercalate (Text.singleton '\n')
+        pure $ exactSourceFragment node anns (rangeFromSpan nodeSpan)
+          $ Text.intercalate (Text.singleton '\n')
           $ Text.drop sourceIndent firstLine
           : fmap rebase continuationLines
 
@@ -82,16 +103,76 @@ sourceCommentKeys
   :: GHC.Located ast -> Anns -> Set.Set SourceCommentKey
 sourceCommentKeys node anns = case EP.srcSpanToRealSpan $ getLocA node of
   Nothing -> Set.empty
-  Just nodeSpan -> Set.fromList
+  Just nodeSpan -> commentKeysInRange (rangeFromSpan nodeSpan) anns
+
+sourceRangeContainsComment :: SourceRange -> SourceCommentKey -> Bool
+sourceRangeContainsComment range (SourceCommentKey span') = case
+  EP.srcSpanToRealSpan span' of
+    Nothing -> False
+    Just realSpan -> rangeContainsSpan range realSpan
+
+validateExactSourceFragment :: ExactSourceFragment -> Either String ()
+validateExactSourceFragment fragment = case filter
+  (not . sourceRangeContainsComment (fragmentRange fragment))
+  (Set.toList $ fragmentCommentKeys fragment) of
+    [] -> Right ()
+    invalidKeys -> Left
+      $ "exact-source fragment contains comment keys outside its range: "
+      ++ show invalidKeys
+
+exactSourceFragment
+  :: Data ast
+  => GHC.Located ast
+  -> Anns
+  -> SourceRange
+  -> Text.Text
+  -> ExactSourceFragment
+exactSourceFragment node anns range text = ExactSourceFragment
+  { fragmentText = text
+  , fragmentRange = range
+  , fragmentAnnotationKeys = foldedAnnKeys node <> Set.fromList
+      [ key
+      | key <- Map.keys anns
+      , Just keySpan <- [EP.annKeyRealSpan key]
+      , rangeContainsSpan range keySpan
+      ]
+  , fragmentCommentKeys = commentKeysInRange range anns
+  }
+
+commentKeysInRange :: SourceRange -> Anns -> Set.Set SourceCommentKey
+commentKeysInRange range anns = Set.fromList
     [ SourceCommentKey $ commentIdentifier $ fst comment
     | annotation <- Map.elems anns
-    , comment <- extractAllComments annotation
-    , isRegularComment comment
+    , comment <- annotationComments annotation
     , Just commentSpan <-
         [EP.srcSpanToRealSpan $ commentIdentifier $ fst comment]
-    , SrcLoc.realSrcSpanStart nodeSpan <= SrcLoc.realSrcSpanStart commentSpan
-    , SrcLoc.realSrcSpanEnd commentSpan <= SrcLoc.realSrcSpanEnd nodeSpan
+    , rangeContainsSpan range commentSpan
     ]
+
+annotationComments
+  :: EP.Annotation -> [(EP.Comment, EP.DeltaPos)]
+annotationComments annotation =
+  EP.annPriorComments annotation
+    ++ EP.annFollowingComments annotation
+    ++ [ (comment, delta)
+       | (EP.AnnComment comment, delta) <- EP.annsDP annotation
+       ]
+
+rangeFromSpan :: SrcLoc.RealSrcSpan -> SourceRange
+rangeFromSpan span' = SourceRange
+  (FastString.unpackFS $ SrcLoc.srcSpanFile span')
+  (SrcLoc.srcSpanStartLine span')
+  (SrcLoc.srcSpanStartCol span')
+  (SrcLoc.srcSpanEndLine span')
+  (SrcLoc.srcSpanEndCol span')
+
+rangeContainsSpan :: SourceRange -> SrcLoc.RealSrcSpan -> Bool
+rangeContainsSpan range span' =
+  sourceRangeFile range == FastString.unpackFS (SrcLoc.srcSpanFile span')
+    && (sourceRangeStartLine range, sourceRangeStartColumn range)
+      <= (SrcLoc.srcSpanStartLine span', SrcLoc.srcSpanStartCol span')
+    && (SrcLoc.srcSpanEndLine span', SrcLoc.srcSpanEndCol span')
+      <= (sourceRangeEndLine range, sourceRangeEndColumn range)
 
 dropLeadingSpaces :: Int -> Text.Text -> Text.Text
 dropLeadingSpaces count line = Text.drop removable line

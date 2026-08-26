@@ -249,9 +249,7 @@ commentedImportsToDoc exactText = \case
         if hasComments
           then do
             listAnns <- filterAnns listNode <$> mAsk
-            pure $ case nodeSourceSlice exactText importNode listAnns of
-              Just source -> Just (source, Map.keysSet listAnns)
-              Nothing -> Nothing
+            pure $ nodeSourceSlice exactText importNode listAnns
           else pure Nothing
       _ -> pure Nothing
     docSeq

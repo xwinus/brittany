@@ -70,6 +70,8 @@
   indentation while retaining final-result ownership and scoped type fallback.
 * Formatted standalone deriving declarations natively, including deriving
   strategies, via types, explicit binders, contexts, and overlap pragmas.
+* Restricted exact-source comment consumption to source identities present in
+  each rendered fragment, preserving Haddock comments outside its source range.
 
 ## 0.14.0.0 -- November 2021
 

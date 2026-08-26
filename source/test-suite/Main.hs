@@ -7,6 +7,7 @@ import qualified Data.List as List
 import qualified Data.Set as Set
 import qualified DataDeclSingleConstructorSpec
 import qualified ExtractAnnsSpec
+import qualified ExactSourceFragmentSpec
 import qualified FallbackSpec
 import qualified InstanceHeadSpec
 import qualified Language.Haskell.Brittany.Main as Brittany
@@ -71,6 +72,7 @@ main = Hspec.hspec $ do
   StandaloneDerivingSpec.spec projectRoot
   DataDeclSingleConstructorSpec.spec projectRoot
   ExtractAnnsSpec.spec
+  ExactSourceFragmentSpec.spec projectRoot
   CompatibilitySpec.spec projectRoot
   FallbackSpec.spec projectRoot
   InstanceHeadSpec.spec projectRoot
