@@ -42,6 +42,11 @@ import Language.Haskell.Brittany.Internal.ExpressionComments
   )
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.DataDecl
+import Language.Haskell.Brittany.Internal.Layouters.DataDecl.Support
+  ( documentedSingleH98Constructor
+  , supportsCommentedDataDecl
+  , supportsDocumentedSingleH98Comments
+  )
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
 import Language.Haskell.Brittany.Internal.Layouters.Pattern
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Stmt
@@ -83,6 +88,9 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
         layoutExact TypeClassDeclarationFallback d exactText
     | supportsCommentedDataDecl tycl ->
         withTransformedAnns d $ docWrapNode d $ layoutTyCl (L loc tycl)
+    | Just (constructor, equalsSpan) <- documentedSingleH98Constructor tycl ->
+        layoutDocumentedSingleH98 d equalsSpan (toL constructor)
+          $ layoutTyCl (L loc tycl)
     | otherwise -> layoutExactWhenCommented d $ layoutTyCl (L loc tycl)
   InstD _ (TyFamInstD _ tfid) ->
     layoutExactWhenCommented d $ layoutTyFamInstDecl False d tfid
@@ -187,6 +195,14 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
     if hasComments
       then layoutExact DeclarationFallback declaration exactText
       else formatted
+
+  layoutDocumentedSingleH98 declaration equalsSpan constructor formatted = do
+    connectedComments <- astConnectedComments declaration
+    if supportsDocumentedSingleH98Comments
+      declaration equalsSpan constructor connectedComments
+      then withTransformedAnns declaration
+        $ docWrapNode declaration formatted
+      else layoutExact DeclarationFallback declaration exactText
 
   layoutInstanceExactWhenCommented declaration formatted = do
     connectedComments <- astConnectedComments declaration

@@ -317,8 +317,8 @@ layoutBriDocM = \case
       Just comments -> do
         -- For multi-line following comments (y>0), x is absolute column
         -- (0-indexed) but layoutMoveToCommentPos does indLevelLinger + x.
-        -- Compensate by subtracting indLevelLinger. Marked export sections
-        -- instead use the current export content column.
+        -- Compensate by subtracting indLevelLinger. Marked structural
+        -- comments instead use the current layout's indentation.
         restState <- mGet
         let indLinger = _lstate_indLevelLinger restState
         comments
@@ -327,7 +327,11 @@ layoutBriDocM = \case
                       let commentLines = Text.lines $ Text.pack commentStr
                           adjustedX
                             | y > 0
-                            , origin == Just ExactPrintCompat.AnnHaddockSection =
+                            , origin `elem`
+                                [ Just ExactPrintCompat.AnnHaddockSection
+                                , Just ExactPrintCompat.AnnFieldPostDoc
+                                , Just ExactPrintCompat.AnnDerivingComment
+                                ] =
                                 max 0
                                   (lstate_baseY restState
                                     + indentAmount

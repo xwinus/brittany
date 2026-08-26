@@ -44,6 +44,8 @@
   preserving and rebasing their exact source contents and comments.
 * Kept commented local bang bindings on the native declaration path while
   retaining expression-scoped fallback for their Template Haskell quotes.
+* Formatted documented single-constructor Haskell 98 data and newtype
+  declarations natively using the configured indentation.
 * Scoped pattern quasiquote fallback to the pattern leaf so surrounding case
   alternatives and declarations retain native indentation.
 * Preserved intentional blank lines between statements in `do`, `mdo`, and

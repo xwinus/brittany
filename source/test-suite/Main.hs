@@ -5,6 +5,7 @@ import qualified CompatibilitySpec
 import Data.Kind (Type)
 import qualified Data.List as List
 import qualified Data.Set as Set
+import qualified DataDeclSingleConstructorSpec
 import qualified ExtractAnnsSpec
 import qualified FallbackSpec
 import qualified InstanceHeadSpec
@@ -63,6 +64,7 @@ main = Hspec.hspec $ do
         Literal actual `Hspec.shouldBe` Literal expected
 
   RegressionSpec.spec projectRoot
+  DataDeclSingleConstructorSpec.spec projectRoot
   ExtractAnnsSpec.spec
   CompatibilitySpec.spec projectRoot
   FallbackSpec.spec projectRoot
