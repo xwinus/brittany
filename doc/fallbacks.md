@@ -62,3 +62,7 @@ retain `DataDeclarationFallback`.
 Issue #80 promotes type operators to native, precedence-preserving layout.
 Containing declarations retain configured indentation, while comments within
 operator types remain attached and idempotent.
+
+Issue #81 promotes unambiguous Haddock post-doc signatures to native layout and
+keeps unsupported type leaves at inline `TypeFallback` scope. Signatures with
+ordinary comments retain declaration fallback when ownership is ambiguous.

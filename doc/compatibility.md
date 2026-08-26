@@ -64,6 +64,11 @@ fields, including symbolic, backticked, parenthesized, and promoted operators.
 Containing declarations retain configured indentation and operator comments
 remain parseable and idempotent.
 
+Issue #81 verifies native layout for multiline type signatures with argument
+and result Haddock post-docs. Continuations and post-doc markers use configured
+indentation, final-result ownership is retained, and unsupported type leaves
+remain scoped inline fallbacks.
+
 Issue #17 verifies modern patterns, literals, do notation, control expressions,
 tuple sections, and list and tuple puns. Numeric and multiline literals retain
 their exact source spelling, including sized primitive suffixes. Qualified do
