@@ -155,6 +155,7 @@ library
     Language.Haskell.Brittany.Internal.Layouters.Type.Operator
     Language.Haskell.Brittany.Internal.PatternComments
     Language.Haskell.Brittany.Internal.Preprocessor
+    Language.Haskell.Brittany.Internal.SignatureComments
     Language.Haskell.Brittany.Internal.TypeFallbacks
     Language.Haskell.Brittany.Internal.TypeOperatorComments
 
@@ -181,6 +182,7 @@ test-suite brittany-test-suite
     PreambleSpacingSpec
     PreprocessorSpec
     RegressionSpec
+    SignaturePostDocSpec
     TemplateHaskellFallbackSpec
     TopLevelSpacingSpec
     TypeOperatorRecordSpec

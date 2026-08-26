@@ -66,6 +66,8 @@
   contexts, explicit binders, overlap pragmas, and associated members.
 * Formatted type operators natively so containing declarations retain
   configured indentation, precedence, and comments.
+* Formatted Haddock-commented multiline type signatures at configured
+  indentation while retaining final-result ownership and scoped type fallback.
 
 ## 0.14.0.0 -- November 2021
 

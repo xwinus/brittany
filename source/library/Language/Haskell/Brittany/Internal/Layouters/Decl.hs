@@ -77,8 +77,7 @@ layoutDecl = layoutDeclWithExactText Nothing False
 layoutDeclWithExactText :: Maybe Text.Text -> Bool -> ToBriDoc HsDecl
 layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl of
   SigD _ sig@TypeSig{}
-    | requiresExactTypes d -> layoutExact TypeFallback d exactText
-    | otherwise -> layoutExactWhenCommented d $ layoutSig (L loc sig)
+    -> layoutTypeSignature d sig
   SigD _ sig
     | requiresExactSignature sig -> layoutExact SignatureFallback d exactText
   SigD _ sig -> withTransformedAnns d $ docWrapNode d $ layoutSig (L loc sig)
@@ -172,6 +171,26 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
           Left ns -> docLines $ return <$> ns
           Right n -> return n
 
+  layoutTypeSignature declaration signature = do
+    connectedComments <- astConnectedComments declaration
+    let hasUnsafeComments = any isRegularComment connectedComments
+        hasPostDocs = any isSignaturePostDoc connectedComments
+        hasUnownedSourceComments = hasSourceComments
+          && null connectedComments
+    case () of
+      _ | requiresExactTypes declaration && not hasPostDocs ->
+            layoutExact TypeFallback declaration exactText
+        | hasUnsafeComments || hasUnownedSourceComments ->
+            layoutExact DeclarationFallback declaration exactText
+        | otherwise -> withTransformedAnns declaration
+          $ docWrapNode declaration
+          $ layoutSigWithComments hasPostDocs (L loc signature)
+
+  isSignaturePostDoc (postDocComment, _) = commentOrigin postDocComment `elem`
+    [ Just AnnSignaturePostDoc
+    , Just AnnSignatureFinalPostDoc
+    ]
+
   isAfterNode node (sourceComment, _) = case
     ( srcSpanToRealSpan $ getLoc node
     , srcSpanToRealSpan $ commentIdentifier sourceComment
@@ -259,7 +278,10 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
 --------------------------------------------------------------------------------
 
 layoutSig :: ToBriDoc Sig
-layoutSig lsig@(L _loc sig) = case sig of
+layoutSig = layoutSigWithComments False
+
+layoutSigWithComments :: Bool -> ToBriDoc Sig
+layoutSigWithComments hasOuterComments lsig@(L _loc sig) = case sig of
   TypeSig _ names sigTy -> case sigTy of
     HsWC _ body -> case unLoc body of
       HsSig{} -> layoutNamesAndType Nothing names body
@@ -395,7 +417,8 @@ layoutSig lsig@(L _loc sig) = case sig of
                     ]
                   )
               ]
-    hasComments <- hasAnyCommentsBelow (toL lsig)
+    hasNestedComments <- hasAnyCommentsBelow (toL lsig)
+    let hasComments = hasOuterComments || hasNestedComments
     shouldBeHanging <-
       mAsk <&> _conf_layout .> _lconfig_hangingTypeSignature .> confUnpack
     if shouldBeHanging

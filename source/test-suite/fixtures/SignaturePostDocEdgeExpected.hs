@@ -1,6 +1,6 @@
 {-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE TypeOperators #-}
-module FinalResultHaddockEdge where
+module SignaturePostDocEdge where
 
 constant
   :: Bool
@@ -12,9 +12,9 @@ constrained
    . (Eq a, Show a)
   => a
   -- ^ source value
-  -> a
+  -> Maybe a ::: Either a a
   -- ^ transformed value
-constrained = id
+constrained = undefined
 
 (<==>)
   :: Int
@@ -38,6 +38,3 @@ documented
     -}
 -- | Documents the following declaration.
 documented = 3
-
-native :: Int -> Int
-native = id

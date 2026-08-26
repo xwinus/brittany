@@ -324,12 +324,22 @@ layoutBriDocM = \case
         comments
           `forM_` \(ExactPrintCompat.Comment origin _ commentStr, ExactPrintCompat.DP (y, x)) ->
                     when (commentStr /= "(" && commentStr /= ")") $ do
-                      let commentLines = Text.lines $ Text.pack commentStr
+                      let signaturePostDoc = origin `elem`
+                            [ Just ExactPrintCompat.AnnSignaturePostDoc
+                            , Just ExactPrintCompat.AnnSignatureFinalPostDoc
+                            ]
+                          commentIndent
+                            | y > 0, signaturePostDoc =
+                                lstate_baseY restState
+                            | otherwise = x
+                          commentLines = Text.lines $ Text.pack commentStr
                           adjustedY
                             | y > 0
                             , origin == Just ExactPrintCompat.AnnTypeOperatorComment = 1
                             | otherwise = y
                           adjustedX
+                            | y > 0, signaturePostDoc =
+                                max 0 $ commentIndent - indLinger
                             | y > 0
                             , origin == Just ExactPrintCompat.AnnTypeOperatorComment = 0
                             | y > 0

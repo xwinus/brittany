@@ -13,6 +13,7 @@ import qualified Language.Haskell.Brittany.Main as Brittany
 import qualified PreambleSpacingSpec
 import qualified PreprocessorSpec
 import qualified RegressionSpec
+import qualified SignaturePostDocSpec
 import qualified System.Directory as Directory
 import qualified System.FilePath as FilePath
 import qualified TemplateHaskellFallbackSpec
@@ -65,6 +66,7 @@ main = Hspec.hspec $ do
         Literal actual `Hspec.shouldBe` Literal expected
 
   RegressionSpec.spec projectRoot
+  SignaturePostDocSpec.spec projectRoot
   DataDeclSingleConstructorSpec.spec projectRoot
   ExtractAnnsSpec.spec
   CompatibilitySpec.spec projectRoot
