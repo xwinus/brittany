@@ -18,6 +18,7 @@ import qualified System.FilePath as FilePath
 import qualified TemplateHaskellFallbackSpec
 import qualified Test.Hspec as Hspec
 import qualified TopLevelSpacingSpec
+import qualified TypeOperatorRecordSpec
 
 findProjectRoot :: FilePath -> IO FilePath
 findProjectRoot dir = do
@@ -73,6 +74,7 @@ main = Hspec.hspec $ do
   TemplateHaskellFallbackSpec.spec projectRoot
   PreprocessorSpec.spec projectRoot
   TopLevelSpacingSpec.spec
+  TypeOperatorRecordSpec.spec projectRoot
 
 type Literal :: Type
 newtype Literal

@@ -55,9 +55,14 @@ type-level data and operators, standalone and inline kind signatures, unlifted
 declarations, unboxed tuples and sums, quantified constraints, and rank-n
 types. Stable native layout is used for forall, kind, promoted, application,
 constraint, `MagicHash`, and unboxed tuple paths. Experimental declaration,
-type-operator, type-abstraction, and unboxed-sum paths retain their containing
+type-abstraction, and unboxed-sum paths retain their containing
 declaration through exact-source rendering. Comments around binders, arrows,
 contexts, and constructor signatures are preserved.
+
+Issue #80 verifies native, precedence-preserving type-operator layout in record
+fields, including symbolic, backticked, parenthesized, and promoted operators.
+Containing declarations retain configured indentation and operator comments
+remain parseable and idempotent.
 
 Issue #17 verifies modern patterns, literals, do notation, control expressions,
 tuple sections, and list and tuple puns. Numeric and multiline literals retain

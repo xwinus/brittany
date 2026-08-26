@@ -325,7 +325,13 @@ layoutBriDocM = \case
           `forM_` \(ExactPrintCompat.Comment origin _ commentStr, ExactPrintCompat.DP (y, x)) ->
                     when (commentStr /= "(" && commentStr /= ")") $ do
                       let commentLines = Text.lines $ Text.pack commentStr
+                          adjustedY
+                            | y > 0
+                            , origin == Just ExactPrintCompat.AnnTypeOperatorComment = 1
+                            | otherwise = y
                           adjustedX
+                            | y > 0
+                            , origin == Just ExactPrintCompat.AnnTypeOperatorComment = 0
                             | y > 0
                             , origin `elem`
                                 [ Just ExactPrintCompat.AnnHaddockSection
@@ -340,12 +346,13 @@ layoutBriDocM = \case
                             | y > 0 = x - indLinger
                             | otherwise = x
                       case commentStr of
-                        ('#' : _) -> layoutMoveToCommentPos y (-999) 1
+                        ('#' : _) -> layoutMoveToCommentPos adjustedY (-999) 1
                                    --  ^ evil hack for CPP
                         ")" -> pure ()
                                    --  ^ fixes the formatting of parens
                                    --    on the lhs of type alias defs
-                        _ -> layoutMoveToCommentPos y adjustedX (length commentLines)
+                        _ -> layoutMoveToCommentPos adjustedY adjustedX
+                          (length commentLines)
                       -- fixedX <- fixMoveToLineByIsNewline x
                       -- replicateM_ fixedX layoutWriteNewline
                       -- layoutMoveToIndentCol y

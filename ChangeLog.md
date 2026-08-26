@@ -64,6 +64,8 @@
   module declarations, including implicit modules.
 * Added native width-aware layout for common instance heads, including
   contexts, explicit binders, overlap pragmas, and associated members.
+* Formatted type operators natively so containing declarations retain
+  configured indentation, precedence, and comments.
 
 ## 0.14.0.0 -- November 2021
 
