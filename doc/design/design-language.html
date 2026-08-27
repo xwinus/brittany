@@ -526,25 +526,6 @@
   .do-item.no .glyph { color: var(--err); }
   .do-item.yes .glyph { color: var(--ok); }
 
-  .steps { display: flex; flex-direction: column; gap: 0; }
-  .step {
-    display: grid;
-    grid-template-columns: 1.5rem 1fr;
-    gap: 0.9rem;
-    padding: 1rem 0;
-    border-bottom: 1px solid var(--line);
-    align-items: baseline;
-  }
-  .step:first-child { border-top: 1px solid var(--line); }
-  .step .n {
-    font-family: var(--f-mono);
-    font-size: 0.72rem;
-    color: var(--accent-ink);
-    font-variant-numeric: tabular-nums;
-  }
-  .step p { font-size: 0.92rem; }
-  .step .q { color: var(--muted); font-size: 0.85rem; }
-
   footer {
     color: var(--muted);
     font-size: 0.8rem;
@@ -1095,40 +1076,6 @@
 
       <div class="do-item yes"><span class="glyph">+</span><span>Keep the flag abstract — principle, not shape.</span></div>
       <div class="do-item no"><span class="glyph">&minus;</span><span>Never reproduce the Breton flag itself, ermine canton included.</span></div>
-    </div>
-  </section>
-
-  <hr class="rule">
-
-  <!-- ── OPEN ────────────────────────────────────────────── -->
-  <section>
-    <p class="kicker">Still open</p>
-    <h2>Two decisions not yet made</h2>
-
-    <div class="steps">
-      <div class="step">
-        <span class="n">01</span>
-        <div>
-          <p><b>Haskell purple, or not.</b></p>
-          <p class="q">
-            The official <span class="mono-cell">#5E5086</span> would place the project
-            in its ecosystem instantly, at the cost of blending it into a dozen other
-            tools. Gorse is the riskier and more distinctive call. Recorded here as a
-            deliberate choice, not an oversight.
-          </p>
-        </div>
-      </div>
-      <div class="step">
-        <span class="n">02</span>
-        <div>
-          <p><b>Relationship to <span class="mono-cell">lspitzner/brittany</span>.</b></p>
-          <p class="q">
-            The upstream project carries no identity, so nothing is being inherited —
-            but it is unsettled whether this one should signal continuity or a restart.
-            That affects the tone of the microsite copy rather than the drawing.
-          </p>
-        </div>
-      </div>
     </div>
   </section>
 
