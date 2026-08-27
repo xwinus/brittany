@@ -1,14 +1,17 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
 module Language.Haskell.Brittany.Internal.Layouters.DataDecl.Constructor
   ( createAnnotatedDetailsDoc
   , createDetailsDoc
   , createGadtDetailsDoc
   , createMultipleDetailsDoc
+  , createVerticalDetailsDoc
   ) where
 
 import qualified Data.Data
+import Data.Kind (Type)
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
 import GHC (GenLocated(L), Located)
@@ -24,7 +27,7 @@ import Language.Haskell.Brittany.Internal.Types
 
 createDetailsDoc
   :: Text -> HsConDeclH98Details GhcPs -> ToBriDocM BriDocNumbered
-createDetailsDoc = createDetailsDocWith False
+createDetailsDoc = createDetailsDocWith PreferHanging
 
 createAnnotatedDetailsDoc
   :: Text -> HsConDeclH98Details GhcPs -> ToBriDocM BriDocNumbered
@@ -111,34 +114,7 @@ createAnnotatedPrefixDoc
   :: Text
   -> [HsConDeclField GhcPs]
   -> ToBriDocM BriDocNumbered
-createAnnotatedPrefixDoc consNameStr arguments = do
-  indentPolicy <- mAsk <&> _conf_layout .> _lconfig_indentPolicy .> confUnpack
-  let argumentDocs = createFieldTypeDoc <$> arguments
-      singleLine = docSeq
-        [ docLit consNameStr
-        , docSeparator
-        , docForceSingleline
-        $ docSeq
-        $ List.intersperse docSeparator argumentDocs
-        ]
-      leftIndented = docSetParSpacing
-        . docAddBaseY BrIndentRegular
-        . docPar (docLit consNameStr)
-        . docLines
-        $ argumentDocs
-      multiAppended = docSeq
-        [ docLit consNameStr
-        , docSeparator
-        , docSetBaseY $ docLines argumentDocs
-        ]
-      multiIndented = docSetBaseY $ docAddBaseY BrIndentRegular $ docPar
-        (docLit consNameStr)
-        (docLines argumentDocs)
-  case indentPolicy of
-    IndentPolicyLeft -> docAlt [singleLine, leftIndented]
-    IndentPolicyMultiple -> docAlt [singleLine, multiAppended, leftIndented]
-    IndentPolicyFree ->
-      docAlt [singleLine, multiAppended, multiIndented, leftIndented]
+createAnnotatedPrefixDoc = createPrefixDoc PreferHanging
 
 mkAnnotatedFieldDocs
   :: [LHsConDeclRecField GhcPs]
@@ -177,16 +153,26 @@ createFieldTypeDoc field = docSeq
 
 createMultipleDetailsDoc
   :: Text -> HsConDeclH98Details GhcPs -> ToBriDocM BriDocNumbered
-createMultipleDetailsDoc = createDetailsDocWith True
+createMultipleDetailsDoc = createDetailsDocWith PreferVertical
+
+createVerticalDetailsDoc
+  :: Text -> HsConDeclH98Details GhcPs -> ToBriDocM BriDocNumbered
+createVerticalDetailsDoc = createDetailsDocWith ForceVertical
+
+type PrefixLayoutPreference :: Type
+data PrefixLayoutPreference
+  = PreferHanging
+  | PreferVertical
+  | ForceVertical
 
 createDetailsDocWith
-  :: Bool
+  :: PrefixLayoutPreference
   -> Text
   -> HsConDeclH98Details GhcPs
   -> ToBriDocM BriDocNumbered
-createDetailsDocWith preferVertical consNameStr details = case details of
+createDetailsDocWith preference consNameStr details = case details of
   PrefixCon args ->
-    createPrefixDoc preferVertical consNameStr args
+    createPrefixDoc preference consNameStr args
   RecCon (L _ []) ->
     docSeq [docLit consNameStr, docSeparator, docLit $ Text.pack "{}"]
   RecCon lRec@(L _ fields@(_ : _)) -> do
@@ -271,9 +257,13 @@ createDetailsDocWith preferVertical consNameStr details = case details of
       createNamesAndTypeDoc (toL lField) nameList cdf
 
 createPrefixDoc
-  :: Bool -> Text -> [HsConDeclField GhcPs] -> ToBriDocM BriDocNumbered
-createPrefixDoc preferVertical consNameStr arguments = do
+  :: PrefixLayoutPreference
+  -> Text
+  -> [HsConDeclField GhcPs]
+  -> ToBriDocM BriDocNumbered
+createPrefixDoc preference consNameStr arguments = do
   indentPolicy <- mAsk <&> _conf_layout .> _lconfig_indentPolicy .> confUnpack
+  layoutColumns <- mAsk <&> _conf_layout .> _lconfig_cols .> confUnpack
   let argumentDocs = createFieldTypeDoc <$> arguments
       singleLine = docSeq
         [ docLit consNameStr
@@ -299,21 +289,29 @@ createPrefixDoc preferVertical consNameStr arguments = do
         , docSeparator
         , docSetBaseY $ docLines argumentDocs
         ]
+      boundedHanging = docColumnsLimit
+        (layoutColumns * 3 `div` 5)
+        multiAppended
       multiIndented = docSetBaseY $ docAddBaseY BrIndentRegular $ docPar
         (docLit consNameStr)
         (docLines argumentDocs)
-  if preferVertical
-    then case indentPolicy of
-      IndentPolicyLeft -> docAlt [singleLine, vertical, leftIndented]
-      IndentPolicyMultiple ->
-        docAlt [singleLine, vertical, multiAppended, leftIndented]
-      IndentPolicyFree ->
-        docAlt [singleLine, vertical, multiAppended, multiIndented, leftIndented]
-    else case indentPolicy of
-      IndentPolicyLeft -> docAlt [singleLine, leftIndented]
-      IndentPolicyMultiple -> docAlt [singleLine, multiAppended, leftIndented]
-      IndentPolicyFree ->
-        docAlt [singleLine, multiAppended, multiIndented, leftIndented]
+      compactAlternatives = case preference of
+        ForceVertical -> []
+        _ -> [singleLine]
+      structuralAlternatives = case preference of
+        PreferHanging -> [boundedHanging, vertical]
+        PreferVertical -> [vertical, boundedHanging]
+        ForceVertical -> [vertical, boundedHanging]
+  case indentPolicy of
+    IndentPolicyLeft -> docAlt $ compactAlternatives ++ case preference of
+      PreferHanging -> [leftIndented, vertical]
+      _ -> [vertical, leftIndented]
+    IndentPolicyMultiple -> docAlt
+      $ compactAlternatives ++ structuralAlternatives ++ [leftIndented]
+    IndentPolicyFree -> docAlt
+      $ compactAlternatives
+      ++ structuralAlternatives
+      ++ [multiIndented, leftIndented]
 
 createGadtDetailsDoc
   :: Text

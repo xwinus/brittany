@@ -1,4 +1,5 @@
 -- brittany {lconfig_indentPolicy: IndentPolicyLeft }
-data EnterpriseGrantsForCompanyResponse = EnterpriseGrantsForCompanyResponse
-  Types.Company
-  [EnterpriseGrantResponse]
+data EnterpriseGrantsForCompanyResponse
+  = EnterpriseGrantsForCompanyResponse
+      Types.Company
+      [EnterpriseGrantResponse]

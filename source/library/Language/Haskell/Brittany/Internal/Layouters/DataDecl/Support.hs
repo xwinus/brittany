@@ -7,6 +7,7 @@ module Language.Haskell.Brittany.Internal.Layouters.DataDecl.Support
   , supportsDocumentedSingleH98Comments
   ) where
 
+import qualified Data.Maybe as Maybe
 import GHC (GenLocated(L), Located)
 import GHC.Hs
 import GHC.Types.SrcLoc
@@ -23,6 +24,7 @@ import Language.Haskell.Brittany.Internal.ExactPrintCompat
   )
 import Language.Haskell.Brittany.Internal.CommentPlan (lookupCommentPlacement)
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrintCompat
+import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.SourceComment.Types
 
@@ -95,7 +97,7 @@ supportsDocumentedSingleH98Comments
   :: CommentPlan
   -> Located declaration
   -> SrcSpan
-  -> Located constructor
+  -> Located (ConDecl GhcPs)
   -> [(Comment, ExactPrintCompat.DeltaPos)]
   -> Bool
 supportsDocumentedSingleH98Comments commentPlan declaration equalsSpan constructor =
@@ -103,7 +105,8 @@ supportsDocumentedSingleH98Comments commentPlan declaration equalsSpan construct
  where
   commentIsSupported (sourceComment, _)
     | isStructuralPlacement
-        $ lookupCommentPlacement commentPlan sourceComment = True
+        sourceComment
+        (lookupCommentPlacement commentPlan sourceComment) = True
     | otherwise = case
         ( srcSpanToRealSpan $ getLoc declaration
         , srcSpanToRealSpan equalsSpan
@@ -123,14 +126,41 @@ supportsDocumentedSingleH98Comments commentPlan declaration equalsSpan construct
                    )
           _ -> False
 
-  isStructuralPlacement = \case
+  isStructuralPlacement sourceComment = \case
     Just CommentPlacement{placementRole = HaddockPostDoc{}} -> True
+    Just CommentPlacement
+      { placementOwner = NodeId ownerKey
+      , placementRole = role
+      } | role `elem` [LeadingOrdinary, Unattached] ->
+          ownerIsInsideConstructor ownerKey
+            && commentIsBetweenPrefixArguments sourceComment
     Just CommentPlacement
       { placementOwner = NodeId (ExactPrintCompat.AnnKey _ ownerName)
       , placementRole = BetweenChildren DerivingClause
       } -> ExactPrintCompat.unConName ownerName == "HsDerivingClause"
     Just CommentPlacement{placementRole = BetweenChildren TypeOperator} -> True
     Just CommentPlacement{placementRole = SectionComment} -> True
+    _ -> False
+
+  ownerIsInsideConstructor ownerKey = case
+    ( ExactPrintCompat.annKeyRealSpan ownerKey
+    , srcSpanToRealSpan $ getLoc constructor
+    ) of
+      (Just ownerSpan, Just constructorSpan) ->
+        spanStart ownerSpan >= spanStart constructorSpan
+          && spanEnd ownerSpan <= spanEnd constructorSpan
+      _ -> False
+
+  commentIsBetweenPrefixArguments sourceComment = case constructor of
+    L _ (ConDeclH98 _ _ _ _ _ (PrefixCon arguments) _) -> case
+      srcSpanToRealSpan $ commentIdentifier sourceComment of
+      Just commentSpan ->
+        let argumentSpans = Maybe.mapMaybe
+              (srcSpanToRealSpan . getLoc . toL . cdf_type)
+              arguments
+        in any ((<= spanStart commentSpan) . spanEnd) argumentSpans
+          && any ((spanEnd commentSpan <=) . spanStart) argumentSpans
+      Nothing -> False
     _ -> False
 
   spanStart span' = (srcSpanStartLine span', srcSpanStartCol span')
