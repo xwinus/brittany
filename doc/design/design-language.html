@@ -1,0 +1,1143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>brittany — Design Language</title>
+<meta name="description" content="Source of truth for the brittany visual identity: mark, wordmark, colour, and type.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --bg: #F5F4F0;
+    --surface: #FFFFFF;
+    --surface-2: #EDEBE5;
+    --text: #14161C;
+    --muted: #6C7280;
+    --line: #DFDDD7;
+    --line-strong: #C6C3BA;
+    --accent: #DFA01C;
+    --accent-ink: #8A5D06;
+    --link: #2A6B7A;
+    --ok: #3B7F58;
+    --warn: #B77515;
+    --err: #B24238;
+
+    --stage: #FFFFFF;
+    --stage-alt: #14161C;
+    --stage-alt-mark: #F5F4F0;
+
+    --f-display: "Fraunces", Georgia, "Times New Roman", serif;
+    --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --measure: 34rem;
+    --wide: 62rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0C0E13;
+      --surface: #14171E;
+      --surface-2: #1B1F28;
+      --text: #E9E7E1;
+      --muted: #8F96A3;
+      --line: #262A33;
+      --line-strong: #363C47;
+      --accent: #EDB43C;
+      --accent-ink: #EDB43C;
+      --link: #63B2C2;
+      --ok: #5EA97C;
+      --warn: #D69A34;
+      --err: #D2695F;
+
+      --stage: #14171E;
+      --stage-alt: #F5F4F0;
+      --stage-alt-mark: #14161C;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0C0E13;
+    --surface: #14171E;
+    --surface-2: #1B1F28;
+    --text: #E9E7E1;
+    --muted: #8F96A3;
+    --line: #262A33;
+    --line-strong: #363C47;
+    --accent: #EDB43C;
+    --accent-ink: #EDB43C;
+    --link: #63B2C2;
+    --ok: #5EA97C;
+    --warn: #D69A34;
+    --err: #D2695F;
+
+    --stage: #14171E;
+    --stage-alt: #F5F4F0;
+    --stage-alt-mark: #14161C;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--f-body);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    padding: 0 1.5rem 6rem;
+  }
+
+  img, svg { max-width: 100%; }
+
+  .page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4.5rem;
+  }
+
+  .prose { max-width: var(--measure); }
+
+  p { margin: 0 0 1rem; }
+  p:last-child { margin-bottom: 0; }
+
+  a { color: var(--link); text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--link); outline-offset: 3px; border-radius: 2px; }
+
+  /* ── masthead ─────────────────────────────────────────── */
+
+  .masthead {
+    padding-top: 4.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.75rem;
+  }
+
+  .eyebrow {
+    font-family: var(--f-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+  }
+  .eyebrow::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+
+  h1 {
+    font-family: var(--f-display);
+    font-optical-sizing: auto;
+    font-weight: 600;
+    font-size: clamp(3rem, 9vw, 5.75rem);
+    line-height: 0.94;
+    letter-spacing: -0.025em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h1 em {
+    font-style: italic;
+    font-weight: 400;
+    color: var(--muted);
+  }
+
+  .standfirst {
+    max-width: 40rem;
+    font-size: 1.14rem;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+  .standfirst strong { color: var(--text); font-weight: 500; }
+
+  /* ── sections ─────────────────────────────────────────── */
+
+  section {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  h2 {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: clamp(1.6rem, 3.4vw, 2.15rem);
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: var(--f-body);
+    font-weight: 600;
+    font-size: 1.02rem;
+    letter-spacing: -0.005em;
+    margin: 0;
+  }
+
+  .kicker {
+    font-family: var(--f-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0;
+  }
+
+  .rule { height: 1px; background: var(--line); border: 0; margin: 0; }
+
+  /* ── stages ───────────────────────────────────────────── */
+
+  .stage {
+    background: var(--stage);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    display: grid;
+    place-items: center;
+    padding: 3.5rem 2rem;
+    min-height: 15rem;
+  }
+
+  .mark { display: block; }
+  .mark-xl { width: 132px; height: 132px; }
+
+  .split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: 2rem 2.75rem;
+    align-items: start;
+  }
+  @media (max-width: 46rem) {
+    .split { grid-template-columns: 1fr; }
+  }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    margin-bottom: 0.9rem;
+  }
+  .part-letter {
+    font-family: var(--f-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    color: var(--bg);
+    background: var(--text);
+    padding: 0.15rem 0.45rem;
+    border-radius: 2px;
+  }
+
+  .part-body { display: flex; flex-direction: column; gap: 1.1rem; }
+  .part-body p { margin: 0; font-size: 0.95rem; }
+
+  .note {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    font-size: 0.88rem;
+    border-left: 2px solid var(--line-strong);
+    padding-left: 0.9rem;
+    color: var(--muted);
+  }
+  .note b { color: var(--text); font-weight: 500; }
+
+  /* scale strip */
+  .scales {
+    display: flex;
+    align-items: flex-end;
+    gap: 1.6rem;
+    padding: 1.1rem 1.25rem;
+    background: var(--surface-2);
+    border-radius: 3px;
+    flex-wrap: wrap;
+  }
+  .scale { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+  .scale svg { display: block; }
+  .scale span {
+    font-family: var(--f-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+  .s48 { width: 48px; height: 48px; }
+  .s32 { width: 32px; height: 32px; }
+  .s24 { width: 24px; height: 24px; }
+  .s16 { width: 16px; height: 16px; }
+
+  /* ── wordmark / lockups ───────────────────────────────── */
+
+  .wordmark {
+    font-family: var(--f-mono);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    display: inline-flex;
+    align-items: center;
+  }
+  .wordmark .col-rule {
+    display: inline-block;
+    width: 0.09em;
+    height: 1.25em;
+    background: var(--accent);
+    margin-left: 0.5em;
+    border-radius: 1px;
+  }
+
+  .lockups {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .lockup {
+    background: var(--surface);
+    padding: 2.25rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    align-items: center;
+    justify-content: space-between;
+    text-align: center;
+  }
+  .lockup .caption {
+    font-family: var(--f-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .lockup-h { display: flex; align-items: center; gap: 0.7rem; }
+  .lockup-v { display: flex; flex-direction: column; align-items: center; gap: 0.7rem; }
+
+  /* ── palette ──────────────────────────────────────────── */
+
+  .swatches {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    gap: 0.75rem;
+  }
+  .swatch {
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .swatch .chip { height: 4.5rem; }
+  .swatch .meta {
+    padding: 0.7rem 0.8rem 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    background: var(--surface);
+  }
+  .swatch .name { font-size: 0.85rem; font-weight: 500; }
+  .swatch .hex {
+    font-family: var(--f-mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .swatch .use { font-size: 0.72rem; color: var(--muted); line-height: 1.4; }
+
+  .aside {
+    font-size: 0.88rem;
+    color: var(--muted);
+    max-width: var(--measure);
+  }
+
+  /* ── tables ───────────────────────────────────────────── */
+
+  .table-wrap { overflow-x: auto; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 32rem;
+    font-size: 0.88rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 0.65rem 1rem 0.65rem 0;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  th {
+    font-family: var(--f-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  td code, .mono-cell {
+    font-family: var(--f-mono);
+    font-size: 0.82rem;
+  }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ── in use ───────────────────────────────────────────── */
+
+  .mocks {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+    gap: 1.25rem;
+  }
+  .mock {
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+  }
+  .mock-label {
+    font-family: var(--f-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 0.6rem 0.9rem;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-2);
+  }
+  .mock-body { padding: 1.5rem; flex: 1; }
+
+  .hero-mock { display: flex; flex-direction: column; gap: 1.15rem; }
+  .hero-mock .nav {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    font-size: 0.78rem;
+    color: var(--muted);
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .hero-mock .nav .sp { flex: 1; }
+  .hero-mock h4 {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: 1.55rem;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    margin: 0;
+  }
+  .hero-mock .sub { font-size: 0.85rem; color: var(--muted); margin: 0; }
+  .btn-row { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .btn {
+    font-family: var(--f-mono);
+    font-size: 0.78rem;
+    padding: 0.45rem 0.85rem;
+    border-radius: 2px;
+    border: 1px solid var(--text);
+    background: var(--text);
+    color: var(--bg);
+  }
+  .btn.ghost { background: transparent; color: var(--text); border-color: var(--line-strong); }
+
+  .term {
+    background: #14161C;
+    color: #E9E7E1;
+    font-family: var(--f-mono);
+    font-size: 0.78rem;
+    line-height: 1.75;
+    padding: 1.25rem;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .term .prompt { color: #DFA01C; }
+  .term .dim { color: #757C89; }
+  .term .ok { color: #6FB98C; }
+
+  .code-col { padding: 1.15rem 1.25rem; overflow-x: auto; }
+  .code-col + .code-col { border-top: 1px solid var(--line); }
+  .code-col .tag {
+    font-family: var(--f-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: block;
+    margin-bottom: 0.6rem;
+  }
+  pre {
+    margin: 0;
+    font-family: var(--f-mono);
+    font-size: 0.76rem;
+    line-height: 1.7;
+    white-space: pre;
+  }
+  .kw { color: var(--link); }
+
+  .fav-strip {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 1.5rem;
+    flex-wrap: wrap;
+  }
+  .fav-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--surface-2);
+    border-radius: 6px 6px 0 0;
+    padding: 0.5rem 0.9rem;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  /* ── rules / don'ts ───────────────────────────────────── */
+
+  .dos {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: 0.75rem 2rem;
+  }
+  .do-item {
+    display: grid;
+    grid-template-columns: 1.1rem 1fr;
+    gap: 0.7rem;
+    align-items: baseline;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 0.9rem;
+  }
+  .do-item .glyph {
+    font-family: var(--f-mono);
+    font-size: 0.9rem;
+    line-height: 1;
+  }
+  .do-item.no .glyph { color: var(--err); }
+  .do-item.yes .glyph { color: var(--ok); }
+
+  .steps { display: flex; flex-direction: column; gap: 0; }
+  .step {
+    display: grid;
+    grid-template-columns: 1.5rem 1fr;
+    gap: 0.9rem;
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--line);
+    align-items: baseline;
+  }
+  .step:first-child { border-top: 1px solid var(--line); }
+  .step .n {
+    font-family: var(--f-mono);
+    font-size: 0.72rem;
+    color: var(--accent-ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .step p { font-size: 0.92rem; }
+  .step .q { color: var(--muted); font-size: 0.85rem; }
+
+  footer {
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-family: var(--f-mono);
+    padding-top: 1rem;
+    border-top: 1px solid var(--line);
+  }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <!--
+      The mark. Canvas 32x32.
+      Bars: height 3.2, pitch 6.2, left margin 2, widths 16.5 / 23.5 / 12.5 / 24.5 / 19.5.
+      The fourth bar carries the accent and comes closest to the column rule.
+    -->
+    <symbol id="mark" viewBox="0 0 32 32">
+      <rect x="2" y="2"    width="16.5" height="3.2" fill="currentColor"/>
+      <rect x="2" y="8.2"  width="23.5" height="3.2" fill="currentColor"/>
+      <rect x="2" y="14.4" width="12.5" height="3.2" fill="currentColor"/>
+      <rect x="2" y="20.6" width="24.5" height="3.2" fill="var(--accent)"/>
+      <rect x="2" y="26.8" width="19.5" height="3.2" fill="currentColor"/>
+      <rect x="28.6" y="0" width="1.6" height="32" fill="currentColor" opacity="0.45"/>
+    </symbol>
+
+    <!-- Single-colour contexts: engraving, stencils, one-ink print. -->
+    <symbol id="mark-mono" viewBox="0 0 32 32">
+      <rect x="2" y="2"    width="16.5" height="3.2" fill="currentColor"/>
+      <rect x="2" y="8.2"  width="23.5" height="3.2" fill="currentColor"/>
+      <rect x="2" y="14.4" width="12.5" height="3.2" fill="currentColor"/>
+      <rect x="2" y="20.6" width="24.5" height="3.2" fill="currentColor"/>
+      <rect x="2" y="26.8" width="19.5" height="3.2" fill="currentColor"/>
+      <rect x="28.6" y="0" width="1.6" height="32" fill="currentColor" opacity="0.45"/>
+    </symbol>
+
+    <!-- Reduction for 16-24px. Samples the parent profile: middle, waist, longest. -->
+    <symbol id="mark-min" viewBox="0 0 32 32">
+      <rect x="3" y="4"    width="17" height="5" fill="currentColor"/>
+      <rect x="3" y="13.5" width="12" height="5" fill="currentColor"/>
+      <rect x="3" y="23"   width="24" height="5" fill="currentColor"/>
+      <rect x="29" y="0"   width="2"  height="32" fill="currentColor" opacity="0.5"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="eyebrow">Design language &middot; brittany</div>
+    <h1>Gwenn <em>ha</em> Du</h1>
+    <p class="standfirst">
+      White and black. The Breton flag is nine horizontal stripes — and horizontal
+      stripes of uneven length are exactly what brittany leaves behind in a source
+      file. <strong>The project's name hands us a visual system for free</strong>;
+      the work is to translate it into the vocabulary of a formatter rather than
+      copy it: lines, a column, alignment.
+    </p>
+  </header>
+
+  <section>
+    <p class="kicker">Where it comes from</p>
+    <div class="prose">
+      <p>
+        The README states three goals that can be drawn: be clever about using the
+        available horizontal space without overflowing the column maximum, align
+        things horizontally, and be idempotent. Those are properties, not features —
+        and properties are what a mark can carry.
+      </p>
+      <p>
+        The name supplies the rest. <em>Gwenn ha Du</em>, the Breton flag, is nine
+        horizontal black-and-white stripes: very nearly a block of code, and unclaimed
+        in developer tooling.
+      </p>
+      <p>
+        What follows is two halves of one system rather than two competing options.
+        <b>A</b> is the mark, <b>B</b> is the wordmark. They are used together and
+        apart.
+      </p>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ── A · THE MARK ────────────────────────────────────── -->
+  <section>
+    <div class="split">
+      <div>
+        <div class="stage">
+          <svg class="mark mark-xl" viewBox="0 0 32 32" role="img" aria-label="The brittany mark: five left-aligned horizontal bars of uneven length, none crossing a vertical rule on the right">
+            <use href="#mark"></use>
+          </svg>
+        </div>
+        <div class="scales" style="margin-top:0.75rem">
+          <div class="scale"><svg class="s48" viewBox="0 0 32 32" aria-hidden="true"><use href="#mark"></use></svg><span>48</span></div>
+          <div class="scale"><svg class="s32" viewBox="0 0 32 32" aria-hidden="true"><use href="#mark"></use></svg><span>32</span></div>
+          <div class="scale"><svg class="s24" viewBox="0 0 32 32" aria-hidden="true"><use href="#mark-mono"></use></svg><span>24</span></div>
+          <div class="scale"><svg class="s16" viewBox="0 0 32 32" aria-hidden="true"><use href="#mark-min"></use></svg><span>16 &middot; reduced</span></div>
+        </div>
+      </div>
+
+      <div class="part-body">
+        <div>
+          <div class="part-head">
+            <span class="part-letter">A</span>
+            <h3>The column</h3>
+          </div>
+          <p>
+            Five bars flush to the left edge, each a different length, like lines of
+            code. A thin vertical rule sits on the right: the
+            <span class="mono-cell">column maximum</span>. No bar crosses it; the
+            longest comes right up to it. That is the whole of brittany in one image —
+            use the horizontal space, never overflow.
+          </p>
+        </div>
+        <p>
+          Bars and gaps are close to equal in height, so the mark also reads as a
+          fragment of flag. White is material here, not background, which is why the
+          mark is never drawn inside a box or a rounded square.
+        </p>
+        <div class="note">
+          <span>
+            <b>The profile is deliberate, not arbitrary.</b> The third bar is a waist;
+            the fourth is the longest and carries the accent, which puts the mark's
+            weight low and makes the bar that reaches the limit the last thing the eye
+            meets. The top and bottom bars differ by three units so that no axis of
+            symmetry appears — symmetry would read as ornament rather than as source.
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <caption class="kicker" style="text-align:left;padding-bottom:0.75rem">Geometry &middot; 32&times;32 canvas</caption>
+        <thead>
+          <tr><th>Element</th><th>Value</th><th>Note</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Bar widths, top to bottom</td>
+            <td class="mono-cell num">16.5 &middot; 23.5 &middot; 12.5 &middot; 24.5 &middot; 19.5</td>
+            <td>Fixed. Do not re-sort or re-balance.</td>
+          </tr>
+          <tr>
+            <td>Bar height / pitch</td>
+            <td class="mono-cell num">3.2 / 6.2</td>
+            <td>Gap 3.0, so gaps read as stripes too</td>
+          </tr>
+          <tr>
+            <td>Left margin</td>
+            <td class="mono-cell num">2.0</td>
+            <td>All bars flush left</td>
+          </tr>
+          <tr>
+            <td>Accent bar</td>
+            <td class="mono-cell">fourth</td>
+            <td>Exactly one bar is ever coloured</td>
+          </tr>
+          <tr>
+            <td>Column rule</td>
+            <td class="mono-cell num">x 28.6, w 1.6, 45% opacity</td>
+            <td>Full bleed top to bottom — it continues past the mark</td>
+          </tr>
+          <tr>
+            <td>Clear space</td>
+            <td class="mono-cell num">6.2 (one bar pitch)</td>
+            <td>On all four sides, measured from the canvas edge</td>
+          </tr>
+          <tr>
+            <td>Reduction threshold</td>
+            <td class="mono-cell num">&lt; 24 px</td>
+            <td>Below this, switch to the three-bar reduction</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ── B · THE WORDMARK ────────────────────────────────── -->
+  <section>
+    <div class="split">
+      <div>
+        <div class="stage">
+          <div style="display:flex;flex-direction:column;gap:1.75rem;align-items:flex-start">
+            <div class="wordmark" style="font-size:2.5rem">brittany<span class="col-rule"></span></div>
+            <div class="wordmark" style="font-size:2.5rem;color:var(--muted)">
+              britt<span style="color:var(--text)">any</span><span class="col-rule" style="background:var(--line-strong)"></span>
+            </div>
+          </div>
+        </div>
+        <div class="scales" style="margin-top:0.75rem">
+          <div class="scale"><span class="wordmark" style="font-size:1.35rem">brittany<span class="col-rule"></span></span><span>24</span></div>
+          <div class="scale"><span class="wordmark" style="font-size:0.95rem">brittany<span class="col-rule"></span></span><span>16</span></div>
+          <div class="scale"><span class="wordmark" style="font-size:0.72rem">brittany<span class="col-rule"></span></span><span>12</span></div>
+        </div>
+      </div>
+
+      <div class="part-body">
+        <div>
+          <div class="part-head">
+            <span class="part-letter">B</span>
+            <h3>The wordmark</h3>
+          </div>
+          <p>
+            Always lowercase — that is how the tool is invoked. Set in monospace
+            (IBM&nbsp;Plex Mono, weight 500), with a thin vertical rule in the accent
+            colour immediately after the last letter: the column limit again, this
+            time reading as a cursor.
+          </p>
+        </div>
+        <p>
+          It is the cheapest thing to deploy. It works in the README heading, in
+          <span class="mono-cell">--help</span> output, in the Hackage description.
+          It needs no artwork, only a rule: never a capital B, never a family other
+          than the mono, and the vertical rule always trails.
+        </p>
+        <div class="note">
+          <span>
+            <b>Minimum size 11&nbsp;px.</b> Below that the accent rule stops resolving
+            and should be dropped rather than scaled further.
+          </span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ── LOCKUPS ─────────────────────────────────────────── -->
+  <section>
+    <p class="kicker">Lockups</p>
+    <h2>One system, two roles</h2>
+    <div class="prose">
+      <p>
+        <b>A</b> carries the identity, <b>B</b> signs it. Together they have two
+        arrangements — horizontal for headers and navigation, vertical for avatars,
+        social previews and documentation title pages. The mark never appears twice
+        in the same block.
+      </p>
+    </div>
+
+    <div class="lockups">
+      <div class="lockup">
+        <div class="lockup-h">
+          <svg style="width:34px;height:34px" viewBox="0 0 32 32" aria-hidden="true"><use href="#mark"></use></svg>
+          <span class="wordmark" style="font-size:1.5rem">brittany</span>
+        </div>
+        <span class="caption">Horizontal &middot; headers, nav</span>
+      </div>
+      <div class="lockup">
+        <div class="lockup-v">
+          <svg style="width:44px;height:44px" viewBox="0 0 32 32" aria-hidden="true"><use href="#mark"></use></svg>
+          <span class="wordmark" style="font-size:1.15rem">brittany</span>
+        </div>
+        <span class="caption">Vertical &middot; avatar, OG image</span>
+      </div>
+      <div class="lockup" style="background:var(--stage-alt);color:var(--stage-alt-mark)">
+        <div class="lockup-h">
+          <svg style="width:34px;height:34px" viewBox="0 0 32 32" aria-hidden="true"><use href="#mark"></use></svg>
+          <span class="wordmark" style="font-size:1.5rem">brittany</span>
+        </div>
+        <span class="caption" style="color:currentColor;opacity:0.55">Inverse &middot; terminal, dark UI</span>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ── COLOUR ──────────────────────────────────────────── -->
+  <section>
+    <p class="kicker">Colour</p>
+    <h2>Monochrome ground, one yellow strike</h2>
+    <div class="prose">
+      <p>
+        The palette comes from Breton material rather than from preference: granite,
+        slate, deep water, and <em>ajonc</em> — the gorse that flowers bright yellow
+        along the coast the whole year round. The flag sets the ratio:
+        <b>the overwhelming majority of any surface is neutral</b>, and colour is rare.
+      </p>
+      <p>
+        The two accents have separate jobs and never swap. <b>Gorse</b> is purely
+        graphic — the highlighted bar in the mark, the cursor, an active line.
+        <b>Sea</b> is functional — links, focus, interactive state. That separation is
+        what lets the yellow stay saturated: it never has to meet a text contrast
+        threshold.
+      </p>
+    </div>
+
+    <div class="swatches">
+      <div class="swatch">
+        <div class="chip" style="background:#14161C"></div>
+        <div class="meta">
+          <span class="name">Du &middot; ink</span>
+          <span class="hex">#14161C</span>
+          <span class="use">Text, the mark's bars, dark ground</span>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="chip" style="background:#F5F4F0"></div>
+        <div class="meta">
+          <span class="name">Gwenn &middot; paper</span>
+          <span class="hex">#F5F4F0</span>
+          <span class="use">Background, the gaps between bars</span>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="chip" style="background:#6C7280"></div>
+        <div class="meta">
+          <span class="name">Granite</span>
+          <span class="hex">#6C7280</span>
+          <span class="use">Secondary text, captions</span>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="chip" style="background:#DFDDD7"></div>
+        <div class="meta">
+          <span class="name">Mist</span>
+          <span class="hex">#DFDDD7</span>
+          <span class="use">Rules, borders, dividers</span>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="chip" style="background:#DFA01C"></div>
+        <div class="meta">
+          <span class="name">Gorse &middot; accent</span>
+          <span class="hex">#DFA01C</span>
+          <span class="use">Graphic only. Never text on a light ground.</span>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="chip" style="background:#2A6B7A"></div>
+        <div class="meta">
+          <span class="name">Sea &middot; interactive</span>
+          <span class="hex">#2A6B7A</span>
+          <span class="use">Links, focus, active state</span>
+        </div>
+      </div>
+    </div>
+
+    <p class="aside" style="margin-top:0.5rem">
+      Dark mode is not an inversion, it is a second set. The ground goes blue-black so
+      that granite and sea keep their temperature, and both accents brighten.
+    </p>
+
+    <div class="swatches">
+      <div class="swatch">
+        <div class="chip" style="background:#0C0E13"></div>
+        <div class="meta"><span class="name">bg</span><span class="hex">#0C0E13</span><span class="use">Dark ground</span></div>
+      </div>
+      <div class="swatch">
+        <div class="chip" style="background:#14171E"></div>
+        <div class="meta"><span class="name">surface</span><span class="hex">#14171E</span><span class="use">Cards, code blocks</span></div>
+      </div>
+      <div class="swatch">
+        <div class="chip" style="background:#E9E7E1"></div>
+        <div class="meta"><span class="name">text</span><span class="hex">#E9E7E1</span><span class="use">Body text</span></div>
+      </div>
+      <div class="swatch">
+        <div class="chip" style="background:#8F96A3"></div>
+        <div class="meta"><span class="name">muted</span><span class="hex">#8F96A3</span><span class="use">Secondary text</span></div>
+      </div>
+      <div class="swatch">
+        <div class="chip" style="background:#EDB43C"></div>
+        <div class="meta"><span class="name">gorse</span><span class="hex">#EDB43C</span><span class="use">Accent on dark</span></div>
+      </div>
+      <div class="swatch">
+        <div class="chip" style="background:#63B2C2"></div>
+        <div class="meta"><span class="name">sea</span><span class="hex">#63B2C2</span><span class="use">Links on dark</span></div>
+      </div>
+    </div>
+
+    <div class="table-wrap" style="margin-top:1rem">
+      <table>
+        <caption class="kicker" style="text-align:left;padding-bottom:0.75rem">Semantic colour &middot; tied to real tool states</caption>
+        <thead>
+          <tr><th>Meaning</th><th>Light</th><th>Dark</th><th>Where</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Unchanged / passed</td>
+            <td class="mono-cell" style="color:var(--ok)">#3B7F58</td>
+            <td class="mono-cell" style="color:var(--ok)">#5EA97C</td>
+            <td>Green tests, an idempotent run</td>
+          </tr>
+          <tr>
+            <td>Fallback</td>
+            <td class="mono-cell" style="color:var(--warn)">#B77515</td>
+            <td class="mono-cell" style="color:var(--warn)">#D69A34</td>
+            <td><span class="mono-cell">--dump-fallbacks</span>, regions passed through</td>
+          </tr>
+          <tr>
+            <td>Error</td>
+            <td class="mono-cell" style="color:var(--err)">#B24238</td>
+            <td class="mono-cell" style="color:var(--err)">#D2695F</td>
+            <td>Parse error, <span class="mono-cell">--fail-on-fallback</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ── TYPE ────────────────────────────────────────────── -->
+  <section>
+    <p class="kicker">Typography</p>
+    <h2>Three faces, cleanly divided</h2>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Role</th><th>Face</th><th>Use</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-family:var(--f-display);font-size:1.35rem;font-weight:600">Fraunces</td>
+            <td class="mono-cell">Fraunces 600 / 400 italic</td>
+            <td>Headings only. Keep them short, never set a paragraph in it. It lends
+                the identity a little heraldic age, which suits the name.</td>
+          </tr>
+          <tr>
+            <td style="font-size:1.15rem;font-weight:500">IBM Plex Sans</td>
+            <td class="mono-cell">IBM Plex Sans 400 / 500</td>
+            <td>Body copy, captions, UI. Neutral without being characterless; hold the
+                measure near 65 characters.</td>
+          </tr>
+          <tr>
+            <td class="mono-cell" style="font-size:1.15rem;font-weight:500">IBM Plex Mono</td>
+            <td class="mono-cell">IBM Plex Mono 400 / 500</td>
+            <td>The wordmark, all code, version tags, and small uppercase labels at
+                0.1em tracking.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="aside">
+      Plex Sans and Plex Mono share a skeleton, so moving between prose and code does
+      not jar. Fraunces stands against them deliberately as the outsider, which is
+      exactly why it is confined to headings.
+    </p>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ── IN USE ──────────────────────────────────────────── -->
+  <section>
+    <p class="kicker">In use</p>
+    <h2>How it behaves in place</h2>
+
+    <div class="mocks">
+
+      <div class="mock">
+        <div class="mock-label">Microsite &middot; hero</div>
+        <div class="mock-body">
+          <div class="hero-mock">
+            <div class="nav">
+              <span class="lockup-h" style="gap:0.5rem">
+                <svg style="width:20px;height:20px" viewBox="0 0 32 32" aria-hidden="true"><use href="#mark"></use></svg>
+                <span class="wordmark" style="font-size:0.9rem;color:var(--text)">brittany</span>
+              </span>
+              <span class="sp"></span>
+              <span>Docs</span>
+              <span>Showcases</span>
+              <span>GitHub</span>
+            </div>
+            <h4>Formats Haskell. Keeps your comments.</h4>
+            <p class="sub">
+              832 passing tests, 547 golden fixtures, GHC 9.14.1.
+              Output is reparsed to prove it still means what you wrote.
+            </p>
+            <div class="btn-row">
+              <span class="btn">cabal install brittany</span>
+              <span class="btn ghost">Read the docs</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mock">
+        <div class="mock-label">CLI</div>
+        <div class="term"><span class="prompt">$</span> brittany --write-mode=inplace Layout.hs
+<span class="dim">reading   </span>Layout.hs
+<span class="dim">column max</span>80
+<span class="ok">✓</span> formatted <span class="dim">·</span> 0 fallbacks <span class="dim">·</span> reparse ok
+</div>
+      </div>
+
+      <div class="mock">
+        <div class="mock-label">Code &middot; before and after</div>
+        <div>
+          <div class="code-col">
+            <span class="tag">Input</span>
+<pre><span class="kw">import</span> Data.List (sortOn, nub)
+<span class="kw">import qualified</span> Data.Map <span class="kw">as</span> Map
+<span class="kw">import</span> Data.Maybe (fromMaybe)</pre>
+          </div>
+          <div class="code-col">
+            <span class="tag">brittany</span>
+<pre><span class="kw">import</span>           Data.List                     ( nub, sortOn )
+<span class="kw">import</span>           Data.Maybe                    ( fromMaybe )
+<span class="kw">import qualified</span> Data.Map                     <span class="kw">as</span> Map</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="mock">
+        <div class="mock-label">Favicon &middot; tabs</div>
+        <div class="fav-strip">
+          <span class="fav-tab">
+            <svg style="width:16px;height:16px" viewBox="0 0 32 32" aria-hidden="true"><use href="#mark-min"></use></svg>
+            brittany
+          </span>
+          <span style="font-size:0.78rem;color:var(--muted);max-width:16rem">
+            At 16&nbsp;px the mark reduces to three bars and the rule — five would
+            merge into a grey block. The reduction is part of the mark, not a
+            stopgap.
+          </span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ── RULES ───────────────────────────────────────────── -->
+  <section>
+    <p class="kicker">Rules</p>
+    <h2>What holds it together</h2>
+
+    <div class="dos">
+      <div class="do-item yes"><span class="glyph">+</span><span>Keep one bar pitch of clear space on all four sides.</span></div>
+      <div class="do-item no"><span class="glyph">&minus;</span><span>Never outline the mark or set it in a rounded square — the gaps are material, not background.</span></div>
+
+      <div class="do-item yes"><span class="glyph">+</span><span>Colour exactly one bar, always the fourth.</span></div>
+      <div class="do-item no"><span class="glyph">&minus;</span><span>Never let gorse carry text, an icon stroke, or a border.</span></div>
+
+      <div class="do-item yes"><span class="glyph">+</span><span>Let the column rule bleed past the mark's top and bottom edge.</span></div>
+      <div class="do-item no"><span class="glyph">&minus;</span><span>Never re-sort, even out, or re-space the bar widths.</span></div>
+
+      <div class="do-item yes"><span class="glyph">+</span><span>Drop to the three-bar reduction below 24&nbsp;px.</span></div>
+      <div class="do-item no"><span class="glyph">&minus;</span><span>Never set the wordmark with a capital B, or in anything but the mono.</span></div>
+
+      <div class="do-item yes"><span class="glyph">+</span><span>Keep the flag abstract — principle, not shape.</span></div>
+      <div class="do-item no"><span class="glyph">&minus;</span><span>Never reproduce the Breton flag itself, ermine canton included.</span></div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- ── OPEN ────────────────────────────────────────────── -->
+  <section>
+    <p class="kicker">Still open</p>
+    <h2>Two decisions not yet made</h2>
+
+    <div class="steps">
+      <div class="step">
+        <span class="n">01</span>
+        <div>
+          <p><b>Haskell purple, or not.</b></p>
+          <p class="q">
+            The official <span class="mono-cell">#5E5086</span> would place the project
+            in its ecosystem instantly, at the cost of blending it into a dozen other
+            tools. Gorse is the riskier and more distinctive call. Recorded here as a
+            deliberate choice, not an oversight.
+          </p>
+        </div>
+      </div>
+      <div class="step">
+        <span class="n">02</span>
+        <div>
+          <p><b>Relationship to <span class="mono-cell">lspitzner/brittany</span>.</b></p>
+          <p class="q">
+            The upstream project carries no identity, so nothing is being inherited —
+            but it is unsettled whether this one should signal continuity or a restart.
+            That affects the tone of the microsite copy rather than the drawing.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    brittany &middot; design language &middot; open this file in a browser; it is the
+    source of truth for the mark, the palette, and the type
+  </footer>
+
+</div>
+
+</body>
+</html>
