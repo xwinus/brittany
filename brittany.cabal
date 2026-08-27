@@ -157,6 +157,8 @@ library
     Language.Haskell.Brittany.Internal.Layouters.Type.Operator
     Language.Haskell.Brittany.Internal.PatternComments
     Language.Haskell.Brittany.Internal.Preprocessor
+    Language.Haskell.Brittany.Internal.SemanticFingerprint.Ghc
+    Language.Haskell.Brittany.Internal.SemanticModel
     Language.Haskell.Brittany.Internal.TypeFallbacks
 
 executable brittany
@@ -174,6 +176,7 @@ test-suite brittany-test-suite
   hs-source-dirs: source/test-suite
   main-is: Main.hs
   other-modules:
+    CanonicalSemanticModelSpec
     CompatibilityMatrix
     CompatibilitySpec
     CommentPlanSpec

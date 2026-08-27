@@ -2,6 +2,7 @@
 
 import qualified Control.Monad as Monad
 import qualified CompatibilitySpec
+import qualified CanonicalSemanticModelSpec
 import qualified CommentPlanSpec
 import qualified CompactParenthesizedPatternSpec
 import qualified ComposableDeclarationSpec
@@ -76,6 +77,7 @@ main = Hspec.hspec $ do
         Literal actual `Hspec.shouldBe` Literal expected
 
   RegressionSpec.spec projectRoot
+  CanonicalSemanticModelSpec.spec
   SemanticFingerprintSpec.spec
   SignaturePostDocSpec.spec projectRoot
   StandaloneDerivingSpec.spec projectRoot
