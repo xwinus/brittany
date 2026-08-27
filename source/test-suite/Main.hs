@@ -30,6 +30,7 @@ import qualified System.FilePath as FilePath
 import qualified TemplateHaskellFallbackSpec
 import qualified Test.Hspec as Hspec
 import qualified TopLevelSpacingSpec
+import qualified TransactionalInplaceSpec
 import qualified TypeOperatorRecordSpec
 
 findProjectRoot :: FilePath -> IO FilePath
@@ -98,6 +99,7 @@ main = Hspec.hspec $ do
   PriorCommentSeparationSpec.spec projectRoot
   RecordFieldRhsIndentSpec.spec projectRoot
   TopLevelSpacingSpec.spec
+  TransactionalInplaceSpec.spec projectRoot
   TypeOperatorRecordSpec.spec projectRoot
 
 type Literal :: Type

@@ -28,6 +28,11 @@
   Describes the parsed-AST safety model, its typed GHC adapter, and the narrow
   canonicalization policies for imports and deriving clauses.
 
+- [transactional inplace formatting](transactional-inplace.md)
+
+  Defines batch validation atomicity, staged replacement, concurrent-edit
+  detection, rollback, cleanup, and the cross-file crash guarantee boundary.
+
 - Brittany uses the following (randomly deemed noteworthy) libraries:
 
   - [`ghc-exactprint`](https://hackage.haskell.org/package/ghc-exactprint)
