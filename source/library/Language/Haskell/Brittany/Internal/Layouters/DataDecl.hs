@@ -27,7 +27,6 @@ import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
 
 
-
 layoutDataDecl
   :: Located (TyClDecl GhcPs)
   -> Located RdrName
@@ -122,6 +121,17 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
                 Nothing -> pure Nothing
                 Just (L _ ctxt) -> Just . pure <$> createContextDoc ctxt
               rhsDoc <- return <$> createDetailsDoc consNameStr details
+              verticalRhsDoc <-
+                return <$> createVerticalDetailsDoc consNameStr details
+              let useStructuralPrefix = case (details, forallDocMay, rhsContextDocMay) of
+                    (PrefixCon{}, Nothing, Nothing) -> True
+                    _ -> False
+                  chooseStructural structural = if useStructuralPrefix
+                    then structural else rhsDoc
+                  compactRhsDoc = chooseStructural $ docForceSingleline rhsDoc
+                  structuralRhsDoc = chooseStructural verticalRhsDoc
+                  anchoredStructuralRhsDoc = chooseStructural
+                    $ docSetBaseY verticalRhsDoc
               consDoc <-
                 fmap pure
                 $ docNonBottomSpacing
@@ -132,21 +142,25 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
                   , docSeq
                     [ docLitS "."
                     , docSeparator
-                    , docSetBaseY $ docLines [rhsContextDoc, docSetBaseY rhsDoc]
+                    , docSetBaseY
+                    $ docLines [rhsContextDoc, docSetBaseY structuralRhsDoc]
                     ]
                   ]
                 (Just forallDoc, Nothing) -> docLines
                   [ docSeq
                     [docLitS "=", docSeparator, docForceSingleline forallDoc]
-                  , docSeq [docLitS ".", docSeparator, rhsDoc]
+                  , docSeq
+                    [docLitS ".", docSeparator, anchoredStructuralRhsDoc]
                   ]
                 (Nothing, Just rhsContextDoc) -> docSeq
                   [ docLitS "="
                   , docSeparator
-                  , docSetBaseY $ docLines [rhsContextDoc, docSetBaseY rhsDoc]
+                  , docSetBaseY
+                    $ docLines [rhsContextDoc, docSetBaseY structuralRhsDoc]
                   ]
                 (Nothing, Nothing) ->
-                  docSeq [docLitS "=", docSeparator, rhsDoc]
+                  docSeq
+                    [docLitS "=", docSeparator, anchoredStructuralRhsDoc]
               consAltDoc <- return $ (docAlt
                 [ -- data D = forall a . Show a => D a
                   docSeq
@@ -170,7 +184,7 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
                           , docSeparator
                           ]
                     , maybe docEmpty docForceSingleline rhsContextDocMay
-                    , rhsDoc
+                    , compactRhsDoc
                     ]
                   ]
                 , -- data D
@@ -197,7 +211,7 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
                             , docSeparator
                             ]
                       , maybe docEmpty docForceSingleline rhsContextDocMay
-                      , rhsDoc
+                      , anchoredStructuralRhsDoc
                       ]
                     ]
                   )

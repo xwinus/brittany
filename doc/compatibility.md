@@ -139,3 +139,12 @@ portable permissions, verify their original bytes before replacement, and roll
 back earlier renames after ordinary commit failures. Check and display modes
 remain non-mutating. Cross-file process-crash atomicity is not claimed because
 filesystems expose only per-path atomic rename operations.
+
+Issue #114 bounds hanging indentation for Haskell 98 prefix constructors. A
+single-constructor declaration stays compact only when its complete RHS fits
+on the declaration line; otherwise it uses the structural constructor and
+argument layout. Adaptive annotated paths limit hanging alternatives to 60%
+of the configured width before preferring the same vertical form. All indent
+policies and configured indent amounts remain supported, short constructors
+remain compact, and constructor Haddocks, ordinary argument comments, field
+strictness and unpacking modifiers, and deriving clauses retain their owners.
