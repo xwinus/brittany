@@ -51,7 +51,7 @@ supportsCommentedDataDecl = \case
     _ -> False
 
   simpleArgument = \case
-    CDF _ NoSrcUnpack NoSrcStrict (HsUnannotated _) _ Nothing -> True
+    CDF _ _ _ (HsUnannotated _) _ Nothing -> True
     _ -> False
 
   contextIsEmpty Nothing = True

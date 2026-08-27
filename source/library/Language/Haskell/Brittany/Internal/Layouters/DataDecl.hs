@@ -254,7 +254,7 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
     _ -> Nothing
 
   simpleGadtArgument = \case
-    CDF _ NoSrcUnpack NoSrcStrict (HsUnannotated _) _ Nothing -> True
+    CDF _ _ _ (HsUnannotated _) _ Nothing -> True
     _ -> False
 
   contextIsEmpty Nothing = True

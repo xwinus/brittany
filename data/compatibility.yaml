@@ -39,6 +39,10 @@ features:
     kind: syntax
     support: native
     tracking-issue: 19
+  - name: ConstructorFieldModifiers
+    kind: syntax
+    support: native
+    tracking-issue: 101
   - name: ApplicativeDo
     kind: extension
     support: native
@@ -263,6 +267,10 @@ features:
     kind: extension
     support: native
     tracking-issue: 17
+  - name: StrictData
+    kind: extension
+    support: native
+    tracking-issue: 101
   - name: StandaloneDeriving
     kind: extension
     support: native
@@ -378,6 +386,21 @@ cases:
     kind: malformed
     fixture: source/test-suite/fixtures/DataDeclMultipleInvalid.hs
     features: [MultipleConstructorDataDeclarations]
+    expected-result: parse-failure
+  - name: preserves constructor-field modifiers under StrictData
+    kind: expected
+    fixture: source/test-suite/fixtures/ConstructorFieldModifiersExpected.hs
+    features: [ConstructorFieldModifiers, StrictData]
+    expected-result: formats
+  - name: preserves modifiers across constructor forms and comments
+    kind: edge
+    fixture: source/test-suite/fixtures/ConstructorFieldModifiersEdgeExpected.hs
+    features: [ConstructorFieldModifiers, GADTs, TypeOperators]
+    expected-result: formats
+  - name: rejects a malformed constructor-field modifier
+    kind: malformed
+    fixture: source/test-suite/fixtures/ConstructorFieldModifiersInvalid.hs
+    features: [ConstructorFieldModifiers]
     expected-result: parse-failure
   - name: formats deriving strategies on documented single constructors
     kind: expected
