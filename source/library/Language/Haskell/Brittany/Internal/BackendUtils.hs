@@ -12,6 +12,7 @@ import qualified Data.Text as Text
 import qualified Data.Text.Lazy.Builder as Text.Builder
 import GHC (Located)
 import qualified GHC.OldList as List
+import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
@@ -166,6 +167,64 @@ layoutWriteNewline = do
       Right i -> Right (i + 1)
     , _lstate_addSepSpace = Nothing
     }
+
+-- A line comment owns the rest of its physical line, regardless of its delta.
+layoutFinishPriorCommentLine :: MonadMultiState LayoutState m => m ()
+layoutFinishPriorCommentLine = mModify finishPriorCommentLineState
+
+finishPriorCommentLineState :: LayoutState -> LayoutState
+finishPriorCommentLineState state = state
+  { _lstate_curYOrAddNewline = ensurePendingNewlines 1 state
+  , _lstate_addSepSpace = Just $ priorCommentFollowerColumn state
+  }
+
+layoutFinishPriorCommentBoundary
+  :: MonadMultiState LayoutState m => Int -> m ()
+layoutFinishPriorCommentBoundary requiredNewlines =
+  mModify $ finishPriorCommentBoundaryState requiredNewlines
+
+finishPriorCommentBoundaryState :: Int -> LayoutState -> LayoutState
+finishPriorCommentBoundaryState requiredNewlines state
+  | requiredNewlines <= 0 = state
+  | otherwise = state
+    { _lstate_curYOrAddNewline = ensurePendingNewlines requiredNewlines state
+    , _lstate_addSepSpace = Just $ priorCommentFollowerColumn state
+    , _lstate_commentCol = Nothing
+    }
+
+ensurePendingNewlines :: Int -> LayoutState -> Either Int Int
+ensurePendingNewlines requiredNewlines state = Right $ case
+  _lstate_curYOrAddNewline state of
+    Left{} -> requiredNewlines
+    Right newlines -> max requiredNewlines newlines
+
+priorCommentFollowerColumn :: LayoutState -> Int
+priorCommentFollowerColumn state = fromMaybe
+  (lstate_baseY state)
+  (_lstate_commentCol state)
+
+priorCommentRequiresLineBoundary :: String -> Bool
+priorCommentRequiresLineBoundary comment = case
+  dropWhile (`elem` [' ', '\t']) comment of
+  '-' : '-' : _ -> True
+  '#' : _ -> True
+  _ -> False
+
+priorCommentSourceBoundary :: AnnKey -> ExactPrint.Comment -> Int
+priorCommentSourceBoundary annKey comment = fromMaybe 0 $ do
+  nodeSpan <- ExactPrint.annKeyRealSpan annKey
+  commentSpan <- ExactPrint.srcSpanToRealSpan
+    $ ExactPrint.commentIdentifier comment
+  guard $ SrcLoc.srcSpanFile nodeSpan == SrcLoc.srcSpanFile commentSpan
+  -- Multi-line spans ending in column one use an exclusive final line.
+  let occupiedCommentEndLine
+        | SrcLoc.srcSpanEndCol commentSpan == 1
+        , SrcLoc.srcSpanEndLine commentSpan
+            > SrcLoc.srcSpanStartLine commentSpan
+        = SrcLoc.srcSpanEndLine commentSpan - 1
+        | otherwise = SrcLoc.srcSpanEndLine commentSpan
+  pure $ max 0
+    $ SrcLoc.srcSpanStartLine nodeSpan - occupiedCommentEndLine
 
 _layoutResetCommentNewlines :: MonadMultiState LayoutState m => m ()
 _layoutResetCommentNewlines = do
