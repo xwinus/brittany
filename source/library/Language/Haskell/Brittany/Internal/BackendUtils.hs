@@ -154,6 +154,28 @@ layoutMoveToCommentPos y x commentLines = do
       _lstate_commentNewlines state + y + commentLines - 1
     }
 
+layoutMoveToAbsoluteCommentPos
+  :: (MonadMultiWriter Text.Builder.Builder m, MonadMultiState LayoutState m)
+  => Int
+  -> Int
+  -> Int
+  -> m ()
+layoutMoveToAbsoluteCommentPos y x commentLines = do
+  state <- mGet
+  mSet state
+    { _lstate_curYOrAddNewline = case _lstate_curYOrAddNewline state of
+      Left current | y == 0 -> Left current
+      Left{} -> Right y
+      Right pending | y == 0 -> Right pending
+      Right pending -> Right $ max pending y
+    , _lstate_addSepSpace = Just $ case _lstate_curYOrAddNewline state of
+      Left current | y == 0 -> max 0 $ x - current
+      _ -> x
+    , _lstate_commentCol = Just x
+    , _lstate_commentNewlines =
+        _lstate_commentNewlines state + y + commentLines - 1
+    }
+
 -- | does _not_ add spaces to again reach the current base column.
 layoutWriteNewline
   :: (MonadMultiWriter Text.Builder.Builder m, MonadMultiState LayoutState m)

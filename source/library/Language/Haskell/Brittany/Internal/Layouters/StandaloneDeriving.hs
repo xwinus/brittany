@@ -19,7 +19,6 @@ import Language.Haskell.Brittany.Internal.Layouters.Instance
   )
 import Language.Haskell.Brittany.Internal.Layouters.Type
 import Language.Haskell.Brittany.Internal.Prelude
-import Language.Haskell.Brittany.Internal.TypeFallbacks (exactSourceTypes)
 import Language.Haskell.Brittany.Internal.Types
 
 type StrategyLayout :: Type
@@ -31,7 +30,6 @@ data StrategyLayout
 layoutStandaloneDeriving
   :: DerivDecl GhcPs -> Maybe (ToBriDocM BriDocNumbered)
 layoutStandaloneDeriving declaration@DerivDecl{}
-  | not (null $ exactSourceTypes declaration) = Nothing
   | not (supportsOverlapMode $ deriv_overlap_mode declaration) = Nothing
   | not (supportsHeadBinders $ deriv_type declaration) = Nothing
   | otherwise = do

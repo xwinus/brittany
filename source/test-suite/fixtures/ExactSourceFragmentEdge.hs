@@ -3,14 +3,14 @@ module ExactSourceFragmentEdge where
 
 -- | First declaration.
 first
-    :: '(Int, Bool)
-    {-^ same result -}
+  :: '(Int, Bool)
+  {-^ same result -}
 first = undefined
 
 -- | Second declaration.
 second
-    :: '(Bool, Int)
-    {-^ same result -}
+  :: '(Bool, Int)
+  {-^ same result -}
 second = undefined
 
 -- This comment is outside both exact-source declarations.

@@ -175,6 +175,7 @@ test-suite brittany-test-suite
     CompatibilityMatrix
     CompatibilitySpec
     CommentPlanSpec
+    ComposableDeclarationSpec
     DataDeclSingleConstructorSpec
     ExtractAnnsSpec
     ExactSourceFragmentSpec

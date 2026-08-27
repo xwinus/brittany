@@ -103,6 +103,7 @@ fragmentFixture = (fragment, Map.singleton annotationKey annotation, outside)
     , fragmentRange = SourceRange "FragmentFixture.hs" 2 1 4 10
     , fragmentAnnotationKeys = Set.singleton annotationKey
     , fragmentCommentKeys = Set.singleton $ SourceCommentKey insideSpan
+    , fragmentAbsoluteColumn = Nothing
     }
 
 sourceSpan :: FilePath -> Int -> Int -> Int -> Int -> SrcLoc.SrcSpan

@@ -4,6 +4,7 @@ module Language.Haskell.Brittany.Internal.ExactSource
   ( nodeSourceSlice
   , nodeSourceFragment
   , sourceCommentKeys
+  , sourceCommentFragment
   , sourceRangeContainsComment
   , validateExactSourceFragment
   ) where
@@ -101,6 +102,15 @@ nodeSourceFragment source node anns commentPlan = do
           $ Text.drop sourceIndent firstLine
           : fmap rebase continuationLines
 
+sourceCommentFragment :: SourceComment -> ExactSourceFragment
+sourceCommentFragment sourceComment = ExactSourceFragment
+  { fragmentText = sourceCommentText sourceComment
+  , fragmentRange = rangeFromSpan $ sourceCommentSpan sourceComment
+  , fragmentAnnotationKeys = Set.empty
+  , fragmentCommentKeys = Set.singleton $ sourceCommentKey sourceComment
+  , fragmentAbsoluteColumn = Nothing
+  }
+
 sourceCommentKeys
   :: GHC.Located ast -> CommentPlan -> Set.Set SourceCommentKey
 sourceCommentKeys node commentPlan = case EP.srcSpanToRealSpan $ getLocA node of
@@ -140,6 +150,7 @@ exactSourceFragment node anns commentPlan range text = ExactSourceFragment
       , rangeContainsSpan range keySpan
       ]
   , fragmentCommentKeys = commentKeysInRange range commentPlan
+  , fragmentAbsoluteColumn = Nothing
   }
 
 commentKeysInRange :: SourceRange -> CommentPlan -> Set.Set SourceCommentKey

@@ -87,6 +87,14 @@ briDocByExactSourceFragmentNoComment
   -> ToBriDocM BriDocNumbered
 briDocByExactSourceFragmentNoComment fallback ast fragment = do
   reportFallback fallback ast
+  briDocBySourceFragmentNoComment ast fragment
+
+briDocBySourceFragmentNoComment
+  :: Data ast
+  => Located ast
+  -> ExactSourceFragment
+  -> ToBriDocM BriDocNumbered
+briDocBySourceFragmentNoComment ast fragment = do
   case validateExactSourceFragment fragment of
     Left fragmentError -> mTell [ErrorUnusedComment fragmentError]
     Right () -> pure ()
