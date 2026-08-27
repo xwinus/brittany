@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-6.2 -6.2 44.4 44.4" width="444" height="444" role="img" aria-label="brittany">
+  <title>brittany</title>
+  <!--
+    The brittany mark. See doc/design/design-language.html for the specification.
+    Canvas 32x32 with one bar pitch (6.2) of clear space on every side.
+    Bars: height 3.2, pitch 6.2, left margin 2.
+    The fourth bar carries the accent and comes closest to the column rule.
+  -->
+  <rect x="2" y="2.0" width="16.5" height="3.2" fill="#E9E7E1"/>
+  <rect x="2" y="8.2" width="23.5" height="3.2" fill="#E9E7E1"/>
+  <rect x="2" y="14.4" width="12.5" height="3.2" fill="#E9E7E1"/>
+  <rect x="2" y="20.6" width="24.5" height="3.2" fill="#EDB43C"/>
+  <rect x="2" y="26.8" width="19.5" height="3.2" fill="#E9E7E1"/>
+  <rect x="28.6" y="0" width="1.6" height="32" fill="#E9E7E1" opacity="0.45"/>
+</svg>
