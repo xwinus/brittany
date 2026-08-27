@@ -115,3 +115,9 @@ line, uses delimiter-attached structural layout when it must wrap, and retains
 the fully vertical delimiter form as a fallback. The same choice is available
 to function equations, case and lambda-case alternatives, guarded clauses, and
 pattern bindings.
+
+Issue #104 gives every structurally broken explicit record-field value a full
+configured continuation indent beyond its field name. The shared field layout
+applies to construction and update syntax, nested records, and multiline
+expression forms while preserving compact values, puns, wildcards, comments,
+and the existing closing-brace policy.

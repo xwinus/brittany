@@ -3,13 +3,13 @@ record :: Record
 record =
   Record
     { rProperties =
-      [ "foo" .= "bar"
-      , "foo" .= "bar"
-      , "foo" .= "bar"
-      , "foo" .= "bar"
-      , "foo" .= "bar"
-      , "foo" .= "bar"
-      , "foo" .= "bar"
-      , "foo" .= "bar"
-      ]
+        [ "foo" .= "bar"
+        , "foo" .= "bar"
+        , "foo" .= "bar"
+        , "foo" .= "bar"
+        , "foo" .= "bar"
+        , "foo" .= "bar"
+        , "foo" .= "bar"
+        , "foo" .= "bar"
+        ]
     }

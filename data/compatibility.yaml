@@ -47,6 +47,10 @@ features:
     kind: syntax
     support: native
     tracking-issue: 103
+  - name: RecordFieldRhsIndentation
+    kind: syntax
+    support: native
+    tracking-issue: 104
   - name: SemanticASTValidation
     kind: syntax
     support: native
@@ -715,6 +719,16 @@ cases:
     fixture: source/test-suite/fixtures/RecordSyntaxEdge.hs
     features: [TraditionalRecordSyntax, NamedFieldPuns, RecordWildCards, DuplicateRecordFields, DisambiguateRecordFields, FieldSelectors]
     expected-result: formats
+  - name: indents broken record field values beyond their field names
+    kind: edge
+    fixture: source/test-suite/fixtures/StructuralSmallRecordEdgeExpected.hs
+    features: [RecordFieldRhsIndentation, NamedFieldPuns, RecordWildCards]
+    expected-result: formats
+  - name: rejects malformed nested record field values
+    kind: malformed
+    fixture: source/test-suite/fixtures/RecordFieldRhsIndentInvalid.hs
+    features: [RecordFieldRhsIndentation]
+    expected-result: parse-failure
   - name: rejects a malformed traditional record construction
     kind: malformed
     fixture: source/test-suite/fixtures/RecordSyntaxInvalid.hs

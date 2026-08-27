@@ -3,7 +3,7 @@ module StructuralSmallRecord where
 syntaxAnalysis =
   SyntaxAnalysis
     { saIsCommentStart =
-      isMatch startPattern
+        isMatch startPattern
     , saIsCommentEnd   =
-      isMatch endPattern
+        isMatch endPattern
     }
