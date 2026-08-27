@@ -11,7 +11,7 @@ import Language.Haskell.Brittany.Internal.Backend
   )
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as EP
 import qualified Language.Haskell.Brittany.Internal.ParseModule as ParseModule
-import Language.Haskell.Brittany.Internal.Types
+import Language.Haskell.Brittany.Internal.SourceComment.Types
 import qualified Language.Haskell.Brittany.Main as Brittany
 import qualified System.Directory as Directory
 import qualified System.FilePath as FilePath

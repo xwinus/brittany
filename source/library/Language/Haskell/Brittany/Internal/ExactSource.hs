@@ -24,15 +24,16 @@ import Language.Haskell.Brittany.Internal.ExactPrintCompat
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as EP
 import Language.Haskell.Brittany.Internal.ExactPrintUtils (foldedAnnKeys)
 import Language.Haskell.Brittany.Internal.Prelude
-import Language.Haskell.Brittany.Internal.Types
+import Language.Haskell.Brittany.Internal.SourceComment.Types
 
 nodeSourceSlice
   :: Data ast
   => Text.Text
   -> GHC.Located ast
   -> Anns
+  -> CommentPlan
   -> Maybe ExactSourceFragment
-nodeSourceSlice source node anns = do
+nodeSourceSlice source node anns commentPlan = do
   nodeSpan <- EP.srcSpanToRealSpan $ getLocA node
   let
     commentSpans =
@@ -57,7 +58,7 @@ nodeSourceSlice source node anns = do
         1
         lastLine
         lastColumn
-  pure $ exactSourceFragment node anns range
+  pure $ exactSourceFragment node anns commentPlan range
     $ Text.intercalate (Text.singleton '\n') selectedLines
 
 nodeSourceFragment
@@ -65,8 +66,9 @@ nodeSourceFragment
   => Text.Text
   -> GHC.Located ast
   -> Anns
+  -> CommentPlan
   -> Maybe ExactSourceFragment
-nodeSourceFragment source node anns = do
+nodeSourceFragment source node anns commentPlan = do
   nodeSpan <- EP.srcSpanToRealSpan $ getLocA node
   let startLine = GHC.srcSpanStartLine nodeSpan
       endLine = GHC.srcSpanEndLine nodeSpan
@@ -77,7 +79,7 @@ nodeSourceFragment source node anns = do
         $ Text.splitOn (Text.singleton '\n') source
   case selectedLines of
     [] -> Nothing
-    [line] -> pure $ exactSourceFragment node anns (rangeFromSpan nodeSpan)
+    [line] -> pure $ exactSourceFragment node anns commentPlan (rangeFromSpan nodeSpan)
       $ Text.take (endColumn - startColumn)
       $ Text.drop (startColumn - 1) line
     firstLine : remainingLines -> case reverse remainingLines of
@@ -94,16 +96,16 @@ nodeSourceFragment source node anns = do
                 , not $ Text.null $ Text.strip line
                 ]
             rebase = dropLeadingSpaces continuationIndent
-        pure $ exactSourceFragment node anns (rangeFromSpan nodeSpan)
+        pure $ exactSourceFragment node anns commentPlan (rangeFromSpan nodeSpan)
           $ Text.intercalate (Text.singleton '\n')
           $ Text.drop sourceIndent firstLine
           : fmap rebase continuationLines
 
 sourceCommentKeys
-  :: GHC.Located ast -> Anns -> Set.Set SourceCommentKey
-sourceCommentKeys node anns = case EP.srcSpanToRealSpan $ getLocA node of
+  :: GHC.Located ast -> CommentPlan -> Set.Set SourceCommentKey
+sourceCommentKeys node commentPlan = case EP.srcSpanToRealSpan $ getLocA node of
   Nothing -> Set.empty
-  Just nodeSpan -> commentKeysInRange (rangeFromSpan nodeSpan) anns
+  Just nodeSpan -> commentKeysInRange (rangeFromSpan nodeSpan) commentPlan
 
 sourceRangeContainsComment :: SourceRange -> SourceCommentKey -> Bool
 sourceRangeContainsComment range (SourceCommentKey span') = case
@@ -124,10 +126,11 @@ exactSourceFragment
   :: Data ast
   => GHC.Located ast
   -> Anns
+  -> CommentPlan
   -> SourceRange
   -> Text.Text
   -> ExactSourceFragment
-exactSourceFragment node anns range text = ExactSourceFragment
+exactSourceFragment node anns commentPlan range text = ExactSourceFragment
   { fragmentText = text
   , fragmentRange = range
   , fragmentAnnotationKeys = foldedAnnKeys node <> Set.fromList
@@ -136,16 +139,14 @@ exactSourceFragment node anns range text = ExactSourceFragment
       , Just keySpan <- [EP.annKeyRealSpan key]
       , rangeContainsSpan range keySpan
       ]
-  , fragmentCommentKeys = commentKeysInRange range anns
+  , fragmentCommentKeys = commentKeysInRange range commentPlan
   }
 
-commentKeysInRange :: SourceRange -> Anns -> Set.Set SourceCommentKey
-commentKeysInRange range anns = Set.fromList
-    [ SourceCommentKey $ commentIdentifier $ fst comment
-    | annotation <- Map.elems anns
-    , comment <- annotationComments annotation
-    , Just commentSpan <-
-        [EP.srcSpanToRealSpan $ commentIdentifier $ fst comment]
+commentKeysInRange :: SourceRange -> CommentPlan -> Set.Set SourceCommentKey
+commentKeysInRange range commentPlan = Set.fromList
+    [ key
+    | (key, sourceComment) <- Map.toList $ commentPlanSources commentPlan
+    , let commentSpan = sourceCommentSpan sourceComment
     , rangeContainsSpan range commentSpan
     ]
 

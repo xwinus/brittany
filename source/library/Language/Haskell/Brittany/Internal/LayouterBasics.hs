@@ -26,6 +26,7 @@ import GHC.Types.Name.Reader (RdrName(..))
 import qualified GHC.Types.SrcLoc as GHC
 import GHC.Parser.Annotation (EpAnn(..), NameAnn(..), NameAdornment(..), getLocA)
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.CommentPlan (isSourceComment)
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.ExactSource
   ( validateExactSourceFragment
@@ -33,6 +34,7 @@ import Language.Haskell.Brittany.Internal.ExactSource
 import Language.Haskell.Brittany.Internal.Fallbacks
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
+import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Utils
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrintCompat
@@ -345,7 +347,7 @@ hasAnyRegularCommentsConnectedNoFollowing ast = do
 -- only care about "regular" comments. We simply did not need the distinction
 -- because "irregular" comments are not that common outside of type/data decls.
 isRegularComment :: (ExactPrintCompat.Comment, ExactPrintCompat.DeltaPos) -> Bool
-isRegularComment = (== Nothing) . ExactPrintCompat.commentOrigin . fst
+isRegularComment = isSourceComment . fst
 
 astConnectedComments
   :: Data ast

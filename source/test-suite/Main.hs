@@ -2,6 +2,7 @@
 
 import qualified Control.Monad as Monad
 import qualified CompatibilitySpec
+import qualified CommentPlanSpec
 import Data.Kind (Type)
 import qualified Data.List as List
 import qualified Data.Set as Set
@@ -75,6 +76,7 @@ main = Hspec.hspec $ do
   ExtractAnnsSpec.spec
   ExactSourceFragmentSpec.spec projectRoot
   CompatibilitySpec.spec projectRoot
+  CommentPlanSpec.spec
   FallbackSpec.spec projectRoot
   InstanceHeadSpec.spec projectRoot
   PreambleSpacingSpec.spec projectRoot

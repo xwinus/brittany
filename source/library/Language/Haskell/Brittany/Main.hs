@@ -442,6 +442,7 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
           customErrOrder ErrorUnusedComment{} = 2
           customErrOrder ErrorUnknownNode{} = -2 :: Int
           customErrOrder ErrorMacroConfig{} = 5
+          customErrOrder ErrorCommentPlan{} = 6
         unless (null errsWarns) $ do
           let
             groupedErrsWarns =
@@ -491,6 +492,11 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
               putErrorLn $ "Affected are the following comments:"
               unused `forM_` \case
                 ErrorUnusedComment str -> putErrorLn str
+                _ -> error "cannot happen (TM)"
+            planErrors@(ErrorCommentPlan{} : _) -> do
+              putErrorLn "Error: source comment ownership is ambiguous or unstable."
+              planErrors `forM_` \case
+                ErrorCommentPlan str -> putErrorLn $ "  " ++ str
                 _ -> error "cannot happen (TM)"
             (ErrorMacroConfig err input : _) -> do
               putErrorLn $ "Error: parse error in inline configuration:"

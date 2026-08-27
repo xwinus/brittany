@@ -2,11 +2,14 @@ module ExtractAnnsSpec (spec) where
 
 import qualified Data.List as List
 import qualified Data.Map as Map
+import qualified Data.Text as Text
 import GHC (GenLocated(L), unLoc)
 import GHC.Hs (GhcPs, HsModule(..), LHsDecl)
 import GHC.Parser.Annotation (getLocA)
 import Language.Haskell.Brittany.Internal.ExactPrintCompat
+import Language.Haskell.Brittany.Internal.CommentPlan (normalizeCommentPlan)
 import Language.Haskell.Brittany.Internal.ParseModule (parseModule)
+import Language.Haskell.Brittany.Internal.SourceComment.Types
 import qualified Test.Hspec as Hspec
 
 spec :: Hspec.Spec
@@ -33,7 +36,7 @@ spec = Hspec.describe "annotation extraction" $ do
           declarations -> Hspec.expectationFailure
             $ "expected signature and value declarations, got "
             ++ show (length declarations)
-  Hspec.it "marks export Haddock sections without changing heading levels" $ do
+  Hspec.it "classifies export Haddock sections without mutating origins" $ do
     parsed <- parseModule [] "ExportSectionAnnotations.hs"
       (const $ pure $ Right ()) exportSectionSource
     case parsed of
@@ -43,14 +46,19 @@ spec = Hspec.describe "annotation extraction" $ do
             sectionComments = List.sort
               $ filter (List.isPrefixOf "-- *")
               $ map commentContents comments
-            rebasedComments =
-              [ commentContents comment
-              | comment <- comments
-              , commentOrigin comment == Just AnnHaddockSection
-              ]
         sectionComments `Hspec.shouldBe`
           ["-- * Public API", "-- ** Nested values"]
-        List.sort rebasedComments `Hspec.shouldBe` sectionComments
+        map commentOrigin comments `Hspec.shouldSatisfy` all (== Nothing)
+        case normalizeCommentPlan annotations of
+          Left planErrors -> Hspec.expectationFailure $ show planErrors
+          Right plan -> do
+            let plannedSections = List.sort
+                  [ Text.unpack $ sourceCommentText sourceComment
+                  | (key, sourceComment) <- Map.toList $ commentPlanSources plan
+                  , Just placement <- [Map.lookup key $ commentPlanPlacements plan]
+                  , placementRole placement == SectionComment
+                  ]
+            plannedSections `Hspec.shouldBe` sectionComments
  where
   finalResultSource = unlines
     [ "module FinalResultHaddockAnnotation where"

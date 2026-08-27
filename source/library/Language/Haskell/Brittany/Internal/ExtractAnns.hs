@@ -87,12 +87,8 @@ import qualified GHC.Data.Strict
 import qualified GHC.Parser.Lexer
 import GHC.Types.SrcLoc (EpaLocation'(..), RealSrcSpan, SrcSpan(..))
 import qualified GHC.Types.SrcLoc as SrcLoc
-import qualified Language.Haskell.Brittany.Internal.DerivingComments as DerivingComments
 import Language.Haskell.Brittany.Internal.ExactPrintCompat
-import qualified Language.Haskell.Brittany.Internal.FieldComments as FieldComments
 import Language.Haskell.Brittany.Internal.Prelude
-import qualified Language.Haskell.Brittany.Internal.SignatureComments as SignatureComments
-import qualified Language.Haskell.Brittany.Internal.TypeOperatorComments as TypeOperatorComments
 import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
 import qualified Language.Haskell.GHC.ExactPrint.Types as EPTypes
 import qualified Language.Haskell.GHC.ExactPrint.Utils as EPUtils
@@ -107,7 +103,7 @@ recoverMissingComments src fp lmod@(L l p) =
   let quasiQuoteSpans = collectQuasiQuoteContentSpans lmod
       sourceComments = filter (not . isInsideQuasiQuote quasiQuoteSpans . fst)
         $ scanLineComments fp src
-      astComments = collectAstComments lmod
+      astComments = collectExtractedComments $ extractAnnsFromModule lmod
       missing =
         [ comment
         | comment@(position, _) <- sourceComments
@@ -176,16 +172,13 @@ recoverMissingComments src fp lmod@(L l p) =
     isSymChar :: Char -> Bool
     isSymChar c = c `elem` ("!#$%&*+./<=>?@\\^|-~:" :: String)
 
-    -- Collect all comment positions already in the AST by finding EpAnnComments
-    collectAstComments :: ParsedSource -> [RealSrcSpan]
-    collectAstComments ps =
-      let extract :: SYB.GenericQ [RealSrcSpan]
-          extract = const [] `SYB.extQ` extractFromComments
-      in SYB.everything (++) extract ps
-
-    extractFromComments :: EpAnnComments -> [RealSrcSpan]
-    extractFromComments cs =
-      [sp | L (EpaSpan (RealSrcSpan sp _)) _ <- priorComments cs ++ getFollowingComments cs]
+    collectExtractedComments :: Anns -> [RealSrcSpan]
+    collectExtractedComments annotations = do
+      annotation <- Map.elems annotations
+      comment <- fmap fst
+        (annPriorComments annotation ++ annFollowingComments annotation)
+        ++ [sourceComment | (AnnComment sourceComment, _) <- annsDP annotation]
+      maybeToList $ srcSpanToRealSpan $ commentIdentifier comment
 
     mkLEpaComment' :: ((Int, Int), String) -> LEpaComment
     mkLEpaComment' ((line, col), content) =
@@ -337,10 +330,7 @@ extractAnnsFromModule lmod =
         [(k, ()) | k <- Map.keys merged, not (Map.member k allWithInner)]
       redistributed = redistributeInnerCommentsWithChildSkips
         fullSpanMap nonDeclKeys Map.empty merged
-  in SignatureComments.markSignaturePostDocs
-    $ TypeOperatorComments.markTypeOperatorComments
-    $ DerivingComments.markDerivingComments
-    $ FieldComments.markFieldPostDocs redistributed
+  in redistributed
 
 -- | Redistribute intra-declaration comments from the module annotation to
 -- individual AST nodes. Uses ghc-exactprint's bottom-up traversal to claim
@@ -1063,7 +1053,7 @@ redistributeInnerCommentsWithChildSkips spanMap skipKeys childSkipKeys anns =
 data IEListContext = ImportIEList | ExportIEList deriving Eq
 
 extractIEListAnns :: IEListContext -> GenLocated (EpAnn ann) [LIE GhcPs] -> Anns
-extractIEListAnns listContext llies@(L epann lies) =
+extractIEListAnns _listContext llies@(L epann lies) =
   let -- Get IE item positions for comment redistribution
       iePositions = mapMaybe (\lie -> case lie of
         L (EpAnn anc _ _) _ ->
@@ -1110,27 +1100,8 @@ extractIEListAnns listContext llies@(L epann lies) =
                }
         ) itemAnns
       anns = containerAnns <> mergedItems
-  in if listContext == ExportIEList
-    then Map.map markHaddockSections anns
-    else anns
+  in anns
   where
-    markHaddockSections ann = ann
-      { annFollowingComments = map markSection (annFollowingComments ann)
-      , annPriorComments = map markSection (annPriorComments ann)
-      }
-
-    markSection commentAndDP@(comment, dp)
-      | isHaddockSectionComment comment =
-          (comment { commentOrigin = Just AnnHaddockSection }, dp)
-      | otherwise = commentAndDP
-
-    isHaddockSectionComment comment =
-      case dropWhile Char.isSpace (commentContents comment) of
-        '-' : '-' : rest -> case dropWhile Char.isSpace rest of
-          '*' : _ -> True
-          _ -> False
-        _ -> False
-
     extractIEItem
       :: ((Int, Int), Maybe AnnKey)
       -> LIE GhcPs

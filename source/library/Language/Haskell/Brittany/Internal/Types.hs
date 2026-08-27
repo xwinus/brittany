@@ -22,6 +22,7 @@ import GHC (GenLocated, Located, SrcSpan)
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKey, AnnKeywordId, Anns)
 import Language.Haskell.Brittany.Internal.Prelude
+import Language.Haskell.Brittany.Internal.SourceComment.Types
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrint.Types
 import qualified Safe
 
@@ -33,56 +34,16 @@ data PerItemConfig = PerItemConfig
   deriving Data.Data.Data
 
 type PPM = MultiRWSS.MultiRWS
-  '[Map AnnKey Anns, PerItemConfig, Config, Anns]
+  '[Map AnnKey Anns, PerItemConfig, Config, Anns, CommentPlan]
   '[Text.Builder.Builder, [BrittanyError], Seq String]
   '[]
 
 type PPMLocal = MultiRWSS.MultiRWS
-  '[Config, Anns, OriginalSource]
+  '[Config, Anns, OriginalSource, CommentPlan]
   '[Text.Builder.Builder, [BrittanyError], Seq String]
   '[]
 
 newtype OriginalSource = OriginalSource Text
-
-newtype SourceCommentKey = SourceCommentKey SrcSpan
-  deriving (Data.Data.Data, Eq, Show)
-
-instance Ord SourceCommentKey where
-  compare left right = compare (show left) (show right)
-
-data SourceRange = SourceRange
-  { sourceRangeFile :: String
-  , sourceRangeStartLine :: Int
-  , sourceRangeStartColumn :: Int
-  , sourceRangeEndLine :: Int
-  , sourceRangeEndColumn :: Int
-  }
-  deriving (Data.Data.Data, Eq, Ord, Show)
-
-data ExactSourceFragment = ExactSourceFragment
-  { fragmentText :: Text
-  , fragmentRange :: SourceRange
-  , fragmentAnnotationKeys :: Set AnnKey
-  , fragmentCommentKeys :: Set SourceCommentKey
-  }
-  deriving (Data.Data.Data, Eq, Ord, Show)
-
-data ExternalSource
-  = ExactPrintSource (Set AnnKey) Text
-  | SourceFragment ExactSourceFragment
-  deriving (Data.Data.Data, Eq, Ord, Show)
-
-externalSourceText :: ExternalSource -> Text
-externalSourceText = \case
-  ExactPrintSource _ text -> text
-  SourceFragment fragment -> fragmentText fragment
-
-mapExternalSourceText :: (Text -> Text) -> ExternalSource -> ExternalSource
-mapExternalSourceText mapText = \case
-  ExactPrintSource keys text -> ExactPrintSource keys $ mapText text
-  SourceFragment fragment -> SourceFragment fragment
-    { fragmentText = mapText $ fragmentText fragment
-    }
 
 newtype TopLevelDeclNameMap = TopLevelDeclNameMap (Map AnnKey String)
 
@@ -179,6 +140,8 @@ data BrittanyError
     -- ^ parsing failed
   | ErrorUnusedComment String
     -- ^ internal error: some comment went missing
+  | ErrorCommentPlan String
+    -- ^ comment ownership could not be normalized before layout
   | ErrorMacroConfig String String
     -- ^ in-source config string parsing error; first argument is the parser
     --   output and second the corresponding, ill-formed input.
@@ -261,7 +224,7 @@ data PriorCommentMode
   deriving (Eq, Ord, Data.Data.Data, Show)
 
 type ToBriDocM = MultiRWSS.MultiRWS
-                   '[Config, Anns, OriginalSource] -- reader
+                   '[Config, Anns, OriginalSource, CommentPlan] -- reader
                    '[[BrittanyError], Seq String] -- writer
                    '[NodeAllocIndex] -- state
 
