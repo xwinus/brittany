@@ -200,6 +200,7 @@ test-suite brittany-test-suite
     RegressionSpec
     SemanticFingerprintSpec
     SignaturePostDocSpec
+    SiblingBindingAlignmentSpec
     StandaloneDerivingSpec
     TemplateHaskellFallbackSpec
     TopLevelSpacingSpec

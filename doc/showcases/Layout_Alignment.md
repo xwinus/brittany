@@ -1,6 +1,6 @@
 # Horizontal alignment example layouts
 
-Last updated for brittany version `0.8.0.1`.
+Last updated for brittany version `0.15.0.0`.
 
 Brittany would layout the following bindings as displayed here. If you change
 only the layout of these bindings in some way (e.g. if you initially entered
@@ -26,6 +26,17 @@ go (_:_)              ""     = False
 ~~~~
 
 #### alignment of function args and monadcomp bindings
+
+Sibling bindings share their equation column even when their left-hand sides
+take arguments. Pattern columns remain scoped to consecutive clauses of the
+same function.
+
+~~~~.hs
+f = go
+ where
+  count k  = 1
+  noteOf e = 2
+~~~~
 
 ~~~~.hs
 myBinding =

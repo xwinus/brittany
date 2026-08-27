@@ -786,13 +786,19 @@ alignColsLines bridocs = do -- colInfos `forM_` \colInfo -> do
       mergeInfoBriDoc lastFlag (ColInfo infoInd infoSig subLengthsInfos) =
         \case
           brdc@(BDCols colSig subDocs)
-            | infoSig == colSig && length subLengthsInfos == length subDocs -> do
+            | colSigsMerge infoSig colSig
+              && length subLengthsInfos == length subDocs -> do
               let
                 isLastList = if lastFlag
                   then (== length subDocs) <$> [1 ..]
                   else repeat False
+                -- Binding names delimit nested pattern columns, not the
+                -- shared outer equation column.
+                resetSubColumns = infoSig /= colSig
               infos <- zip3 isLastList (snd <$> subLengthsInfos) subDocs
-                `forM` \(lf, info, bd) -> mergeInfoBriDoc lf info bd
+                `forM` \(lf, info, bd) -> if resetSubColumns
+                  then briDocToColInfo lf bd
+                  else mergeInfoBriDoc lf info bd
               let curLengths = briDocLineLength <$> subDocs
               let trueSpacings = getTrueSpacings (zip curLengths infos)
               do -- update map
@@ -808,6 +814,10 @@ alignColsLines bridocs = do -- colInfos `forM_` \colInfo -> do
               return $ ColInfo infoInd colSig (zip curLengths infos)
             | otherwise -> briDocToColInfo lastFlag brdc
           brdc -> return $ ColInfoNo brdc
+
+      colSigsMerge :: ColSig -> ColSig -> Bool
+      colSigsMerge (ColBindingLine _) (ColBindingLine _) = True
+      colSigsMerge previous current = previous == current
 
 briDocToColInfo :: Bool -> BriDoc -> StateS.State ColBuildState ColInfo
 briDocToColInfo lastFlag = \case
