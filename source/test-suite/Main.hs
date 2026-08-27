@@ -25,6 +25,7 @@ import qualified RecordFieldRhsIndentSpec
 import qualified RegressionSpec
 import qualified SemanticFingerprintSpec
 import qualified SignaturePostDocSpec
+import qualified SiblingBindingAlignmentSpec
 import qualified StandaloneDerivingSpec
 import qualified System.Directory as Directory
 import qualified System.FilePath as FilePath
@@ -82,6 +83,7 @@ main = Hspec.hspec $ do
   CanonicalSemanticModelSpec.spec
   SemanticFingerprintSpec.spec
   SignaturePostDocSpec.spec projectRoot
+  SiblingBindingAlignmentSpec.spec projectRoot
   StandaloneDerivingSpec.spec projectRoot
   DataDeclSingleConstructorSpec.spec projectRoot
   ExtractAnnsSpec.spec

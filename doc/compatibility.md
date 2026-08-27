@@ -148,3 +148,9 @@ of the configured width before preferring the same vertical form. All indent
 policies and configured indent amounts remain supported, short constructors
 remain compact, and constructor Haddocks, ordinary argument comments, field
 strictness and unpacking modifiers, and deriving clauses retain their owners.
+
+Issue #116 aligns the `=` column across adjacent sibling bindings regardless
+of whether their left-hand sides take arguments. Binding-name tokens still
+scope nested pattern-column alignment to consecutive clauses of the same
+function, while the configured alignment mode, width limits, multiline breaks,
+guards, and pattern bindings retain their existing behavior.
