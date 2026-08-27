@@ -50,6 +50,7 @@ import Language.Haskell.Brittany.Internal.CommentUtils
   ( collectCommentContents
   , collectCommentPositions
   )
+import Language.Haskell.Brittany.Internal.CommentPlan
 import Language.Haskell.Brittany.Internal.Config
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactSource (nodeSourceSlice)
@@ -337,6 +338,7 @@ parsePrintModule configWithDebugs inputText = runExceptT $ do
         customErrOrder ErrorUnusedComment{} = 2
         customErrOrder ErrorUnknownNode{} = 3
         customErrOrder ErrorMacroConfig{} = 5
+        customErrOrder ErrorCommentPlan{} = 6
       let
         isWarningOrError ExactSourceFallback{} = False
         isWarningOrError _ = True
@@ -380,60 +382,68 @@ pPrintModuleWithSource
   -> GHC.ParsedSource
   -> ([BrittanyError], TextL.Text)
 pPrintModuleWithSource originalSource conf inlineConf anns parsedModule =
-  let
-    ((out, errs), debugStrings) =
-      runIdentity
-        $ MultiRWSS.runMultiRWSTNil
-        $ MultiRWSS.withMultiWriterAW
-        $ MultiRWSS.withMultiWriterAW
-        $ MultiRWSS.withMultiWriterW
-        $ MultiRWSS.withMultiReader anns
-        $ MultiRWSS.withMultiReader conf
-        $ MultiRWSS.withMultiReader inlineConf
-        $ MultiRWSS.withMultiReader (extractToplevelAnns parsedModule anns)
-        $ do
-            traceIfDumpConf "bridoc annotations raw" _dconf_dump_annotations
-              $ annsDoc anns
-            ppModule originalSource parsedModule
-    tracer = if Seq.null debugStrings
-      then id
-      else
-        trace ("---- DEBUGMESSAGES ---- ")
-          . foldr (seq . join trace) id debugStrings
-    -- When we fell back to exactprint for any node, use exactPrint for the
-    -- whole module to preserve pragmas and structure (emptyAnns loses these).
-    -- Don't treat ErrorUnknownNode as fatal when we used this fallback.
-    unknownNodeLocations = Data.Maybe.mapMaybe (\case
-      ErrorUnknownNode _ ast -> Just $ show $ GHC.getLoc ast
-      _ -> Nothing
-      ) errs
-    hasUnknownNode = not $ null unknownNodeLocations
-    fallbackOutput = maybe
-      (TextL.pack $ ExactPrint.exactPrint parsedModule)
-      TextL.fromStrict
-      originalSource
-    reportFallbacks =
-      (conf & _conf_debug & _dconf_dump_fallbacks & confUnpack)
-        || ( conf
-          & _conf_errorHandling
-          & _econf_failOnExactSourceFallback
-          & confUnpack
-           )
-    wholeModuleNotice =
-      [ ExactSourceFallback
-        $ renderFallbackNotice WholeModuleFallback
-        $ location
-      | reportFallbacks
-      , location <- take 1 unknownNodeLocations
-      ]
-    errs' = if hasUnknownNode
-      then filter (\case { ErrorUnknownNode{} -> False; _ -> True }) errs
-        ++ wholeModuleNotice
-      else errs
-  in tracer $
-    if hasUnknownNode
-      then (errs', fallbackOutput)
-      else (errs, Text.Builder.toLazyText out)
+  case normalizeCommentPlan anns of
+    Left planErrors ->
+      ( fmap (ErrorCommentPlan . show) planErrors
+      , maybe
+          (TextL.pack $ ExactPrint.exactPrint parsedModule)
+          TextL.fromStrict
+          originalSource
+      )
+    Right commentPlan ->
+      let
+        ((out, errs), debugStrings) =
+          runIdentity
+            $ MultiRWSS.runMultiRWSTNil
+            $ MultiRWSS.withMultiWriterAW
+            $ MultiRWSS.withMultiWriterAW
+            $ MultiRWSS.withMultiWriterW
+            $ MultiRWSS.withMultiReader commentPlan
+            $ MultiRWSS.withMultiReader anns
+            $ MultiRWSS.withMultiReader conf
+            $ MultiRWSS.withMultiReader inlineConf
+            $ MultiRWSS.withMultiReader (extractToplevelAnns parsedModule anns)
+            $ do
+                traceIfDumpConf "bridoc annotations raw" _dconf_dump_annotations
+                  $ annsDoc anns
+                ppModule originalSource parsedModule
+        tracer = if Seq.null debugStrings
+          then id
+          else
+            trace ("---- DEBUGMESSAGES ---- ")
+              . foldr (seq . join trace) id debugStrings
+        -- ExactPrint preserves unsupported nodes as a whole-module fallback.
+        unknownNodeLocations = Data.Maybe.mapMaybe (\case
+          ErrorUnknownNode _ ast -> Just $ show $ GHC.getLoc ast
+          _ -> Nothing
+          ) errs
+        hasUnknownNode = not $ null unknownNodeLocations
+        fallbackOutput = maybe
+          (TextL.pack $ ExactPrint.exactPrint parsedModule)
+          TextL.fromStrict
+          originalSource
+        reportFallbacks =
+          (conf & _conf_debug & _dconf_dump_fallbacks & confUnpack)
+            || ( conf
+              & _conf_errorHandling
+              & _econf_failOnExactSourceFallback
+              & confUnpack
+               )
+        wholeModuleNotice =
+          [ ExactSourceFallback
+            $ renderFallbackNotice WholeModuleFallback
+            $ location
+          | reportFallbacks
+          , location <- take 1 unknownNodeLocations
+          ]
+        errs' = if hasUnknownNode
+          then filter (\case { ErrorUnknownNode{} -> False; _ -> True }) errs
+            ++ wholeModuleNotice
+          else errs
+      in tracer $
+        if hasUnknownNode
+          then (errs', fallbackOutput)
+          else (errs, Text.Builder.toLazyText out)
   -- unless () $ do
   --
   --   debugStrings `forM_` \s ->
@@ -473,15 +483,23 @@ pPrintModuleAndCheckWithSource originalSource conf inlineConf anns parsedModule 
           .> confUnpack
       checkErrors = case parseResult of
         Left{} -> [ErrorOutputCheck]
-        Right (_, outputModule, _) ->
+        Right (outputAnns, outputModule, _) ->
           if omitCommentCheck
             then []
-            else
-              [ ErrorUnusedComment
-                  $ "Comment missing from formatted output: " ++ show commentText
-              | commentText <- collectCommentContents parsedModule
-                  List.\\ collectCommentContents outputModule
-              ]
+            else case (normalizeCommentPlan anns, normalizeCommentPlan outputAnns) of
+              (Left planErrors, _) -> fmap (ErrorCommentPlan . show) planErrors
+              (_, Left planErrors) -> fmap (ErrorCommentPlan . show) planErrors
+              (Right inputPlan, Right outputPlan) ->
+                [ ErrorUnusedComment
+                    $ "Comment missing from formatted output: " ++ show commentText
+                | commentText <- collectCommentContents parsedModule
+                    List.\\ collectCommentContents outputModule
+                ]
+                  ++ [ ErrorCommentPlan
+                        "Comment ownership, order, or role changed after formatting."
+                     | commentPlanFingerprint inputPlan
+                        /= commentPlanFingerprint outputPlan
+                     ]
       errs' = errs ++ checkErrors
   return (errs', output)
 
@@ -542,6 +560,7 @@ parsePrintModuleTests conf filename input = do
             errStrs = actionableErrors <&> \case
               ErrorInput str -> str
               ErrorUnusedComment str -> str
+              ErrorCommentPlan str -> str
               LayoutWarning str -> str
               ExactSourceFallback str -> str
               ErrorUnknownNode str _ -> str
@@ -585,9 +604,10 @@ parsePrintModuleTests conf filename input = do
 
 toLocal :: Config -> Anns -> Text.Text -> PPMLocal a -> PPM a
 toLocal conf anns source m = do
+  commentPlan <- mAsk
   (x, write) <-
     lift $ MultiRWSS.runMultiRWSTAW
-      (conf :+: anns :+: OriginalSource source :+: HNil)
+      (conf :+: anns :+: OriginalSource source :+: commentPlan :+: HNil)
       HNil
       m
   MultiRWSS.mGetRawW >>= \w -> MultiRWSS.mPutRawW (w `mappend` write)
@@ -660,7 +680,8 @@ ppModule originalSource lmod@(L _loc _m@(HsModule _ _name _exports imports decls
       -- Declaration-specific annotations take priority over defaults
       -- (defaultAnns has comments cleared to avoid ErrorUnusedComment)
       Map.union (Map.findWithDefault Map.empty declAnnKey annMap) defaultAnns
-    let exactDeclText = nodeSourceSlice exactSource decl' filteredAnns
+    commentPlan <- mAsk
+    let exactDeclText = nodeSourceSlice exactSource decl' filteredAnns commentPlan
     let hasSourceComments = case EP.srcSpanToRealSpan $ getLocA decl' of
           Nothing -> False
           Just span' -> any

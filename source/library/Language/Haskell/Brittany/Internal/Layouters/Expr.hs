@@ -66,7 +66,8 @@ layoutExactSourceExpression
 layoutExactSourceExpression expression = do
   OriginalSource source <- mAsk
   anns <- mAsk
-  case nodeSourceFragment source expression anns of
+  commentPlan <- mAsk
+  case nodeSourceFragment source expression anns commentPlan of
     Nothing -> briDocByExactInlineOnly ExpressionFallback expression
     Just fragment -> briDocByExactSourceFragmentNoComment
       ExpressionFallback expression fragment

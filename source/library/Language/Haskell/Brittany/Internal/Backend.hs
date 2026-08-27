@@ -21,11 +21,13 @@ import qualified Data.Text.Lazy.Builder as Text.Builder
 import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.BackendUtils
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.CommentPlan (lookupCommentRole)
 import Language.Haskell.Brittany.Internal.ExactSource
   ( validateExactSourceFragment
   )
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Prelude
+import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Utils
@@ -71,6 +73,7 @@ data ColBuildState = ColBuildState
 type LayoutConstraints m
   = ( MonadMultiReader Config m
     , MonadMultiReader ExactPrintCompat.Anns m
+    , MonadMultiReader CommentPlan m
     , MonadMultiWriter Text.Builder.Builder m
     , MonadMultiWriter [BrittanyError] m
     , MonadMultiWriter (Seq String) m
@@ -338,13 +341,17 @@ layoutBriDocM = \case
         -- Compensate by subtracting indLevelLinger. Marked structural
         -- comments instead use the current layout's indentation.
         restState <- mGet
+        commentPlan <- mAsk
         let indLinger = _lstate_indLevelLinger restState
         comments
-          `forM_` \(ExactPrintCompat.Comment origin _ commentStr, ExactPrintCompat.DP (y, x)) ->
+          `forM_` \(comment, ExactPrintCompat.DP (y, x)) ->
+                    let commentStr = ExactPrintCompat.commentContents comment
+                        role = lookupCommentRole commentPlan comment
+                    in
                     when (commentStr /= "(" && commentStr /= ")") $ do
-                      let signaturePostDoc = origin `elem`
-                            [ Just ExactPrintCompat.AnnSignaturePostDoc
-                            , Just ExactPrintCompat.AnnSignatureFinalPostDoc
+                      let signaturePostDoc = role `elem`
+                            [ Just $ HaddockPostDoc SignatureArgument
+                            , Just $ HaddockPostDoc SignatureResult
                             ]
                           commentIndent
                             | y > 0, signaturePostDoc =
@@ -353,18 +360,18 @@ layoutBriDocM = \case
                           commentLines = Text.lines $ Text.pack commentStr
                           adjustedY
                             | y > 0
-                            , origin == Just ExactPrintCompat.AnnTypeOperatorComment = 1
+                            , role == Just (BetweenChildren TypeOperator) = 1
                             | otherwise = y
                           adjustedX
                             | y > 0, signaturePostDoc =
                                 max 0 $ commentIndent - indLinger
                             | y > 0
-                            , origin == Just ExactPrintCompat.AnnTypeOperatorComment = 0
+                            , role == Just (BetweenChildren TypeOperator) = 0
                             | y > 0
-                            , origin `elem`
-                                [ Just ExactPrintCompat.AnnHaddockSection
-                                , Just ExactPrintCompat.AnnFieldPostDoc
-                                , Just ExactPrintCompat.AnnDerivingComment
+                            , role `elem`
+                                [ Just SectionComment
+                                , Just $ HaddockPostDoc RecordField
+                                , Just $ BetweenChildren DerivingClause
                                 ] =
                                 max 0
                                   (lstate_baseY restState

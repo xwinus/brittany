@@ -18,11 +18,13 @@ import GHC.Types.SrcLoc
   , srcSpanStartLine
   )
 import Language.Haskell.Brittany.Internal.ExactPrintCompat
-  ( Comment(commentIdentifier, commentOrigin)
+  ( Comment(commentIdentifier)
   , srcSpanToRealSpan
   )
+import Language.Haskell.Brittany.Internal.CommentPlan (lookupCommentPlacement)
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrintCompat
 import Language.Haskell.Brittany.Internal.Prelude
+import Language.Haskell.Brittany.Internal.SourceComment.Types
 
 supportsCommentedDataDecl :: TyClDecl GhcPs -> Bool
 supportsCommentedDataDecl = \case
@@ -90,16 +92,18 @@ documentedSingleH98Constructor = \case
   contextIsEmpty (Just (L _ context)) = null context
 
 supportsDocumentedSingleH98Comments
-  :: Located declaration
+  :: CommentPlan
+  -> Located declaration
   -> SrcSpan
   -> Located constructor
   -> [(Comment, ExactPrintCompat.DeltaPos)]
   -> Bool
-supportsDocumentedSingleH98Comments declaration equalsSpan constructor =
+supportsDocumentedSingleH98Comments commentPlan declaration equalsSpan constructor =
   all commentIsSupported
  where
   commentIsSupported (sourceComment, _)
-    | commentOrigin sourceComment /= Nothing = True
+    | isStructuralPlacement
+        $ lookupCommentPlacement commentPlan sourceComment = True
     | otherwise = case
         ( srcSpanToRealSpan $ getLoc declaration
         , srcSpanToRealSpan equalsSpan
@@ -118,6 +122,16 @@ supportsDocumentedSingleH98Comments declaration equalsSpan constructor =
                   && commentEnd <= spanStart constructorSpan
                    )
           _ -> False
+
+  isStructuralPlacement = \case
+    Just CommentPlacement{placementRole = HaddockPostDoc{}} -> True
+    Just CommentPlacement
+      { placementOwner = NodeId (ExactPrintCompat.AnnKey _ ownerName)
+      , placementRole = BetweenChildren DerivingClause
+      } -> ExactPrintCompat.unConName ownerName == "HsDerivingClause"
+    Just CommentPlacement{placementRole = BetweenChildren TypeOperator} -> True
+    Just CommentPlacement{placementRole = SectionComment} -> True
+    _ -> False
 
   spanStart span' = (srcSpanStartLine span', srcSpanStartCol span')
   spanEnd span' = (srcSpanEndLine span', srcSpanEndCol span')

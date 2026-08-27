@@ -112,6 +112,7 @@ library
     Language.Haskell.Brittany.Internal
     Language.Haskell.Brittany.Internal.Backend
     Language.Haskell.Brittany.Internal.BackendUtils
+    Language.Haskell.Brittany.Internal.CommentPlan
     Language.Haskell.Brittany.Internal.Config
     Language.Haskell.Brittany.Internal.Config.Types
     Language.Haskell.Brittany.Internal.Config.Types.Instances
@@ -136,6 +137,7 @@ library
     Language.Haskell.Brittany.Internal.ParseModule
     Language.Haskell.Brittany.Internal.Prelude
     Language.Haskell.Brittany.Internal.PreludeUtils
+    Language.Haskell.Brittany.Internal.SourceComment.Types
     Language.Haskell.Brittany.Internal.Transformations.Alt
     Language.Haskell.Brittany.Internal.Transformations.Columns
     Language.Haskell.Brittany.Internal.Transformations.Floating
@@ -148,17 +150,13 @@ library
     Paths_brittany
   other-modules:
     Language.Haskell.Brittany.Internal.CommentUtils
-    Language.Haskell.Brittany.Internal.DerivingComments
     Language.Haskell.Brittany.Internal.ExactSource
     Language.Haskell.Brittany.Internal.ExpressionComments
-    Language.Haskell.Brittany.Internal.FieldComments
     Language.Haskell.Brittany.Internal.Layouters.DataDecl.Support
     Language.Haskell.Brittany.Internal.Layouters.Type.Operator
     Language.Haskell.Brittany.Internal.PatternComments
     Language.Haskell.Brittany.Internal.Preprocessor
-    Language.Haskell.Brittany.Internal.SignatureComments
     Language.Haskell.Brittany.Internal.TypeFallbacks
-    Language.Haskell.Brittany.Internal.TypeOperatorComments
 
 executable brittany
   import: executable
@@ -176,6 +174,7 @@ test-suite brittany-test-suite
   other-modules:
     CompatibilityMatrix
     CompatibilitySpec
+    CommentPlanSpec
     DataDeclSingleConstructorSpec
     ExtractAnnsSpec
     ExactSourceFragmentSpec

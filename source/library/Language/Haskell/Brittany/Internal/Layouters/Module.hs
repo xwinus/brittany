@@ -7,7 +7,7 @@ import qualified Data.Map as Map
 import qualified Data.Maybe
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
-import GHC (GenLocated(L), Located, getLoc, unLoc)
+import GHC (GenLocated(L), Located, getLoc, srcSpanStartLine, unLoc)
 import GHC.Hs hiding (DeltaPos)
 import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.Config.Types
@@ -27,13 +27,22 @@ layoutModule :: ToBriDoc' (HsModule GhcPs)
 layoutModule = layoutModuleWithExactText Text.empty
 
 preambleRequiresExactSource :: Text.Text -> HsModule GhcPs -> Bool
-preambleRequiresExactSource source HsModule{hsmodImports = imports} =
-  containsWarningPragma || any importRequiresExactSource imports
+preambleRequiresExactSource source HsModule
+  { hsmodDecls = declarations
+  , hsmodImports = imports
+  } = containsWarningPragma || any importRequiresExactSource imports
  where
-  containsWarningPragma = any (`Text.isInfixOf` source)
+  containsWarningPragma = any (`Text.isInfixOf` preambleSource)
     [ Text.pack "{-# WARNING"
     , Text.pack "{-# DEPRECATED"
     ]
+  preambleSource = case declarations of
+    firstDeclaration : _ -> case srcSpanToRealSpan $ getLoc $ toL firstDeclaration of
+      Just declarationSpan -> Text.unlines
+        $ take (srcSpanStartLine declarationSpan - 1)
+        $ Text.lines source
+      Nothing -> source
+    [] -> source
   importRequiresExactSource (L _ importDeclaration) = case importDeclaration of
     ImportDecl
       { ideclLevelSpec = levelStyle
@@ -249,7 +258,8 @@ commentedImportsToDoc exactText = \case
         if hasComments
           then do
             listAnns <- filterAnns listNode <$> mAsk
-            pure $ nodeSourceSlice exactText importNode listAnns
+            commentPlan <- mAsk
+            pure $ nodeSourceSlice exactText importNode listAnns commentPlan
           else pure Nothing
       _ -> pure Nothing
     docSeq

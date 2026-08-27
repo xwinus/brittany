@@ -32,6 +32,7 @@ import Language.Haskell.Syntax.Binds (RecordPatSynField(recordPatSynField))
 import GHC.Parser.Annotation (getLocA)
 import GHC.Types.SrcLoc (Located, RealSrcSpan, SrcSpan(..), getLoc, noSrcSpan, srcSpanStartCol, srcSpanStartLine, srcSpanEndCol, srcSpanEndLine, unLoc)
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.CommentPlan (lookupCommentRole)
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey, mkAnnKey, Comment(..), srcSpanToRealSpan)
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
@@ -55,6 +56,7 @@ import Language.Haskell.Brittany.Internal.Layouters.StandaloneDeriving
 import Language.Haskell.Brittany.Internal.Layouters.Type
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
+import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.PatternComments
   ( commentSensitivePatterns
   , exactSourcePatterns
@@ -176,8 +178,13 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
 
   layoutTypeSignature declaration signature = do
     connectedComments <- astConnectedComments declaration
-    let hasUnsafeComments = any isRegularComment connectedComments
-        hasPostDocs = any isSignaturePostDoc connectedComments
+    commentPlan <- mAsk
+    let hasPostDocs = any (isSignaturePostDoc commentPlan) connectedComments
+        hasUnsafeComments = any
+          (\connectedComment -> isRegularComment connectedComment
+            && not (isSignaturePostDoc commentPlan connectedComment)
+          )
+          connectedComments
         hasUnownedSourceComments = hasSourceComments
           && null connectedComments
     case () of
@@ -189,10 +196,11 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
           $ docWrapNode declaration
           $ layoutSigWithComments hasPostDocs (L loc signature)
 
-  isSignaturePostDoc (postDocComment, _) = commentOrigin postDocComment `elem`
-    [ Just AnnSignaturePostDoc
-    , Just AnnSignatureFinalPostDoc
-    ]
+  isSignaturePostDoc commentPlan (postDocComment, _) =
+    lookupCommentRole commentPlan postDocComment `elem`
+      [ Just $ HaddockPostDoc SignatureArgument
+      , Just $ HaddockPostDoc SignatureResult
+      ]
 
   isAfterNode node (sourceComment, _) = case
     ( srcSpanToRealSpan $ getLoc node
@@ -220,8 +228,9 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
 
   layoutDocumentedSingleH98 declaration equalsSpan constructor formatted = do
     connectedComments <- astConnectedComments declaration
+    commentPlan <- mAsk
     if supportsDocumentedSingleH98Comments
-      declaration equalsSpan constructor connectedComments
+      commentPlan declaration equalsSpan constructor connectedComments
       then withTransformedAnns declaration
         $ docWrapNode declaration formatted
       else layoutExact DeclarationFallback declaration exactText
