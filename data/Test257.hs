@@ -1,6 +1,8 @@
 {-# LANGUAGE QuasiQuotes #-}
 func = do
-  let body = [json|
+  let
+    body =
+      [json|
   hello
   |]
   pure True

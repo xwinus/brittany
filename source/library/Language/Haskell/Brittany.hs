@@ -20,8 +20,15 @@ module Language.Haskell.Brittany
   , FallbackInfo(..)
   , FallbackScope(..)
   , FallbackSupport(..)
+  , OpaqueFamily(..)
+  , RenderDisposition(..)
+  , RenderNotice(..)
   , fallbackInfo
   , fallbackInventory
+  , fallbackRenderNotice
+  , opaqueRenderNotice
+  , renderRenderInventory
+  , renderRenderNotice
   ) where
 
 import Language.Haskell.Brittany.Internal

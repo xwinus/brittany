@@ -25,6 +25,7 @@ confUnpack (Identity x) = coerce x
 data CDebugConfig f = DebugConfig
   { _dconf_dump_config :: f (Semigroup.Last Bool)
   , _dconf_dump_fallbacks :: f (Semigroup.Last Bool)
+  , _dconf_dump_fallbacks_json :: f (Semigroup.Last Bool)
   , _dconf_dump_annotations :: f (Semigroup.Last Bool)
   , _dconf_dump_ast_unknown :: f (Semigroup.Last Bool)
   , _dconf_dump_ast_full :: f (Semigroup.Last Bool)
@@ -153,6 +154,7 @@ data CErrorHandlingConfig f = ErrorHandlingConfig
   { _econf_produceOutputOnErrors :: f (Semigroup.Last Bool)
   , _econf_Werror :: f (Semigroup.Last Bool)
   , _econf_failOnExactSourceFallback :: f (Semigroup.Last Bool)
+  , _econf_failOnOpaque :: f (Semigroup.Last Bool)
   , _econf_ExactPrintFallback :: f (Semigroup.Last ExactPrintFallbackMode)
     -- ^ Determines when to fall back on the exactprint'ed output when
     -- syntactical constructs are encountered which are not yet handled by

@@ -168,7 +168,8 @@ layoutBriDocM = \case
         remainingLines `forM_` \line -> do
           layoutWriteNewline
           unless (Text.null line) $ do
-            layoutWriteAppendSpaces fragmentColumn
+            when (fragmentRebaseContinuation fragment)
+              $ layoutWriteAppendSpaces fragmentColumn
             layoutWriteAppend line
       _ -> do
         let tlineCount = length tlines

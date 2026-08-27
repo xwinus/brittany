@@ -1,4 +1,5 @@
 {-# LANGUAGE QuasiQuotes #-}
-func = [blub|
+func =
+  [blub|
         asd
   qwe|]

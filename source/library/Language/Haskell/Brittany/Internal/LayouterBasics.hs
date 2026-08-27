@@ -29,7 +29,9 @@ import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.CommentPlan (isSourceComment)
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.ExactSource
-  ( validateExactSourceFragment
+  ( nodeOpaqueSourceFragment
+  , validateExactSourceFragment
+  , validateOpaqueSourceFragment
   )
 import Language.Haskell.Brittany.Internal.Fallbacks
 import Language.Haskell.Brittany.Internal.Prelude
@@ -89,6 +91,36 @@ briDocByExactSourceFragmentNoComment fallback ast fragment = do
   reportFallback fallback ast
   briDocBySourceFragmentNoComment ast fragment
 
+briDocByOpaqueNoComment
+  :: (Data ast, ExactPrint.ExactPrint ast)
+  => OpaqueFamily
+  -> FallbackId
+  -> Located ast
+  -> ToBriDocM BriDocNumbered
+briDocByOpaqueNoComment family fallback ast = do
+  OriginalSource source <- mAsk
+  anns <- mAsk
+  commentPlan <- mAsk
+  case nodeOpaqueSourceFragment source ast anns commentPlan of
+    Nothing -> briDocByExactInlineOnly fallback ast
+    Just fragment -> briDocByOpaqueSourceFragmentNoComment
+      family fallback ast fragment
+
+briDocByOpaqueSourceFragmentNoComment
+  :: Data ast
+  => OpaqueFamily
+  -> FallbackId
+  -> Located ast
+  -> ExactSourceFragment
+  -> ToBriDocM BriDocNumbered
+briDocByOpaqueSourceFragmentNoComment family fallback ast fragment = do
+  commentPlan <- mAsk
+  case validateOpaqueSourceFragment fragment commentPlan of
+    Left _ -> briDocByExactSourceFragmentNoComment fallback ast fragment
+    Right () -> do
+      reportOpaque family (fallbackScope $ fallbackInfo fallback) ast
+      briDocBySourceFragmentNoComment ast fragment
+
 briDocBySourceFragmentNoComment
   :: Data ast
   => Located ast
@@ -144,14 +176,29 @@ reportFallback fallback ast = do
   let
     enabled =
       (config & _conf_debug & _dconf_dump_fallbacks & confUnpack)
+        || (config & _conf_debug & _dconf_dump_fallbacks_json & confUnpack)
         || ( config
           & _conf_errorHandling
           & _econf_failOnExactSourceFallback
           & confUnpack
            )
   when enabled $ mTell
-    [ ExactSourceFallback $ renderFallbackNotice fallback $ show $ GHC.getLoc ast
+    [ ExactSourceFallback $ fallbackRenderNotice fallback $ show $ GHC.getLoc ast
     ]
+
+reportOpaque :: OpaqueFamily -> FallbackScope -> Located ast -> ToBriDocM ()
+reportOpaque family scope ast = do
+  config <- mAsk
+  when (opaqueReportingEnabled config) $ mTell
+    [ SupportedOpaqueSyntax
+      $ opaqueRenderNotice family scope $ show $ GHC.getLoc ast
+    ]
+
+opaqueReportingEnabled :: Config -> Bool
+opaqueReportingEnabled config =
+  (config & _conf_debug & _dconf_dump_fallbacks & confUnpack)
+    || (config & _conf_debug & _dconf_dump_fallbacks_json & confUnpack)
+    || (config & _conf_errorHandling & _econf_failOnOpaque & confUnpack)
 
 rdrNameToText :: RdrName -> Text
 -- rdrNameToText = Text.pack . show . flip runSDoc unsafeGlobalDynFlags . ppr

@@ -11,7 +11,10 @@ import GHC (GenLocated(L), ol_val, unLoc)
 import GHC.Hs
 import qualified GHC.OldList as List
 import GHC.Types.Basic
-import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
+import Language.Haskell.Brittany.Internal.Fallbacks
+  ( FallbackId(..)
+  , untypedSpliceFamily
+  )
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
@@ -19,7 +22,6 @@ import Language.Haskell.Brittany.Internal.Layouters.Type
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
-import Language.Haskell.Brittany.Internal.Utils (showOutputable)
 
 
 
@@ -211,18 +213,11 @@ layoutPat lpat@(L _ pat) = docWrapNode (toL lpat) $ case pat of
         $ List.intersperse (docLit $ Text.pack " ; ") (map return patDocs)
       return $ Seq.singleton singleDoc
 
-  SplicePat _ (HsQuasiQuote _ quoter content) -> do
-    reportFallback PatternFallback (toL lpat)
-    hasPriorComments <- hasAnyRegularCommentsConnectedNoFollowing (toL lpat)
-    fallbackDoc <- allocateNode $ BDFPlain (not hasPriorComments)
-      (Text.pack
-      $ "["
-      ++ showOutputable quoter
-      ++ "|"
-      ++ showOutputable (unLoc content)
-      ++ "|]"
-      )
-    pure $ Seq.singleton fallbackDoc
+  SplicePat _ splice -> fmap Seq.singleton
+    $ briDocByOpaqueNoComment
+      (untypedSpliceFamily splice)
+      PatternFallback
+      (toL lpat)
 
   _ -> return <$> briDocByExactInlineOnly PatternFallback (toL lpat)
 
