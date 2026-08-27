@@ -121,3 +121,12 @@ configured continuation indent beyond its field name. The shared field layout
 applies to construction and update syntax, nested records, and multiline
 expression forms while preserving compact values, puns, wildcards, comments,
 and the existing closing-brace policy.
+
+Issue #109 replaces positional GHC AST fingerprints with an explicit canonical
+semantic model and a narrow GHC 9.14 adapter. Import declarations, explicit
+items, hiding items, and imported child names compare as duplicate-preserving
+multisets, matching Brittany's intentional sorting. Every import attribute
+remains observable. Singleton parenthesized and unparenthesized deriving clauses
+compare equally, while strategies, via types, class lists, and all
+order-sensitive syntax remain distinct. Unknown generic representations still
+fail closed, and diagnostics report named semantic fields.
