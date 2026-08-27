@@ -138,6 +138,7 @@ library
     Language.Haskell.Brittany.Internal.ParseModule
     Language.Haskell.Brittany.Internal.Prelude
     Language.Haskell.Brittany.Internal.PreludeUtils
+    Language.Haskell.Brittany.Internal.SemanticFingerprint
     Language.Haskell.Brittany.Internal.SourceComment.Types
     Language.Haskell.Brittany.Internal.Transformations.Alt
     Language.Haskell.Brittany.Internal.Transformations.Columns
@@ -188,6 +189,7 @@ test-suite brittany-test-suite
     PreprocessorSpec
     PriorCommentSeparationSpec
     RegressionSpec
+    SemanticFingerprintSpec
     SignaturePostDocSpec
     StandaloneDerivingSpec
     TemplateHaskellFallbackSpec
