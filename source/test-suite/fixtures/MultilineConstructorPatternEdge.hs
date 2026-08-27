@@ -5,16 +5,14 @@
 module MultilineConstructorPatternEdge where
 
 handle
-  (
-    Run
-      (Nested sourcePaths)
-      (excludedPaths   , ignoredPaths)
-      [builtInTemplates, templateRefs]
-      variables
-      runMode
-      debug@DebugMode
-      dryRun
-  ) =
+  (Run
+    (Nested sourcePaths)
+    (excludedPaths   , ignoredPaths)
+    [builtInTemplates, templateRefs]
+    variables
+    runMode
+    debug@DebugMode
+    dryRun) =
     result
 
 commented command = case command of

@@ -740,7 +740,10 @@ layoutPatternBind funId binderDoc lmatch@(L _ match) = do
     then return Nothing
     else do
       selectedDocs <- sequence $ zipWith
-        (\flatDoc -> maybe flatDoc return)
+        (\flatDoc -> maybe flatDoc $ \multilineDoc -> docAlt
+          [ docForceSingleline flatDoc
+          , return multilineDoc
+          ])
         patDocs
         multilinePatDocs
       case (mIdStr', selectedDocs) of

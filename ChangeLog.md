@@ -74,6 +74,8 @@
   each rendered fragment, preserving Haddock comments outside its source range.
 * Guaranteed a lexical newline after prior line comments while preserving
   source blank-line counts and nested comment indentation.
+* Kept fitting parenthesized constructor patterns compact inside multiline
+  equations while retaining structured layouts for genuinely long patterns.
 
 ## 0.14.0.0 -- November 2021
 

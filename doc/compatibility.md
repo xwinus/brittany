@@ -108,3 +108,10 @@ types, roles and multiplicities, foreign-call details, overlap modes,
 namespaces and promotion, record puns and wildcards, literals, and pragmas.
 An AST value without an explicit generic projection is rejected with its type
 and path; it is never assumed equivalent.
+
+Issue #103 makes multiline equations choose each constructor-pattern argument
+independently. A parenthesized constructor remains compact when it fits its own
+line, uses delimiter-attached structural layout when it must wrap, and retains
+the fully vertical delimiter form as a fallback. The same choice is available
+to function equations, case and lambda-case alternatives, guarded clauses, and
+pattern bindings.

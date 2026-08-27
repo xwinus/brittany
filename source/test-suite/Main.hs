@@ -3,6 +3,7 @@
 import qualified Control.Monad as Monad
 import qualified CompatibilitySpec
 import qualified CommentPlanSpec
+import qualified CompactParenthesizedPatternSpec
 import qualified ComposableDeclarationSpec
 import qualified ConstructorFieldModifierSpec
 import Data.Kind (Type)
@@ -82,6 +83,7 @@ main = Hspec.hspec $ do
   ExactSourceFragmentSpec.spec projectRoot
   CompatibilitySpec.spec projectRoot
   CommentPlanSpec.spec
+  CompactParenthesizedPatternSpec.spec projectRoot
   ComposableDeclarationSpec.spec projectRoot
   ConstructorFieldModifierSpec.spec projectRoot
   FallbackSpec.spec projectRoot
