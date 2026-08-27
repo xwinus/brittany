@@ -9,6 +9,7 @@ module Language.Haskell.Brittany.Internal
   , pPrintModuleWithSource
   , pPrintModuleAndCheck
   , pPrintModuleAndCheckWithSource
+  , semanticErrors
    -- re-export from utils:
   , parseModule
   , parseModuleFromString
@@ -71,6 +72,12 @@ import Language.Haskell.Brittany.Internal.Layouters.Module
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Preprocessor (cppUnsupportedMessage)
+import Language.Haskell.Brittany.Internal.SemanticFingerprint
+  ( SemanticDifference(..)
+  , SemanticProjectionError(..)
+  , compareSemanticSyntax
+  , renderSemanticPath
+  )
 import Language.Haskell.Brittany.Internal.Transformations.Alt
 import Language.Haskell.Brittany.Internal.Transformations.Columns
 import Language.Haskell.Brittany.Internal.Transformations.Floating
@@ -341,6 +348,8 @@ parsePrintModule configWithDebugs inputText = runExceptT $ do
         customErrOrder ExactSourceFallback{} = -1
         customErrOrder SupportedOpaqueSyntax{} = -2
         customErrOrder ErrorOutputCheck{} = 1
+        customErrOrder ErrorSemanticChange{} = 7
+        customErrOrder ErrorSemanticProjection{} = 8
         customErrOrder ErrorUnusedComment{} = 2
         customErrOrder ErrorUnknownNode{} = 3
         customErrOrder ErrorMacroConfig{} = 5
@@ -464,8 +473,8 @@ pPrintModuleWithSource originalSource conf inlineConf anns parsedModule =
   --   debugStrings `forM_` \s ->
   --     trace s $ return ()
 
--- | Additionally checks that the output parses and preserves every source
--- comment, appending errors when either invariant fails.
+-- | Additionally checks that the output parses and preserves source comments
+-- and normalized semantic syntax, appending errors when an invariant fails.
 pPrintModuleAndCheck
   :: Config
   -> PerItemConfig
@@ -499,9 +508,10 @@ pPrintModuleAndCheckWithSource originalSource conf inlineConf anns parsedModule 
       checkErrors = case parseResult of
         Left{} -> [ErrorOutputCheck]
         Right (outputAnns, outputModule, _) ->
-          if omitCommentCheck
-            then []
-            else case (normalizeCommentPlan anns, normalizeCommentPlan outputAnns) of
+          semanticErrors parsedModule outputModule
+            ++ if omitCommentCheck
+              then []
+              else case (normalizeCommentPlan anns, normalizeCommentPlan outputAnns) of
               (Left planErrors, _) -> fmap (ErrorCommentPlan . show) planErrors
               (_, Left planErrors) -> fmap (ErrorCommentPlan . show) planErrors
               (Right inputPlan, Right outputPlan) ->
@@ -517,6 +527,23 @@ pPrintModuleAndCheckWithSource originalSource conf inlineConf anns parsedModule 
                      ]
       errs' = errs ++ checkErrors
   return (errs', output)
+
+semanticErrors
+  :: GHC.ParsedSource -> GHC.ParsedSource -> [BrittanyError]
+semanticErrors inputModule outputModule =
+  case compareSemanticSyntax inputModule outputModule of
+    Left projectionError ->
+      [ ErrorSemanticProjection
+          (renderSemanticPath $ projectionErrorPath projectionError)
+          (projectionErrorType projectionError)
+      ]
+    Right Nothing -> []
+    Right (Just difference) ->
+      [ ErrorSemanticChange
+          (renderSemanticPath $ semanticDifferencePath difference)
+          (semanticInputSummary difference)
+          (semanticOutputSummary difference)
+      ]
 
 
 -- used for testing mostly, currently.
@@ -588,6 +615,18 @@ parsePrintModuleTests conf filename input = do
               ErrorUnknownNode str _ -> str
               ErrorMacroConfig str _ -> "when parsing inline config: " ++ str
               ErrorOutputCheck -> "Output is not syntactically valid."
+              ErrorSemanticChange path inputSummary outputSummary ->
+                "Semantic syntax changed at "
+                  ++ path
+                  ++ ": input "
+                  ++ inputSummary
+                  ++ ", output "
+                  ++ outputSummary
+              ErrorSemanticProjection path unknownType ->
+                "Semantic syntax projection is incomplete at "
+                  ++ path
+                  ++ ": "
+                  ++ unknownType
           in throwE $ "pretty printing error(s):\n" ++ List.unlines errStrs
 
 -- this approach would for if there was a pure GHC.parseDynamicFilePragma.

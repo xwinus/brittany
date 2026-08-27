@@ -43,6 +43,10 @@ features:
     kind: syntax
     support: native
     tracking-issue: 101
+  - name: SemanticASTValidation
+    kind: syntax
+    support: native
+    tracking-issue: 102
   - name: ApplicativeDo
     kind: extension
     support: native
@@ -390,7 +394,7 @@ cases:
   - name: preserves constructor-field modifiers under StrictData
     kind: expected
     fixture: source/test-suite/fixtures/ConstructorFieldModifiersExpected.hs
-    features: [ConstructorFieldModifiers, StrictData]
+    features: [ConstructorFieldModifiers, SemanticASTValidation, StrictData]
     expected-result: formats
   - name: preserves modifiers across constructor forms and comments
     kind: edge

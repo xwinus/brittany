@@ -101,10 +101,10 @@ helpDoc = PP.vcat $ List.intersperse
     ]
   , parDocW
     [ "This program is written carefully and contains safeguards to ensure"
-    , "the output is syntactically valid and that no comments are removed."
-    , "Nonetheless, this is a young project, and there will always be bugs,"
-    , "and ensuring that the transformation never changes semantics of the"
-    , "transformed source is currently not possible."
+    , "the output is syntactically valid, no comments are removed, and the"
+    , "normalized syntax-affecting parsed AST is preserved."
+    , "Nonetheless, compiler plugins and type-directed behavior remain beyond"
+    , "what a parsed-syntax comparison can prove."
     , "Please do check the output and do not let brittany override your large"
     , "codebase without having backups."
     ]
@@ -261,6 +261,23 @@ mainCmdParser helpDesc = do
 
 data ChangeStatus = Changes | NoChanges
   deriving (Eq)
+
+shouldEmitOutput
+  :: Bool
+  -> Bool
+  -> Bool
+  -> Bool
+  -> [BrittanyError]
+  -> Bool
+shouldEmitOutput suppressOutput checkMode hasErrors outputOnErrors errors =
+  not suppressOutput
+    && not checkMode
+    && not (any isSemanticValidationError errors)
+    && (not hasErrors || outputOnErrors)
+ where
+  isSemanticValidationError ErrorSemanticChange{} = True
+  isSemanticValidationError ErrorSemanticProjection{} = True
+  isSemanticValidationError _ = False
 
 -- | The main IO parts for the default mode of operation, and after commandline
 -- and config stuff is processed.
@@ -446,6 +463,8 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
           customErrOrder ExactSourceFallback{} = -3
           customErrOrder SupportedOpaqueSyntax{} = -4
           customErrOrder ErrorOutputCheck{} = 1
+          customErrOrder ErrorSemanticChange{} = 7
+          customErrOrder ErrorSemanticProjection{} = 8
           customErrOrder ErrorUnusedComment{} = 2
           customErrOrder ErrorUnknownNode{} = -2 :: Int
           customErrOrder ErrorMacroConfig{} = 5
@@ -481,6 +500,21 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
               putErrorLn
                 $ "ERROR: brittany pretty printer"
                 ++ " returned syntactically invalid result."
+            semanticChanges@(ErrorSemanticChange{} : _) -> do
+              putErrorLn "ERROR: formatted output changes parsed semantics."
+              semanticChanges `forM_` \case
+                ErrorSemanticChange path inputSummary outputSummary -> do
+                  putErrorLn $ "  path: " ++ path
+                  putErrorLn $ "  input: " ++ inputSummary
+                  putErrorLn $ "  output: " ++ outputSummary
+                _ -> error "cannot happen (TM)"
+            projectionErrors@(ErrorSemanticProjection{} : _) -> do
+              putErrorLn "ERROR: semantic syntax comparison is incomplete."
+              projectionErrors `forM_` \case
+                ErrorSemanticProjection path unknownType -> do
+                  putErrorLn $ "  path: " ++ path
+                  putErrorLn $ "  unknown syntax type: " ++ unknownType
+                _ -> error "cannot happen (TM)"
             (ErrorInput str : _) -> do
               putErrorLn $ "ERROR: parse error: " ++ str
             uns@(ErrorUnknownNode{} : _) -> do
@@ -571,10 +605,12 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
               & _conf_errorHandling
               & _econf_produceOutputOnErrors
               & confUnpack
-          shouldOutput =
-            not suppressOutput
-              && not checkMode
-              && (not hasErrors || outputOnErrs)
+          shouldOutput = shouldEmitOutput
+            suppressOutput
+            checkMode
+            hasErrors
+            outputOnErrs
+            errsWarns
 
         when shouldOutput
           $ addTraceSep (_conf_debug config)

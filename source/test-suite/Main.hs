@@ -19,6 +19,7 @@ import qualified PreambleSpacingSpec
 import qualified PreprocessorSpec
 import qualified PriorCommentSeparationSpec
 import qualified RegressionSpec
+import qualified SemanticFingerprintSpec
 import qualified SignaturePostDocSpec
 import qualified StandaloneDerivingSpec
 import qualified System.Directory as Directory
@@ -73,6 +74,7 @@ main = Hspec.hspec $ do
         Literal actual `Hspec.shouldBe` Literal expected
 
   RegressionSpec.spec projectRoot
+  SemanticFingerprintSpec.spec
   SignaturePostDocSpec.spec projectRoot
   StandaloneDerivingSpec.spec projectRoot
   DataDeclSingleConstructorSpec.spec projectRoot

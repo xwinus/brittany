@@ -157,6 +157,10 @@ data BrittanyError
     --   in the syntax-tree
   | ErrorOutputCheck
     -- ^ checking the output for syntactic validity failed
+  | ErrorSemanticChange String String String
+    -- ^ normalized parsed syntax changed; path, input, and output summaries
+  | ErrorSemanticProjection String String
+    -- ^ normalized syntax projection is incomplete; path and unknown type
 
 data BriSpacing = BriSpacing
   { _bs_spacePastLineIndent :: Int -- space in the current,

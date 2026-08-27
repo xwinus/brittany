@@ -98,3 +98,13 @@ Issue #19 adds the machine-readable
 native layout for simple multi-constructor Haskell 98 data declarations.
 Commented and extension-specific constructor forms remain exact-source until
 their annotation paths have the same expected, edge, and malformed coverage.
+
+Issue #102 adds a fatal semantic AST validation after formatted output is
+reparsed. The comparison removes source spans, parser annotations, comments,
+tokens, and formatting-only `SourceText`, and normalizes redundant expression,
+pattern, and type parentheses. It retains syntax constructors and values,
+including strictness and unpacking, patterns, deriving strategies and via
+types, roles and multiplicities, foreign-call details, overlap modes,
+namespaces and promotion, record puns and wildcards, literals, and pragmas.
+An AST value without an explicit generic projection is rejected with its type
+and path; it is never assumed equivalent.
