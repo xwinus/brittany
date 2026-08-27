@@ -3,10 +3,12 @@
 module Language.Haskell.Brittany.Internal.ExactSource
   ( nodeSourceSlice
   , nodeSourceFragment
+  , nodeOpaqueSourceFragment
   , sourceCommentKeys
   , sourceCommentFragment
   , sourceRangeContainsComment
   , validateExactSourceFragment
+  , validateOpaqueSourceFragment
   ) where
 
 import Data.Data (Data)
@@ -69,7 +71,26 @@ nodeSourceFragment
   -> Anns
   -> CommentPlan
   -> Maybe ExactSourceFragment
-nodeSourceFragment source node anns commentPlan = do
+nodeSourceFragment = nodeSourceFragmentWith True
+
+nodeOpaqueSourceFragment
+  :: Data ast
+  => Text.Text
+  -> GHC.Located ast
+  -> Anns
+  -> CommentPlan
+  -> Maybe ExactSourceFragment
+nodeOpaqueSourceFragment = nodeSourceFragmentWith False
+
+nodeSourceFragmentWith
+  :: Data ast
+  => Bool
+  -> Text.Text
+  -> GHC.Located ast
+  -> Anns
+  -> CommentPlan
+  -> Maybe ExactSourceFragment
+nodeSourceFragmentWith rebaseContinuation source node anns commentPlan = do
   nodeSpan <- EP.srcSpanToRealSpan $ getLocA node
   let startLine = GHC.srcSpanStartLine nodeSpan
       endLine = GHC.srcSpanEndLine nodeSpan
@@ -80,7 +101,9 @@ nodeSourceFragment source node anns commentPlan = do
         $ Text.splitOn (Text.singleton '\n') source
   case selectedLines of
     [] -> Nothing
-    [line] -> pure $ exactSourceFragment node anns commentPlan (rangeFromSpan nodeSpan)
+    [line] -> pure
+      $ setContinuationMode
+      $ exactSourceFragment node anns commentPlan (rangeFromSpan nodeSpan)
       $ Text.take (endColumn - startColumn)
       $ Text.drop (startColumn - 1) line
     firstLine : remainingLines -> case reverse remainingLines of
@@ -96,11 +119,18 @@ nodeSourceFragment source node anns commentPlan = do
                 | line <- continuationLines
                 , not $ Text.null $ Text.strip line
                 ]
-            rebase = dropLeadingSpaces continuationIndent
-        pure $ exactSourceFragment node anns commentPlan (rangeFromSpan nodeSpan)
+            rebase = if rebaseContinuation
+              then dropLeadingSpaces continuationIndent
+              else id
+        pure $ setContinuationMode
+          $ exactSourceFragment node anns commentPlan (rangeFromSpan nodeSpan)
           $ Text.intercalate (Text.singleton '\n')
           $ Text.drop sourceIndent firstLine
           : fmap rebase continuationLines
+ where
+  setContinuationMode fragment = fragment
+    { fragmentRebaseContinuation = rebaseContinuation
+    }
 
 sourceCommentFragment :: SourceComment -> ExactSourceFragment
 sourceCommentFragment sourceComment = ExactSourceFragment
@@ -109,6 +139,7 @@ sourceCommentFragment sourceComment = ExactSourceFragment
   , fragmentAnnotationKeys = Set.empty
   , fragmentCommentKeys = Set.singleton $ sourceCommentKey sourceComment
   , fragmentAbsoluteColumn = Nothing
+  , fragmentRebaseContinuation = True
   }
 
 sourceCommentKeys
@@ -132,6 +163,25 @@ validateExactSourceFragment fragment = case filter
       $ "exact-source fragment contains comment keys outside its range: "
       ++ show invalidKeys
 
+validateOpaqueSourceFragment
+  :: ExactSourceFragment -> CommentPlan -> Either String ()
+validateOpaqueSourceFragment fragment commentPlan = case invalidOwnerships of
+  [] -> validateExactSourceFragment fragment
+  _ -> Left
+    $ "opaque source fragment contains comments without local ownership: "
+    ++ show invalidOwnerships
+ where
+  invalidOwnerships =
+    [ (key, placementOwner <$> placement)
+    | key <- Set.toList $ fragmentCommentKeys fragment
+    , let placement = Map.lookup key $ commentPlanPlacements commentPlan
+    , case placement of
+        Nothing -> True
+        Just commentPlacement ->
+          let NodeId owner = placementOwner commentPlacement
+          in Set.notMember owner $ fragmentAnnotationKeys fragment
+    ]
+
 exactSourceFragment
   :: Data ast
   => GHC.Located ast
@@ -151,6 +201,7 @@ exactSourceFragment node anns commentPlan range text = ExactSourceFragment
       ]
   , fragmentCommentKeys = commentKeysInRange range commentPlan
   , fragmentAbsoluteColumn = Nothing
+  , fragmentRebaseContinuation = True
   }
 
 commentKeysInRange :: SourceRange -> CommentPlan -> Set.Set SourceCommentKey

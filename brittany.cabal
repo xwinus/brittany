@@ -118,6 +118,7 @@ library
     Language.Haskell.Brittany.Internal.Config.Types.Instances
     Language.Haskell.Brittany.Internal.ExactPrintCompat
     Language.Haskell.Brittany.Internal.ExactPrintUtils
+    Language.Haskell.Brittany.Internal.ExactSource
     Language.Haskell.Brittany.Internal.ExtractAnns
     Language.Haskell.Brittany.Internal.Fallbacks
     Language.Haskell.Brittany.Internal.LayouterBasics
@@ -150,7 +151,6 @@ library
     Paths_brittany
   other-modules:
     Language.Haskell.Brittany.Internal.CommentUtils
-    Language.Haskell.Brittany.Internal.ExactSource
     Language.Haskell.Brittany.Internal.ExpressionComments
     Language.Haskell.Brittany.Internal.Layouters.DataDecl.Support
     Language.Haskell.Brittany.Internal.Layouters.Type.Operator
@@ -181,6 +181,7 @@ test-suite brittany-test-suite
     ExactSourceFragmentSpec
     FallbackSpec
     InstanceHeadSpec
+    OpaqueSyntaxSpec
     PreambleSpacingSpec
     PreprocessorSpec
     PriorCommentSeparationSpec

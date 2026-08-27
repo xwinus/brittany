@@ -28,7 +28,9 @@ import Language.Haskell.Brittany.Internal.Config
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.Fallbacks
   ( FallbackId(..)
-  , renderFallbackNotice
+  , fallbackRenderNotice
+  , renderRenderInventory
+  , renderRenderNotice
   )
 import Language.Haskell.Brittany.Internal.Obfuscation
 import Language.Haskell.Brittany.Internal.Prelude
@@ -384,15 +386,19 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
                 reportFallbacks =
                   (moduleConf & _conf_debug & _dconf_dump_fallbacks & confUnpack)
                     || ( moduleConf
+                      & _conf_debug
+                      & _dconf_dump_fallbacks_json
+                      & confUnpack
+                       )
+                    || ( moduleConf
                       & _conf_errorHandling
                       & _econf_failOnExactSourceFallback
                       & confUnpack
                        )
                 fallbacks =
                   [ ExactSourceFallback
-                    $ renderFallbackNotice ExactPrintOnlyFallback
-                    $ show
-                    $ getLocA declaration
+                    $ fallbackRenderNotice ExactPrintOnlyFallback
+                    $ show $ getLocA declaration
                   | reportFallbacks
                   , declaration <- hsmodDecls $ unLoc parsedSource
                   ]
@@ -438,11 +444,32 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
           customErrOrder ErrorInput{} = 4
           customErrOrder LayoutWarning{} = -1 :: Int
           customErrOrder ExactSourceFallback{} = -3
+          customErrOrder SupportedOpaqueSyntax{} = -4
           customErrOrder ErrorOutputCheck{} = 1
           customErrOrder ErrorUnusedComment{} = 2
           customErrOrder ErrorUnknownNode{} = -2 :: Int
           customErrOrder ErrorMacroConfig{} = 5
           customErrOrder ErrorCommentPlan{} = 6
+          dumpTextNotices =
+            (moduleConf & _conf_debug & _dconf_dump_fallbacks & confUnpack)
+              || ( moduleConf
+                & _conf_errorHandling
+                & _econf_failOnExactSourceFallback
+                & confUnpack
+                 )
+              || ( moduleConf
+                & _conf_errorHandling
+                & _econf_failOnOpaque
+                & confUnpack
+                 )
+          dumpJsonNotices = moduleConf
+            & _conf_debug
+            & _dconf_dump_fallbacks_json
+            & confUnpack
+          renderNotices = catMaybes $ errsWarns <&> \case
+            ExactSourceFallback notice -> Just notice
+            SupportedOpaqueSyntax notice -> Just notice
+            _ -> Nothing
         unless (null errsWarns) $ do
           let
             groupedErrsWarns =
@@ -479,10 +506,19 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
                 LayoutWarning str -> putErrorLn str
                 _ -> error "cannot happen (TM)"
             fallbacks@(ExactSourceFallback{} : _) -> do
-              putErrorLn "EXACT-SOURCE FALLBACKS:"
-              fallbacks `forM_` \case
-                ExactSourceFallback str -> putErrorLn $ "  " ++ str
-                _ -> error "cannot happen (TM)"
+              when dumpTextNotices $ do
+                putErrorLn "EXACT-SOURCE FALLBACKS:"
+                fallbacks `forM_` \case
+                  ExactSourceFallback notice ->
+                    putErrorLn $ "  " ++ renderRenderNotice notice
+                  _ -> error "cannot happen (TM)"
+            opaqueNotices@(SupportedOpaqueSyntax{} : _) -> do
+              when dumpTextNotices $ do
+                putErrorLn "SUPPORTED OPAQUE SYNTAX:"
+                opaqueNotices `forM_` \case
+                  SupportedOpaqueSyntax notice ->
+                    putErrorLn $ "  " ++ renderRenderNotice notice
+                  _ -> error "cannot happen (TM)"
             unused@(ErrorUnusedComment{} : _) -> do
               putErrorLn
                 $ "Error: detected unprocessed comments."
@@ -503,6 +539,7 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
               putErrorLn err
               putErrorLn $ "  in the string \"" ++ input ++ "\"."
             [] -> error "cannot happen"
+        when dumpJsonNotices $ putErrorLn $ renderRenderInventory renderNotices
         -- TODO: don't output anything when there are errors unless user
         -- adds some override?
         let
@@ -511,15 +548,24 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
               & _conf_errorHandling
               & _econf_failOnExactSourceFallback
               & confUnpack
+          failOnOpaque =
+            moduleConf
+              & _conf_errorHandling
+              & _econf_failOnOpaque
+              & confUnpack
           hasErrors =
             (failOnFallback && any isFallback errsWarns)
+              || (failOnOpaque && any isOpaque errsWarns)
               || if config & _conf_errorHandling & _econf_Werror & confUnpack
                 then any isWarningOrError errsWarns
                 else 0 < maximum (-1 : fmap customErrOrder errsWarns)
           isWarningOrError ExactSourceFallback{} = False
+          isWarningOrError SupportedOpaqueSyntax{} = False
           isWarningOrError _ = True
           isFallback ExactSourceFallback{} = True
           isFallback _ = False
+          isOpaque SupportedOpaqueSyntax{} = True
+          isOpaque _ = False
           outputOnErrs =
             config
               & _conf_errorHandling

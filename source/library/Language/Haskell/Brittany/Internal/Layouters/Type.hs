@@ -18,7 +18,10 @@ import qualified GHC.Data.FastString as FastString
 import GHC.Utils.Outputable (ftext, showSDocUnsafe)
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.ExactSource (nodeSourceFragment)
-import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
+import Language.Haskell.Brittany.Internal.Fallbacks
+  ( FallbackId(..)
+  , untypedSpliceFamily
+  )
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
@@ -467,7 +470,10 @@ layoutType ltype = layoutType' (toL ltype)
   --             applyLayouterRestore layouter defaultParams
   --     , _layouter_ast = ltype
   --     }
-    HsSpliceTy{} -> layoutExactSourceType ltype
+    HsSpliceTy _ splice -> briDocByOpaqueNoComment
+      (untypedSpliceFamily splice)
+      TypeFallback
+      ltype
     HsDocTy{} -> layoutExactSourceType ltype
     HsExplicitListTy _ _ typs -> do
       typDocs <- (docSharedWrapper layoutType) `mapM` (map toL typs)

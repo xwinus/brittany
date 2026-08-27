@@ -9,6 +9,9 @@ import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.Backend
   ( consumeExactSourceFragment
   )
+import Language.Haskell.Brittany.Internal.ExactSource
+  ( validateOpaqueSourceFragment
+  )
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as EP
 import qualified Language.Haskell.Brittany.Internal.ParseModule as ParseModule
 import Language.Haskell.Brittany.Internal.SourceComment.Types
@@ -50,6 +53,35 @@ spec projectRoot = Hspec.describe "exact-source comment ownership" $ do
           }
     consumeExactSourceFragment invalid annotations
       `Hspec.shouldSatisfy` isOutsideRangeError
+
+  Hspec.it "rejects opaque fragments with externally owned comments" $ do
+    let (fragment, _, _) = fragmentFixture
+        commentKey = Set.findMin $ fragmentCommentKeys fragment
+        commentSpan = realSourceSpan "FragmentFixture.hs" 3 1 3 16
+        externalOwner = EP.AnnKey
+          [sourceSpan "FragmentFixture.hs" 1 1 8 1]
+          $ EP.CN "external-owner"
+        commentPlan = CommentPlan
+          { commentPlanSources = Map.singleton commentKey SourceComment
+            { sourceCommentKey = commentKey
+            , sourceCommentText = Text.pack "-- same comment"
+            , sourceCommentSpan = commentSpan
+            , sourceCommentSyntax = LineComment
+            }
+          , commentPlanPlacements = Map.singleton commentKey CommentPlacement
+            { placementOwner = NodeId externalOwner
+            , placementRole = LeadingOrdinary
+            , placementRelativeOrder = 0
+            }
+          }
+    validateOpaqueSourceFragment fragment commentPlan
+      `Hspec.shouldSatisfy` isOwnershipError
+
+  Hspec.it "rejects opaque fragments without a comment placement" $ do
+    let (fragment, _, _) = fragmentFixture
+        commentPlan = CommentPlan Map.empty Map.empty
+    validateOpaqueSourceFragment fragment commentPlan
+      `Hspec.shouldSatisfy` isOwnershipError
 
 formattingExample :: FilePath -> String -> FilePath -> Hspec.SpecWith ()
 formattingExample projectRoot description fixtureName = Hspec.it description $ do
@@ -104,11 +136,18 @@ fragmentFixture = (fragment, Map.singleton annotationKey annotation, outside)
     , fragmentAnnotationKeys = Set.singleton annotationKey
     , fragmentCommentKeys = Set.singleton $ SourceCommentKey insideSpan
     , fragmentAbsoluteColumn = Nothing
+    , fragmentRebaseContinuation = True
     }
 
 sourceSpan :: FilePath -> Int -> Int -> Int -> Int -> SrcLoc.SrcSpan
 sourceSpan file startLine startColumn endLine endColumn =
-  EP.realSpanToSrcSpan $ SrcLoc.mkRealSrcSpan
+  EP.realSpanToSrcSpan
+    $ realSourceSpan file startLine startColumn endLine endColumn
+
+realSourceSpan
+  :: FilePath -> Int -> Int -> Int -> Int -> SrcLoc.RealSrcSpan
+realSourceSpan file startLine startColumn endLine endColumn =
+  SrcLoc.mkRealSrcSpan
     (SrcLoc.mkRealSrcLoc (FastString.mkFastString file) startLine startColumn)
     (SrcLoc.mkRealSrcLoc (FastString.mkFastString file) endLine endColumn)
 
@@ -121,6 +160,11 @@ commentLines = filter isComment . lines
 isOutsideRangeError :: Either String EP.Anns -> Bool
 isOutsideRangeError = either
   (List.isInfixOf "outside its range")
+  (const False)
+
+isOwnershipError :: Either String () -> Bool
+isOwnershipError = either
+  (List.isInfixOf "without local ownership")
   (const False)
 
 fixturePath :: FilePath -> FilePath -> FilePath

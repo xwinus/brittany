@@ -61,14 +61,15 @@ spec projectRoot = Hspec.describe "fallback inventory and reporting" $ do
     messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "WholeModuleFallback")
 
-  Hspec.it "keeps a strict quasiquote fallback at inline expression scope" $ do
-    (result, messages) <- runFormatterResult projectRoot strictFallbackConfig
+  Hspec.it "keeps a quasiquote opaque at inline expression scope" $ do
+    (result, messages) <- runFormatterResult projectRoot
+      opaqueReportingStrictFallbackConfig
       True
       "ScopedExpressionFallbackInput.hs"
       Nothing
-    (result == Left 70) `Hspec.shouldBe` True
+    isSuccessful result `Hspec.shouldBe` True
     messages `Hspec.shouldSatisfy` any
-      (List.isInfixOf "ExpressionFallback")
+      (List.isInfixOf "supported opaque QuasiQuote")
     messages `Hspec.shouldSatisfy` any (List.isInfixOf "inline scope")
     messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "DeclarationFallback")
@@ -76,12 +77,13 @@ spec projectRoot = Hspec.describe "fallback inventory and reporting" $ do
       (List.isInfixOf "WholeModuleFallback")
 
   Hspec.it "reports a Template Haskell quote at its expression span" $ do
-    (result, messages) <- runFormatterResult projectRoot strictFallbackConfig
+    (result, messages) <- runFormatterResult projectRoot
+      opaqueReportingStrictFallbackConfig
       True
       "TemplateHaskellFallbackInput.hs"
       Nothing
-    (result == Left 70) `Hspec.shouldBe` True
-    length (filter (List.isInfixOf "ExpressionFallback") messages)
+    isSuccessful result `Hspec.shouldBe` True
+    length (filter (List.isInfixOf "supported opaque TemplateHaskellQuote") messages)
       `Hspec.shouldBe` 1
     messages `Hspec.shouldSatisfy` any (List.isInfixOf "inline scope")
     messages `Hspec.shouldSatisfy` any
@@ -92,19 +94,20 @@ spec projectRoot = Hspec.describe "fallback inventory and reporting" $ do
     messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "WholeModuleFallback")
 
-  Hspec.it "keeps commented bang bindings outside declaration fallback" $ do
+  Hspec.it "keeps commented bang bindings outside actionable fallback" $ do
     Monad.forM_
       [ "TemplateHaskellBangBindingInput.hs"
       , "TemplateHaskellFallbackEdgeInput.hs"
       ]
       $ \fixture -> do
-        (result, messages) <- runFormatterResult projectRoot strictFallbackConfig
+        (result, messages) <- runFormatterResult projectRoot
+          opaqueReportingStrictFallbackConfig
           True
           fixture
           Nothing
-        (result == Left 70) `Hspec.shouldBe` True
+        isSuccessful result `Hspec.shouldBe` True
         messages `Hspec.shouldSatisfy` any
-          (List.isInfixOf "ExpressionFallback")
+          (List.isInfixOf "supported opaque TemplateHaskellQuote")
         messages `Hspec.shouldNotSatisfy` any
           (List.isInfixOf "DeclarationFallback")
         messages `Hspec.shouldNotSatisfy` any
@@ -112,13 +115,14 @@ spec projectRoot = Hspec.describe "fallback inventory and reporting" $ do
         messages `Hspec.shouldNotSatisfy` any
           (List.isInfixOf "WholeModuleFallback")
 
-  Hspec.it "keeps a strict quasiquote fallback at inline pattern scope" $ do
-    (result, messages) <- runFormatterResult projectRoot strictFallbackConfig
+  Hspec.it "keeps a quasiquote opaque at inline pattern scope" $ do
+    (result, messages) <- runFormatterResult projectRoot
+      opaqueReportingStrictFallbackConfig
       True
       "ScopedPatternFallbackInput.hs"
       Nothing
-    (result == Left 70) `Hspec.shouldBe` True
-    length (filter (List.isInfixOf "PatternFallback") messages)
+    isSuccessful result `Hspec.shouldBe` True
+    length (filter (List.isInfixOf "supported opaque QuasiQuote") messages)
       `Hspec.shouldBe` 1
     messages `Hspec.shouldSatisfy` any (List.isInfixOf "inline scope")
     messages `Hspec.shouldNotSatisfy` any
@@ -174,7 +178,10 @@ spec projectRoot = Hspec.describe "fallback inventory and reporting" $ do
     result <- parsePrintModule strictFallbackConfig input
     case result of
       Left errors -> do
-        let notices = [notice | ExactSourceFallback notice <- errors]
+        let notices =
+              [ renderRenderNotice notice
+              | ExactSourceFallback notice <- errors
+              ]
         notices `Hspec.shouldSatisfy` any (List.isInfixOf "SignatureFallback")
         notices `Hspec.shouldSatisfy` any (List.isInfixOf "declaration scope")
         notices `Hspec.shouldSatisfy` any (List.isInfixOf "RealSrcSpan")
@@ -379,6 +386,16 @@ strictFallbackConfig = staticDefaultConfig
     { _econf_failOnExactSourceFallback = Identity $ Semigroup.Last True
     }
   }
+
+opaqueReportingStrictFallbackConfig :: Config
+opaqueReportingStrictFallbackConfig = fallbackReportingConfig
+  { _conf_errorHandling = (_conf_errorHandling fallbackReportingConfig)
+    { _econf_failOnExactSourceFallback = Identity $ Semigroup.Last True
+    }
+  }
+
+isSuccessful :: Either Int Brittany.ChangeStatus -> Bool
+isSuccessful = either (const False) (const True)
 
 runFormatter :: FilePath -> Config -> FilePath -> IO [String]
 runFormatter projectRoot config fixtureName = do

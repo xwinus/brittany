@@ -31,6 +31,7 @@ staticDefaultConfig = Config
   , _conf_debug = DebugConfig
     { _dconf_dump_config = coerce False
     , _dconf_dump_fallbacks = coerce False
+    , _dconf_dump_fallbacks_json = coerce False
     , _dconf_dump_annotations = coerce False
     , _dconf_dump_ast_unknown = coerce False
     , _dconf_dump_ast_full = coerce False
@@ -66,6 +67,7 @@ staticDefaultConfig = Config
     { _econf_produceOutputOnErrors = coerce False
     , _econf_Werror = coerce False
     , _econf_failOnExactSourceFallback = coerce False
+    , _econf_failOnOpaque = coerce False
     , _econf_ExactPrintFallback = coerce ExactPrintFallbackModeRisky
     , _econf_omit_output_valid_check = coerce False
     , _econf_omit_unused_comment_check = coerce False
@@ -108,7 +110,8 @@ cmdlineConfigParser = do
   importAsCol <- addFlagReadParams "" ["import-as-col"] "N" (flagHelpStr "column to qualified-as module names at")
 
   dumpConfig <- addSimpleBoolFlag "" ["dump-config"] (flagHelp $ parDoc "dump the programs full config (merged commandline + file + defaults)")
-  dumpFallbacks <- addSimpleBoolFlag "" ["dump-fallbacks"] (flagHelp $ parDoc "report exact-source and whole-module fallbacks")
+  dumpFallbacks <- addSimpleBoolFlag "" ["dump-fallbacks"] (flagHelp $ parDoc "report actionable fallbacks and supported opaque syntax")
+  dumpFallbacksJson <- addSimpleBoolFlag "" ["dump-fallbacks-json"] (flagHelp $ parDoc "report versioned render dispositions and counts as JSON")
   dumpAnnotations <- addSimpleBoolFlag "" ["dump-annotations"] (flagHelp $ parDoc "dump the full annotations returned by ghc-exactprint")
   dumpUnknownAST <- addSimpleBoolFlag "" ["dump-ast-unknown"] (flagHelp $ parDoc "dump the ast for any nodes not transformed, but copied as-is by brittany")
   dumpCompleteAST <- addSimpleBoolFlag "" ["dump-ast-full"] (flagHelp $ parDoc "dump the full ast")
@@ -122,7 +125,8 @@ cmdlineConfigParser = do
 
   outputOnErrors <- addSimpleBoolFlag "" ["output-on-errors"] (flagHelp $ parDoc "even when there are errors, produce output (or try to to the degree possible)")
   wError <- addSimpleBoolFlag "" ["werror"] (flagHelp $ parDoc "treat warnings as errors")
-  failOnFallback <- addSimpleBoolFlag "" ["fail-on-fallback"] (flagHelp $ parDoc "fail when exact-source or whole-module fallback is used")
+  failOnFallback <- addSimpleBoolFlag "" ["fail-on-fallback"] (flagHelp $ parDoc "fail when an actionable exact-source or whole-module fallback is used")
+  failOnOpaque <- addSimpleBoolFlag "" ["fail-on-opaque"] (flagHelp $ parDoc "fail when supported opaque syntax is preserved")
   omitValidCheck <- addSimpleBoolFlag "" ["omit-output-check"] (flagHelp $ parDoc "omit checking if the output is syntactically valid (debugging)")
   omitUnusedCommentCheck <- addSimpleBoolFlag "" ["omit-unused-comment-check"] (flagHelp $ parDoc "omit reporting unprocessed comments as errors (debugging)")
 
@@ -137,6 +141,7 @@ cmdlineConfigParser = do
     , _conf_debug = DebugConfig
       { _dconf_dump_config = wrapLast $ falseToNothing dumpConfig
       , _dconf_dump_fallbacks = wrapLast $ falseToNothing dumpFallbacks
+      , _dconf_dump_fallbacks_json = wrapLast $ falseToNothing dumpFallbacksJson
       , _dconf_dump_annotations = wrapLast $ falseToNothing dumpAnnotations
       , _dconf_dump_ast_unknown = wrapLast $ falseToNothing dumpUnknownAST
       , _dconf_dump_ast_full = wrapLast $ falseToNothing dumpCompleteAST
@@ -172,6 +177,7 @@ cmdlineConfigParser = do
       { _econf_produceOutputOnErrors = wrapLast $ falseToNothing outputOnErrors
       , _econf_Werror = wrapLast $ falseToNothing wError
       , _econf_failOnExactSourceFallback = wrapLast $ falseToNothing failOnFallback
+      , _econf_failOnOpaque = wrapLast $ falseToNothing failOnOpaque
       , _econf_ExactPrintFallback = mempty
       , _econf_omit_output_valid_check = wrapLast $ falseToNothing omitValidCheck
       , _econf_omit_unused_comment_check = wrapLast $ falseToNothing omitUnusedCommentCheck

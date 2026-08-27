@@ -20,7 +20,7 @@ spec projectRoot = Hspec.describe "scoped Template Haskell fallbacks" $ do
     "TemplateHaskellBangBindingExpected.hs"
   idempotentFormattingFromInputExample
     projectRoot
-    "rebases brackets and splices in nested expression contexts"
+    "preserves opaque bytes in nested expression contexts"
     "TemplateHaskellFallbackEdgeInput.hs"
     "TemplateHaskellFallbackEdge.hs"
   parseFailureExample

@@ -11,23 +11,23 @@ nested action flag value = do
   let
     !untypedQuote =
       [| -- Keep the untyped bracket comment.
-         value
-       |]
+               value
+             |]
   -- Keep this comment after the strict binding.
   typedQuote <- case flag of
     True -> pure
       [|| -- Keep the typed bracket comment.
 
-          value
-        ||]
+                    value
+                  ||]
     False -> pure [||value||]
   pure (action, untypedQuote, typedQuote, typedSplice)
  where
   typedSplice = $$(pure [||value||])
   untypedSplice =
     $( -- Keep the untyped splice comment.
-     pure [|value|]
-     )
+         pure [|value|]
+         )
 
 recordFallback value = Holder { held = $(pure [|value|]) }
 

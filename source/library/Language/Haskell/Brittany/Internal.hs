@@ -56,7 +56,12 @@ import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactSource (nodeSourceSlice)
 import Language.Haskell.Brittany.Internal.Fallbacks
   ( FallbackId(..)
-  , renderFallbackNotice
+  , FallbackInfo(fallbackScope)
+  , fallbackRenderNotice
+  , fallbackInfo
+  , opaqueRenderNotice
+  , renderRenderNotice
+  , untypedSpliceFamily
   )
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.LayouterBasics
@@ -334,6 +339,7 @@ parsePrintModule configWithDebugs inputText = runExceptT $ do
         customErrOrder ErrorInput{} = 4
         customErrOrder LayoutWarning{} = 0 :: Int
         customErrOrder ExactSourceFallback{} = -1
+        customErrOrder SupportedOpaqueSyntax{} = -2
         customErrOrder ErrorOutputCheck{} = 1
         customErrOrder ErrorUnusedComment{} = 2
         customErrOrder ErrorUnknownNode{} = 3
@@ -341,17 +347,26 @@ parsePrintModule configWithDebugs inputText = runExceptT $ do
         customErrOrder ErrorCommentPlan{} = 6
       let
         isWarningOrError ExactSourceFallback{} = False
+        isWarningOrError SupportedOpaqueSyntax{} = False
         isWarningOrError _ = True
         isFallback ExactSourceFallback{} = True
         isFallback _ = False
+        isOpaque SupportedOpaqueSyntax{} = True
+        isOpaque _ = False
       let
         failOnFallback =
           moduleConfig
             & _conf_errorHandling
             & _econf_failOnExactSourceFallback
             & confUnpack
+        failOnOpaque =
+          moduleConfig
+            & _conf_errorHandling
+            & _econf_failOnOpaque
+            & confUnpack
         hasErrors =
           (failOnFallback && any isFallback errsWarns)
+            || (failOnOpaque && any isOpaque errsWarns)
             || if moduleConfig & _conf_errorHandling & _econf_Werror & confUnpack
               then any isWarningOrError errsWarns
               else 0 < maximum (-1 : fmap customErrOrder errsWarns)
@@ -424,6 +439,7 @@ pPrintModuleWithSource originalSource conf inlineConf anns parsedModule =
           originalSource
         reportFallbacks =
           (conf & _conf_debug & _dconf_dump_fallbacks & confUnpack)
+            || (conf & _conf_debug & _dconf_dump_fallbacks_json & confUnpack)
             || ( conf
               & _conf_errorHandling
               & _econf_failOnExactSourceFallback
@@ -431,8 +447,7 @@ pPrintModuleWithSource originalSource conf inlineConf anns parsedModule =
                )
         wholeModuleNotice =
           [ ExactSourceFallback
-            $ renderFallbackNotice WholeModuleFallback
-            $ location
+            $ fallbackRenderNotice WholeModuleFallback location
           | reportFallbacks
           , location <- take 1 unknownNodeLocations
           ]
@@ -549,8 +564,14 @@ parsePrintModuleTests conf filename input = do
             & _conf_errorHandling
             & _econf_failOnExactSourceFallback
             & confUnpack
+        failOnOpaque =
+          moduleConf
+            & _conf_errorHandling
+            & _econf_failOnOpaque
+            & confUnpack
         actionableErrors = filter (\case
           ExactSourceFallback{} -> failOnFallback
+          SupportedOpaqueSyntax{} -> failOnOpaque
           _ -> True
           ) errs
       if null actionableErrors
@@ -562,7 +583,8 @@ parsePrintModuleTests conf filename input = do
               ErrorUnusedComment str -> str
               ErrorCommentPlan str -> str
               LayoutWarning str -> str
-              ExactSourceFallback str -> str
+              ExactSourceFallback notice -> renderRenderNotice notice
+              SupportedOpaqueSyntax notice -> renderRenderNotice notice
               ErrorUnknownNode str _ -> str
               ErrorMacroConfig str _ -> "when parsing inline config: " ++ str
               ErrorOutputCheck -> "Output is not syntactically valid."
@@ -657,8 +679,9 @@ ppModule originalSource lmod@(L _loc _m@(HsModule _ _name _exports imports decls
         (Data.Maybe.isJust _name || not (null imports)) : repeat True
   let completedSeparatorLines =
         (if preambleEndsLine then 1 else 0) : repeat 0
-  let isFallbackNotice ExactSourceFallback{} = True
-      isFallbackNotice _ = False
+  let isRenderNotice ExactSourceFallback{} = True
+      isRenderNotice SupportedOpaqueSyntax{} = True
+      isRenderNotice _ = False
   forM_ (zip3 decls (zip needsSeparators completedSeparatorLines)
       $ zip previousUnits declUnits) $
       \(decl, (needsSeparator, completedLines), (previousUnit, currentUnit)) -> do
@@ -711,9 +734,24 @@ ppModule originalSource lmod@(L _loc _m@(HsModule _ _name _exports imports decls
           (r, errs, debugs) <-
             briDocMToPPMInner
               $ layoutDeclWithExactText exactDeclText hasSourceComments decl'
+          let errs' = case unLoc decl' of
+                SpliceD _ (SpliceDecl _ splice _) ->
+                  let nonFallbacks = filter (\case
+                        ExactSourceFallback{} -> False
+                        _ -> True
+                        ) errs
+                  in if opaqueReportingEnabled config'
+                    then SupportedOpaqueSyntax
+                      ( opaqueRenderNotice
+                        (untypedSpliceFamily $ unLoc splice)
+                        (fallbackScope $ fallbackInfo DeclarationFallback)
+                        (show $ GHC.getLoc decl')
+                      ) : nonFallbacks
+                    else nonFallbacks
+                _ -> errs
           mTell debugs
-          mTell errs
-          if all isFallbackNotice errs
+          mTell errs'
+          if all isRenderNotice errs'
             then pure r
             else briDocMToPPM
               $ briDocByExactNoComment WholeModuleFallback decl'

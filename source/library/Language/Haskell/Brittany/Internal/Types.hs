@@ -21,6 +21,7 @@ import qualified Data.Text.Lazy.Builder as Text.Builder
 import GHC (GenLocated, Located, SrcSpan)
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKey, AnnKeywordId, Anns)
+import Language.Haskell.Brittany.Internal.Fallbacks (RenderNotice)
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.SourceComment.Types
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrint.Types
@@ -147,8 +148,10 @@ data BrittanyError
     --   output and second the corresponding, ill-formed input.
   | LayoutWarning String
     -- ^ some warning
-  | ExactSourceFallback String
+  | ExactSourceFallback RenderNotice
     -- ^ non-fatal observability notice for an exact-source fallback
+  | SupportedOpaqueSyntax RenderNotice
+    -- ^ non-fatal observability notice for a supported opaque syntax leaf
   | forall ast . Data.Data.Data ast => ErrorUnknownNode String (GenLocated SrcSpan ast)
     -- ^ internal error: pretty-printing is not implemented for type of node
     --   in the syntax-tree

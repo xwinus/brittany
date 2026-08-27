@@ -19,9 +19,6 @@ import GHC.Hs
 import GHC.Hs.Type (FieldOcc(..), HsSigType(HsSig), HsWildCardBndrs(HsWC))
 import GHC.Types.SourceText (FractionalLit(..), IntegralLit(..), SourceText(..))
 import Language.Haskell.Syntax.Basic (FieldLabelString(..))
-import Language.Haskell.Brittany.Internal.ExactSource
-  ( nodeSourceFragment
-  )
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified GHC.OldList as List
@@ -29,7 +26,11 @@ import GHC.Types.Basic
 import GHC.Types.Name
 import GHC.Types.Name.Occurrence (occNameString)
 import Language.Haskell.Brittany.Internal.Config.Types
-import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
+import Language.Haskell.Brittany.Internal.Fallbacks
+  ( FallbackId(..)
+  , OpaqueFamily(..)
+  , untypedSpliceFamily
+  )
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.Decl
 import Language.Haskell.Brittany.Internal.Layouters.Pattern
@@ -61,16 +62,12 @@ isSymbolicSectionOp (L _ expr) =
   where
     isSymbolic s = not (null s) && head s `elem` ("!:#$%&*+./<=>?@\\^|-~" :: String)
 
-layoutExactSourceExpression
-  :: GenLocated SrcSpan (HsExpr GhcPs) -> ToBriDocM BriDocNumbered
-layoutExactSourceExpression expression = do
-  OriginalSource source <- mAsk
-  anns <- mAsk
-  commentPlan <- mAsk
-  case nodeSourceFragment source expression anns commentPlan of
-    Nothing -> briDocByExactInlineOnly ExpressionFallback expression
-    Just fragment -> briDocByExactSourceFragmentNoComment
-      ExpressionFallback expression fragment
+layoutOpaqueExpression
+  :: OpaqueFamily
+  -> GenLocated SrcSpan (HsExpr GhcPs)
+  -> ToBriDocM BriDocNumbered
+layoutOpaqueExpression family =
+  briDocByOpaqueNoComment family ExpressionFallback
 
 isBlockLikeExpression :: HsExpr GhcPs -> Bool
 isBlockLikeExpression = \case
@@ -976,21 +973,11 @@ layoutExpr' lexpr@(L _ expr) = do
           , docLit $ Text.pack "]"
           ]
     ArithSeq{} -> briDocByExactInlineOnly ExpressionFallback lexpr
-    HsTypedBracket{} -> layoutExactSourceExpression lexpr
-    HsUntypedBracket{} -> layoutExactSourceExpression lexpr
-    HsTypedSplice{} -> layoutExactSourceExpression lexpr
-    HsUntypedSplice _ (HsQuasiQuote _ quoter content) -> do
-      reportFallback ExpressionFallback lexpr
-      hasPriorComments <- hasAnyRegularCommentsConnectedNoFollowing lexpr
-      allocateNode $ BDFPlain (not hasPriorComments)
-        (Text.pack
-        $ "["
-        ++ showOutputable quoter
-        ++ "|"
-        ++ showOutputable (unLoc content)
-        ++ "|]"
-        )
-    HsUntypedSplice{} -> layoutExactSourceExpression lexpr
+    HsTypedBracket{} -> layoutOpaqueExpression TemplateHaskellQuote lexpr
+    HsUntypedBracket{} -> layoutOpaqueExpression TemplateHaskellQuote lexpr
+    HsTypedSplice{} -> layoutOpaqueExpression TemplateHaskellSplice lexpr
+    HsUntypedSplice _ splice ->
+      layoutOpaqueExpression (untypedSpliceFamily splice) lexpr
     HsHole{} -> docLit $ Text.pack "_"
     HsProc{} -> briDocByExactInlineOnly ExpressionFallback lexpr
     HsStatic _ innerExpr -> do
