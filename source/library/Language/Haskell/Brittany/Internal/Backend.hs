@@ -213,11 +213,14 @@ layoutBriDocM = \case
         -- since layoutMoveToCommentPos uses indLevelLinger + x.
         let baseYGap = max 0 (lstate_baseY state - _lstate_indLevelLinger state)
         let forceInline = priorCommentMode == PriorCommentInline
-        zip [0 :: Int ..] priors
+        let emittedPriors = filter
+              (\(comment, _) -> ExactPrintCompat.commentContents comment
+                `notElem` ["(", ")"])
+              priors
+        zip [0 :: Int ..] emittedPriors
           `forM_` \(commentIndex,
                      (ExactPrintCompat.Comment _ _ commentStr,
-                      ExactPrintCompat.DP (y, x))) ->
-                    when (commentStr /= "(" && commentStr /= ")") $ do
+                      ExactPrintCompat.DP (y, x))) -> do
                       commentState <- mGet
                       let commentLines = Text.lines $ Text.pack commentStr
                           inlineFirst = forceInline && commentIndex == 0
@@ -237,6 +240,12 @@ layoutBriDocM = \case
                         _ -> layoutMoveToCommentPos
                           adjustedY adjustedX (length commentLines)
                       layoutWriteAppendMultiline commentLines
+                      when (priorCommentRequiresLineBoundary commentStr)
+                        layoutFinishPriorCommentLine
+        case reverse emittedPriors of
+          (lastComment, _) : _ -> layoutFinishPriorCommentBoundary
+            $ priorCommentSourceBoundary annKey lastComment
+          [] -> pure ()
           -- mModify $ \s -> s { _lstate_curYOrAddNewline = Right 0 }
         moveToExactLocationAction
     layoutBriDocM bd

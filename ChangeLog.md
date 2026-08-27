@@ -72,6 +72,8 @@
   strategies, via types, explicit binders, contexts, and overlap pragmas.
 * Restricted exact-source comment consumption to source identities present in
   each rendered fragment, preserving Haddock comments outside its source range.
+* Guaranteed a lexical newline after prior line comments while preserving
+  source blank-line counts and nested comment indentation.
 
 ## 0.14.0.0 -- November 2021
 

@@ -13,6 +13,7 @@ import qualified InstanceHeadSpec
 import qualified Language.Haskell.Brittany.Main as Brittany
 import qualified PreambleSpacingSpec
 import qualified PreprocessorSpec
+import qualified PriorCommentSeparationSpec
 import qualified RegressionSpec
 import qualified SignaturePostDocSpec
 import qualified StandaloneDerivingSpec
@@ -79,6 +80,7 @@ main = Hspec.hspec $ do
   PreambleSpacingSpec.spec projectRoot
   TemplateHaskellFallbackSpec.spec projectRoot
   PreprocessorSpec.spec projectRoot
+  PriorCommentSeparationSpec.spec projectRoot
   TopLevelSpacingSpec.spec
   TypeOperatorRecordSpec.spec projectRoot
 
