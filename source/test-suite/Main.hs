@@ -19,6 +19,7 @@ import qualified OpaqueSyntaxSpec
 import qualified PreambleSpacingSpec
 import qualified PreprocessorSpec
 import qualified PriorCommentSeparationSpec
+import qualified RecordFieldRhsIndentSpec
 import qualified RegressionSpec
 import qualified SemanticFingerprintSpec
 import qualified SignaturePostDocSpec
@@ -93,6 +94,7 @@ main = Hspec.hspec $ do
   TemplateHaskellFallbackSpec.spec projectRoot
   PreprocessorSpec.spec projectRoot
   PriorCommentSeparationSpec.spec projectRoot
+  RecordFieldRhsIndentSpec.spec projectRoot
   TopLevelSpacingSpec.spec
   TypeOperatorRecordSpec.spec projectRoot
 

@@ -4,7 +4,7 @@ runBrittany tabSize text = do
     config =
       config'
         { _conf_layout  =
-          (_conf_layout config') { _lconfig_indentAmount = coerce tabSize }
+            (_conf_layout config') { _lconfig_indentAmount = coerce tabSize }
         , _conf_forward = forwardOptionsSyntaxExtsEnabled
         }
   parsePrintModule config text

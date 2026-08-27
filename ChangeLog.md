@@ -76,6 +76,8 @@
   source blank-line counts and nested comment indentation.
 * Kept fitting parenthesized constructor patterns compact inside multiline
   equations while retaining structured layouts for genuinely long patterns.
+* Indented multiline record-field values beyond their field names, including
+  nested records and multiline lambda, `do`, `case`, and list values.
 
 ## 0.14.0.0 -- November 2021
 

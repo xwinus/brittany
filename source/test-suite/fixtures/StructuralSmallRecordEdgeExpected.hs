@@ -9,29 +9,29 @@ compactTwo one two = Tiny { one, two }
 nestedOne argument =
   Outer
     { outerValue =
-      InnerOne
-        { innerValue =
-          transformLongValue argument additionalArgument finalArgument
-        }
+        InnerOne
+          { innerValue =
+              transformLongValue argument additionalArgument finalArgument
+          }
     }
 
 nestedTwo argument =
   Outer
     { outerValue =
-      InnerTwo
-        { firstValue  = transformLongValue argument
-        , secondValue = transformAgain argument
-        }
+        InnerTwo
+          { firstValue  = transformLongValue argument
+          , secondValue = transformAgain argument
+          }
     }
 
 nestedThree argument =
   Outer
     { outerValue =
-      InnerThree
-        { firstValue  = transformLongValue argument
-        , secondValue = transformAgain argument
-        , thirdValue  = transformFinally argument
-        }
+        InnerThree
+          { firstValue  = transformLongValue argument
+          , secondValue = transformAgain argument
+          , thirdValue  = transformFinally argument
+          }
     }
 
 updateSettings settings argument =

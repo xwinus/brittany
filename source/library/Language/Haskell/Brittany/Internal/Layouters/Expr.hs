@@ -1113,20 +1113,7 @@ recordExpression dotdot indentPolicy lexpr nameDoc rFs@(rF1 : rFr) = do
             [ appSep $ docLit $ Text.pack "{"
             , docWrapNodePrior rF1f $ appSep $ docLit rF1n
             , docWrapNodeRest rF1f $ case rF1e of
-              Just x -> runFilteredAlternative $ do
-                addAlternativeCond (indentPolicy == IndentPolicyFree) $ do
-                  docSeq
-                    [ appSep $ docLit $ Text.pack "="
-                    , docSetBaseY $ docForceSingleline x
-                    ]
-                addAlternative $ do
-                  docSeq
-                    [ appSep $ docLit $ Text.pack "="
-                    , docForceSingleline x
-                    ]
-                addAlternative $ do
-                  docAddBaseY BrIndentRegular
-                    $ docPar (docLit $ Text.pack "=") x
+              Just x -> recordFieldRhs indentPolicy x
               Nothing -> docEmpty
             ]
           lineR = rFr <&> \(lfield, fText, fDoc) ->
@@ -1135,20 +1122,7 @@ recordExpression dotdot indentPolicy lexpr nameDoc rFs@(rF1 : rFr) = do
               [ docCommaSep
               , appSep $ docLit fText
               , case fDoc of
-                Just x -> runFilteredAlternative $ do
-                  addAlternativeCond (indentPolicy == IndentPolicyFree) $ do
-                    docSeq
-                      [ appSep $ docLit $ Text.pack "="
-                      , docSetBaseY $ docForceSingleline x
-                      ]
-                  addAlternative $ do
-                    docSeq
-                      [ appSep $ docLit $ Text.pack "="
-                      , docForceSingleline x
-                      ]
-                  addAlternative $ do
-                    docAddBaseY BrIndentRegular
-                      $ docPar (docLit $ Text.pack "=") x
+                Just x -> recordFieldRhs indentPolicy x
                 Nothing -> docEmpty
               ]
           dotdotLine = if dotdot
@@ -1161,6 +1135,29 @@ recordExpression dotdot indentPolicy lexpr nameDoc rFs@(rF1 : rFr) = do
           lineN = docLit $ Text.pack "}"
         in [line1] ++ lineR ++ [dotdotLine, lineN]
       )
+
+recordFieldRhs
+  :: IndentPolicy
+  -> ToBriDocM BriDocNumbered
+  -> ToBriDocM BriDocNumbered
+recordFieldRhs indentPolicy fieldDoc = runFilteredAlternative $ do
+  addAlternativeCond (indentPolicy == IndentPolicyFree) $ docSeq
+    [ appSep $ docLit $ Text.pack "="
+    , docSetBaseY $ docForceSingleline fieldDoc
+    ]
+  addAlternative $ docSeq
+    [ appSep $ docLit $ Text.pack "="
+    , docForceSingleline fieldDoc
+    ]
+  addAlternative $ docPar
+    (docLit $ Text.pack "=")
+    (docEnsureIndent (BrIndentSpecial fieldRowPrefixWidth)
+      $ docEnsureIndent BrIndentRegular
+      $ docSetIndentLevel fieldDoc
+    )
+ where
+  -- Structural field rows prefix the field name with either "{ " or ", ".
+  fieldRowPrefixWidth = 2
 
 litBriDoc :: HsLit GhcPs -> BriDocFInt
 litBriDoc = \case
