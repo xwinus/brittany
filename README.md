@@ -1,4 +1,11 @@
-# brittany
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="doc/assets/logo-lockup-dark.svg">
+    <img src="doc/assets/logo-lockup-light.svg" alt="brittany" width="280" />
+  </picture>
+</p>
+
+<p align="center">Haskell source code formatter.</p>
 
 This fork revives development of the original
 [`lspitzner/brittany`](https://github.com/lspitzner/brittany) project. The
@@ -20,8 +27,6 @@ current code is based on the GHC 9.14 forward port by
   the [fallback inventory](doc/fallbacks.md). Use `--dump-fallbacks` to report
   which source regions were preserved instead of natively formatted, or
   `--fail-on-fallback` to reject such output.
-
-haskell source code formatter
 
 ![Output sample](brittany-sample.gif)
 
