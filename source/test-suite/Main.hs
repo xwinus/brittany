@@ -4,6 +4,7 @@ import qualified Control.Monad as Monad
 import qualified CompatibilitySpec
 import qualified CommentPlanSpec
 import qualified ComposableDeclarationSpec
+import qualified ConstructorFieldModifierSpec
 import Data.Kind (Type)
 import qualified Data.List as List
 import qualified Data.Set as Set
@@ -80,6 +81,7 @@ main = Hspec.hspec $ do
   CompatibilitySpec.spec projectRoot
   CommentPlanSpec.spec
   ComposableDeclarationSpec.spec projectRoot
+  ConstructorFieldModifierSpec.spec projectRoot
   FallbackSpec.spec projectRoot
   InstanceHeadSpec.spec projectRoot
   OpaqueSyntaxSpec.spec projectRoot

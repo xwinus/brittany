@@ -100,11 +100,11 @@ createAnnotatedDetailsDoc consNameStr details = case details of
           ]
         )
   InfixCon arg1 arg2 -> docSeq
-    [ createAnnotatedFieldTypeDoc arg1
+    [ createFieldTypeDoc arg1
     , docSeparator
     , docLit consNameStr
     , docSeparator
-    , createAnnotatedFieldTypeDoc arg2
+    , createFieldTypeDoc arg2
     ]
 
 createAnnotatedPrefixDoc
@@ -113,7 +113,7 @@ createAnnotatedPrefixDoc
   -> ToBriDocM BriDocNumbered
 createAnnotatedPrefixDoc consNameStr arguments = do
   indentPolicy <- mAsk <&> _conf_layout .> _lconfig_indentPolicy .> confUnpack
-  let argumentDocs = createAnnotatedFieldTypeDoc <$> arguments
+  let argumentDocs = createFieldTypeDoc <$> arguments
       singleLine = docSeq
         [ docLit consNameStr
         , docSeparator
@@ -158,12 +158,12 @@ createAnnotatedNamesAndTypeDoc lField names field =
     [ docSeq $ List.intersperse docCommaSep $ names <&> \case
         L _ (FieldOcc _ lname) -> docLit =<< lrdrNameToTextAnn (toL lname)
     ]
-  , docWrapNodeRest lField $ createAnnotatedFieldTypeDoc field
+  , docWrapNodeRest lField $ createFieldTypeDoc field
   )
 
-createAnnotatedFieldTypeDoc
+createFieldTypeDoc
   :: HsConDeclField GhcPs -> ToBriDocM BriDocNumbered
-createAnnotatedFieldTypeDoc field = docSeq
+createFieldTypeDoc field = docSeq
   [ case cdf_unpack field of
       SrcUnpack -> docSeq [docLitS "{-# UNPACK #-}", docSeparator]
       SrcNoUnpack -> docSeq [docLitS "{-# NOUNPACK #-}", docSeparator]
@@ -186,7 +186,7 @@ createDetailsDocWith
   -> ToBriDocM BriDocNumbered
 createDetailsDocWith preferVertical consNameStr details = case details of
   PrefixCon args ->
-    createPrefixDoc preferVertical consNameStr (cdf_type <$> args)
+    createPrefixDoc preferVertical consNameStr args
   RecCon (L _ []) ->
     docSeq [docLit consNameStr, docSeparator, docLit $ Text.pack "{}"]
   RecCon lRec@(L _ fields@(_ : _)) -> do
@@ -256,11 +256,11 @@ createDetailsDocWith preferVertical consNameStr details = case details of
           ]
         )
   InfixCon arg1 arg2 -> docSeq
-    [ layoutType $ toL (cdf_type arg1)
+    [ createFieldTypeDoc arg1
     , docSeparator
     , docLit consNameStr
     , docSeparator
-    , layoutType $ toL (cdf_type arg2)
+    , createFieldTypeDoc arg2
     ]
  where
   mkFieldDocs
@@ -268,39 +268,40 @@ createDetailsDocWith preferVertical consNameStr details = case details of
     -> [(ToBriDocM BriDocNumbered, ToBriDocM BriDocNumbered)]
   mkFieldDocs = fmap $ \lField -> case lField of
     L _ (HsConDeclRecField { cdrf_spec = cdf, cdrf_names = nameList }) ->
-      createNamesAndTypeDoc (toL lField) nameList (toL $ cdf_type cdf)
+      createNamesAndTypeDoc (toL lField) nameList cdf
 
 createPrefixDoc
-  :: Bool -> Text -> [LHsType GhcPs] -> ToBriDocM BriDocNumbered
-createPrefixDoc preferVertical consNameStr argTypes = do
+  :: Bool -> Text -> [HsConDeclField GhcPs] -> ToBriDocM BriDocNumbered
+createPrefixDoc preferVertical consNameStr arguments = do
   indentPolicy <- mAsk <&> _conf_layout .> _lconfig_indentPolicy .> confUnpack
-  let singleLine = docSeq
+  let argumentDocs = createFieldTypeDoc <$> arguments
+      singleLine = docSeq
         [ docLit consNameStr
         , docSeparator
         , docForceSingleline
         $ docSeq
         $ List.intersperse docSeparator
-        $ layoutType . toL <$> argTypes
+        $ argumentDocs
         ]
       vertical = docLines
         [ docLit consNameStr
         , docEnsureIndent BrIndentRegular
           $ docLines
-          $ layoutType . toL <$> argTypes
+          $ argumentDocs
         ]
       leftIndented = docSetParSpacing
         . docAddBaseY BrIndentRegular
         . docPar (docLit consNameStr)
         . docLines
-        $ layoutType . toL <$> argTypes
+        $ argumentDocs
       multiAppended = docSeq
         [ docLit consNameStr
         , docSeparator
-        , docSetBaseY $ docLines $ layoutType . toL <$> argTypes
+        , docSetBaseY $ docLines argumentDocs
         ]
       multiIndented = docSetBaseY $ docAddBaseY BrIndentRegular $ docPar
         (docLit consNameStr)
-        (docLines $ layoutType . toL <$> argTypes)
+        (docLines argumentDocs)
   if preferVertical
     then case indentPolicy of
       IndentPolicyLeft -> docAlt [singleLine, vertical, leftIndented]
@@ -320,7 +321,7 @@ createGadtDetailsDoc
   -> LHsType GhcPs
   -> ToBriDocM BriDocNumbered
 createGadtDetailsDoc consNameStr arguments resultType = do
-  let argumentDocs = layoutType . toL . cdf_type <$> arguments
+  let argumentDocs = createFieldTypeDoc <$> arguments
       resultDoc = layoutType $ toL resultType
       singleLine = docSeq
         [ docLit consNameStr
@@ -346,12 +347,12 @@ createNamesAndTypeDoc
   :: Data.Data.Data ast
   => Located ast
   -> [GenLocated t (FieldOcc GhcPs)]
-  -> Located (HsType GhcPs)
+  -> HsConDeclField GhcPs
   -> (ToBriDocM BriDocNumbered, ToBriDocM BriDocNumbered)
-createNamesAndTypeDoc lField names typ =
+createNamesAndTypeDoc lField names field =
   ( docNodeAnnKW lField Nothing $ docWrapNodePrior lField $ docSeq
     [ docSeq $ List.intersperse docCommaSep $ names <&> \case
         L _ (FieldOcc _ lname) -> docLit =<< lrdrNameToTextAnn (toL lname)
     ]
-  , docWrapNodeRest lField $ layoutType typ
+  , docWrapNodeRest lField $ createFieldTypeDoc field
   )

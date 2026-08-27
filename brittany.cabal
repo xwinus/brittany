@@ -169,6 +169,7 @@ test-suite brittany-test-suite
 
   build-depends:
     , hspec >= 2.8.3
+    , process ^>= 1.6.26
   hs-source-dirs: source/test-suite
   main-is: Main.hs
   other-modules:
@@ -176,6 +177,7 @@ test-suite brittany-test-suite
     CompatibilitySpec
     CommentPlanSpec
     ComposableDeclarationSpec
+    ConstructorFieldModifierSpec
     DataDeclSingleConstructorSpec
     ExtractAnnsSpec
     ExactSourceFragmentSpec
