@@ -1,84 +1,83 @@
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
-module Language.Haskell.Brittany.Main where
+module Language.Haskell.Brittany.Main
+  ( ChangeStatus(..)
+  , WriteMode(..)
+  , coreIO
+  , helpDoc
+  , licenseDoc
+  , main
+  , mainCmdParser
+  , mainWith
+  , shouldEmitOutput
+  ) where
 
+import qualified Control.Exception as Exception
 import Control.Monad (zipWithM)
-import qualified Control.Monad.Trans.Except as ExceptT
-import Data.CZipWith
+import qualified Data.ByteString as ByteString
 import qualified Data.Either
+import Data.Kind (Type)
 import qualified Data.List.Extra
 import qualified Data.Monoid
 import qualified Data.Semigroup as Semigroup
-import qualified Data.Text as Text
-import qualified Data.Text.IO as Text.IO
-import qualified Data.Text.Lazy as TextL
-import DataTreePrint
-import GHC (GenLocated(L))
-import qualified GHC.Driver.Session as GHC
-import GHC.Hs (hsmodDecls)
-import qualified GHC.LanguageExtensions.Type as GHC
 import qualified GHC.OldList as List
-import GHC.Parser.Annotation (getLocA)
-import GHC.Types.SrcLoc (unLoc)
-import GHC.Utils.Outputable (Outputable(..), showSDocUnsafe)
-import Language.Haskell.Brittany.Internal
 import Language.Haskell.Brittany.Internal.Config
 import Language.Haskell.Brittany.Internal.Config.Types
-import Language.Haskell.Brittany.Internal.Fallbacks
-  ( FallbackId(..)
-  , fallbackRenderNotice
-  , renderRenderInventory
-  , renderRenderNotice
-  )
-import Language.Haskell.Brittany.Internal.Obfuscation
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
-import Language.Haskell.Brittany.Internal.Preprocessor (cppUnsupportedMessage)
-import Language.Haskell.Brittany.Internal.Types
+import Language.Haskell.Brittany.Internal.TransactionalWrite
+  ( PlannedWrite(..)
+  , TransactionError
+  , transactionalWrite
+  )
 import Language.Haskell.Brittany.Internal.Utils
-import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
+import Language.Haskell.Brittany.Main.Transform
+  ( ChangeStatus(..)
+  , coreIO
+  , shouldEmitOutput
+  )
 import Paths_brittany
 import qualified System.Directory as Directory
 import qualified System.Environment as Environment
 import qualified System.Exit
 import qualified System.FilePath.Posix as FilePath
 import qualified System.IO
+import qualified System.IO.Error as IOError
 import qualified Text.ParserCombinators.ReadP as ReadP
 import qualified Text.ParserCombinators.ReadPrec as ReadPrec
 import qualified Text.PrettyPrint as PP
 import Text.Read (Read(..))
 import UI.Butcher.Monadic
 
-
-
+type WriteMode :: Type
 data WriteMode = Display | Inplace
 
 instance Read WriteMode where
-  readPrec = val "display" Display <|> val "inplace" Inplace
-    where val iden v = ReadPrec.lift $ ReadP.string iden >> return v
+  readPrec = value "display" Display <|> value "inplace" Inplace
+   where
+    value identifier writeMode =
+      ReadPrec.lift $ ReadP.string identifier >> pure writeMode
 
 instance Show WriteMode where
   show Display = "display"
   show Inplace = "inplace"
 
-
 main :: IO ()
 main = do
-  progName <- Environment.getProgName
-  args <- Environment.getArgs
-  mainWith progName args
+  programName <- Environment.getProgName
+  arguments <- Environment.getArgs
+  mainWith programName arguments
 
 mainWith :: String -> [String] -> IO ()
-mainWith progName args =
-  Environment.withProgName progName
-    . Environment.withArgs args
+mainWith programName arguments =
+  Environment.withProgName programName
+    . Environment.withArgs arguments
     $ mainFromCmdParserWithHelpDesc mainCmdParser
 
 helpDoc :: PP.Doc
-helpDoc = PP.vcat $ List.intersperse
-  (PP.text "")
+helpDoc = PP.vcat $ List.intersperse (PP.text "")
   [ parDocW
     [ "Reformats one or more haskell modules."
     , "Currently affects only the module head (imports/exports), type"
@@ -87,7 +86,7 @@ helpDoc = PP.vcat $ List.intersperse
     , "Based on ghc-exactprint, thus (theoretically) supporting all"
     , "that ghc does."
     ]
-  , parDoc $ "Example invocations:"
+  , parDoc "Example invocations:"
   , PP.hang (PP.text "") 2 $ PP.vcat
     [ PP.text "brittany"
     , PP.nest 2 $ PP.text "read from stdin, output to stdout"
@@ -95,7 +94,7 @@ helpDoc = PP.vcat $ List.intersperse
   , PP.hang (PP.text "") 2 $ PP.vcat
     [ PP.text "brittany --indent=4 --write-mode=inplace *.hs"
     , PP.nest 2 $ PP.vcat
-      [ PP.text "run on all modules in current directory (no backup!)"
+      [ PP.text "transactionally update all modules in the current directory"
       , PP.text "4 spaces indentation"
       ]
     ]
@@ -105,25 +104,22 @@ helpDoc = PP.vcat $ List.intersperse
     , "normalized syntax-affecting parsed AST is preserved."
     , "Nonetheless, compiler plugins and type-directed behavior remain beyond"
     , "what a parsed-syntax comparison can prove."
-    , "Please do check the output and do not let brittany override your large"
-    , "codebase without having backups."
+    , "Please do check the output and keep version-controlled backups."
     ]
-  , parDoc $ "There is NO WARRANTY, to the extent permitted by law."
+  , parDoc "There is NO WARRANTY, to the extent permitted by law."
   , parDocW
     [ "This program is free software released under the AGPLv3."
     , "For details use the --license flag."
     ]
-  , parDoc $ "See https://github.com/lspitzner/brittany"
+  , parDoc "See https://github.com/lspitzner/brittany"
   , parDoc
-  $ "Please report bugs at"
-  ++ " https://github.com/lspitzner/brittany/issues"
+    "Please report bugs at https://github.com/lspitzner/brittany/issues"
   ]
 
 licenseDoc :: PP.Doc
-licenseDoc = PP.vcat $ List.intersperse
-  (PP.text "")
-  [ parDoc $ "Copyright (C) 2016-2019 Lennart Spitzner"
-  , parDoc $ "Copyright (C) 2019 PRODA LTD"
+licenseDoc = PP.vcat $ List.intersperse (PP.text "")
+  [ parDoc "Copyright (C) 2016-2019 Lennart Spitzner"
+  , parDoc "Copyright (C) 2019 PRODA LTD"
   , parDocW
     [ "This program is free software: you can redistribute it and/or modify"
     , "it under the terms of the GNU Affero General Public License,"
@@ -142,506 +138,195 @@ licenseDoc = PP.vcat $ List.intersperse
     ]
   ]
 
-
 mainCmdParser :: CommandDesc () -> CmdParser Identity (IO ()) ()
-mainCmdParser helpDesc = do
+mainCmdParser helpDescription = do
   addCmdSynopsis "haskell source pretty printer"
-  addCmdHelp $ helpDoc
-  -- addCmd "debugArgs" $ do
-  addHelpCommand helpDesc
-  addCmd "license" $ addCmdImpl $ print $ licenseDoc
-  -- addButcherDebugCommand
+  addCmdHelp helpDoc
+  addHelpCommand helpDescription
+  addCmd "license" $ addCmdImpl $ print licenseDoc
   reorderStart
   printHelp <- addSimpleBoolFlag "h" ["help"] mempty
   printVersion <- addSimpleBoolFlag "" ["version"] mempty
   printLicense <- addSimpleBoolFlag "" ["license"] mempty
   noUserConfig <- addSimpleBoolFlag "" ["no-user-config"] mempty
   configPaths <- addFlagStringParams
-    ""
-    ["config-file"]
-    "PATH"
-    (flagHelpStr "path to config file") -- TODO: allow default on addFlagStringParam ?
-  cmdlineConfig <- cmdlineConfigParser
+    "" ["config-file"] "PATH" $ flagHelpStr "path to config file"
+  commandLineConfig <- cmdlineConfigParser
   suppressOutput <- addSimpleBoolFlag
-    ""
-    ["suppress-output"]
-    (flagHelp $ parDoc
+    "" ["suppress-output"] $ flagHelp $ parDoc
       "suppress the regular output, i.e. the transformed haskell source"
-    )
   _verbosity <- addSimpleCountFlag
-    "v"
-    ["verbose"]
-    (flagHelp $ parDoc "[currently without effect; TODO]")
+    "v" ["verbose"] $ flagHelp $ parDoc "[currently without effect; TODO]"
   checkMode <- addSimpleBoolFlag
-    "c"
-    ["check-mode"]
-    (flagHelp
-      (PP.vcat
-        [ PP.text "check for changes but do not write them out"
-        , PP.text "exits with code 0 if no changes necessary, 1 otherwise"
-        , PP.text "and print file path(s) of files that have changes to stdout"
-        ]
-      )
-    )
+    "c" ["check-mode"] $ flagHelp $ PP.vcat
+      [ PP.text "check for changes but do not write them out"
+      , PP.text "exits with code 0 if no changes necessary, 1 otherwise"
+      , PP.text "and print file path(s) of files that have changes to stdout"
+      ]
   writeMode <- addFlagReadParam
-    ""
-    ["write-mode"]
-    "(display|inplace)"
-    (flagHelp
-        (PP.vcat
-          [ PP.text "display: output for any input(s) goes to stdout"
-          , PP.text "inplace: override respective input file (without backup!)"
-          ]
-        )
-    Data.Monoid.<> flagDefault Display
+    "" ["write-mode"] "(display|inplace)"
+    ( flagHelp (PP.vcat
+        [ PP.text "display: output for any input(s) goes to stdout"
+        , PP.text "inplace: transactionally update respective input files"
+        ])
+      Data.Monoid.<> flagDefault Display
     )
-  inputParams <- addParamNoFlagStrings
-    "PATH"
-    (paramHelpStr "paths to input/inout haskell source files")
+  inputParameters <- addParamNoFlagStrings
+    "PATH" $ paramHelpStr "paths to input/inout haskell source files"
   reorderStop
   addCmdImpl $ void $ do
-    when printLicense $ do
-      print licenseDoc
-      System.Exit.exitSuccess
+    when printLicense $ print licenseDoc >> System.Exit.exitSuccess
     when printVersion $ do
-      do
-        putStrLn $ "brittany version " ++ showVersion version
-        putStrLn $ "Copyright (C) 2016-2019 Lennart Spitzner"
-        putStrLn $ "Copyright (C) 2019 PRODA LTD"
-        putStrLn $ "There is NO WARRANTY, to the extent permitted by law."
+      putStrLn $ "brittany version " ++ showVersion version
+      putStrLn "Copyright (C) 2016-2019 Lennart Spitzner"
+      putStrLn "Copyright (C) 2019 PRODA LTD"
+      putStrLn "There is NO WARRANTY, to the extent permitted by law."
       System.Exit.exitSuccess
     when printHelp $ do
-      liftIO
-        $ putStrLn
+      liftIO $ putStrLn
         $ PP.renderStyle PP.style { PP.ribbonsPerLine = 1.0 }
-        $ ppHelpShallow helpDesc
+        $ ppHelpShallow helpDescription
       System.Exit.exitSuccess
 
     let
-      inputPaths = if null inputParams then [Nothing] else map Just inputParams
-    let
+      inputPaths = if null inputParameters
+        then [Nothing]
+        else Just <$> inputParameters
       outputPaths = case writeMode of
         Display -> repeat Nothing
         Inplace -> inputPaths
-
     configsToLoad <- liftIO $ if null configPaths
-      then
-        maybeToList <$> (Directory.getCurrentDirectory >>= findLocalConfigPath)
+      then maybeToList
+        <$> (Directory.getCurrentDirectory >>= findLocalConfigPath)
       else pure configPaths
-
-    config <-
-      runMaybeT
-          (if noUserConfig
-            then readConfigs cmdlineConfig configsToLoad
-            else readConfigsWithUserConfig cmdlineConfig configsToLoad
-          )
-        >>= \case
-              Nothing -> System.Exit.exitWith (System.Exit.ExitFailure 53)
-              Just x -> return x
+    config <- runMaybeT
+      (if noUserConfig
+        then readConfigs commandLineConfig configsToLoad
+        else readConfigsWithUserConfig commandLineConfig configsToLoad
+      ) >>= \case
+        Nothing -> System.Exit.exitWith $ System.Exit.ExitFailure 53
+        Just loadedConfig -> pure loadedConfig
     when (config & _conf_debug & _dconf_dump_config & confUnpack)
-      $ trace (showConfigYaml config)
-      $ return ()
+      $ trace (showConfigYaml config) $ pure ()
 
-    results <- zipWithM
-      (coreIO putStrErrLn config suppressOutput checkMode)
-      inputPaths
-      outputPaths
+    results <- case (writeMode, checkMode, sequence inputPaths) of
+      (Inplace, False, Just paths) ->
+        runTransactionalInplace putStrErrLn config suppressOutput paths
+      _ -> zipWithM
+        (coreIO putStrErrLn config suppressOutput checkMode)
+        inputPaths outputPaths
+    finishWithResults checkMode results
 
-    if checkMode
-      then case Data.Either.lefts results of
-        [] -> when (Changes `elem` Data.Either.rights results)
-          $ System.Exit.exitWith (System.Exit.ExitFailure 1)
-        [exitCode] -> System.Exit.exitWith (System.Exit.ExitFailure exitCode)
-        _ -> System.Exit.exitWith (System.Exit.ExitFailure 1)
-      else case results of
-        xs | all Data.Either.isRight xs -> pure ()
-        [Left x] -> System.Exit.exitWith (System.Exit.ExitFailure x)
-        _ -> System.Exit.exitWith (System.Exit.ExitFailure 1)
+finishWithResults :: Bool -> [Either Int ChangeStatus] -> IO ()
+finishWithResults checkMode results =
+  if checkMode
+    then case Data.Either.lefts results of
+      [] -> when (Changes `elem` Data.Either.rights results)
+        $ System.Exit.exitWith $ System.Exit.ExitFailure 1
+      [exitCode] -> System.Exit.exitWith $ System.Exit.ExitFailure exitCode
+      _ -> System.Exit.exitWith $ System.Exit.ExitFailure 1
+    else case results of
+      successful | all Data.Either.isRight successful -> pure ()
+      [Left exitCode] -> System.Exit.exitWith $ System.Exit.ExitFailure exitCode
+      _ -> System.Exit.exitWith $ System.Exit.ExitFailure 1
 
+type InplacePlan :: Type
+data InplacePlan = InplacePlan
+  { inplacePlanPath :: FilePath.FilePath
+  , inplacePlanOriginal :: ByteString.ByteString
+  , inplacePlanPermissions :: Directory.Permissions
+  , inplacePlanCandidate :: FilePath.FilePath
+  , inplacePlanResult :: Either Int ChangeStatus
+  }
 
-data ChangeStatus = Changes | NoChanges
-  deriving (Eq)
-
-shouldEmitOutput
-  :: Bool
+runTransactionalInplace
+  :: (String -> IO ())
+  -> Config
   -> Bool
-  -> Bool
-  -> Bool
-  -> [BrittanyError]
-  -> Bool
-shouldEmitOutput suppressOutput checkMode hasErrors outputOnErrors errors =
-  not suppressOutput
-    && not checkMode
-    && not (any isSemanticValidationError errors)
-    && (not hasErrors || outputOnErrors)
+  -> [FilePath.FilePath]
+  -> IO [Either Int ChangeStatus]
+runTransactionalInplace putErrorLine config suppressOutput paths =
+  handlePlanningFailure $ do
+    plans <- planAll $ Data.List.Extra.nubOrd paths
+    Exception.finally (complete plans) $ cleanupPlans plans
  where
-  isSemanticValidationError ErrorSemanticChange{} = True
-  isSemanticValidationError ErrorSemanticProjection{} = True
-  isSemanticValidationError _ = False
+  complete plans = do
+    let results = inplacePlanResult <$> plans
+    if any Data.Either.isLeft results || suppressOutput
+      then pure results
+      else do
+        writesResult <- traverse toPlannedWrite
+          [plan | plan <- plans, inplacePlanResult plan == Right Changes]
+        case sequence writesResult of
+          Left ioError -> transactionFailed $ show ioError
+          Right writes -> transactionalWrite writes >>= \case
+            Left transactionError ->
+              transactionFailed $ showTransactionError transactionError
+            Right () -> pure results
 
--- | The main IO parts for the default mode of operation, and after commandline
--- and config stuff is processed.
-coreIO
-  :: (String -> IO ()) -- ^ error output function. In parallel operation, you
-                       -- may want serialize the different outputs and
-                       -- consequently not directly print to stderr.
-  -> Config -- ^ global program config.
-  -> Bool   -- ^ whether to supress output (to stdout). Purely IO flag, so
-            -- currently not part of program config.
-  -> Bool   -- ^ whether we are (just) in check mode.
-  -> Maybe FilePath.FilePath -- ^ input filepath; stdin if Nothing.
-  -> Maybe FilePath.FilePath -- ^ output filepath; stdout if Nothing.
-  -> IO (Either Int ChangeStatus)      -- ^ Either an errorNo, or the change status.
-coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
-  ExceptT.runExceptT $ do
-    let putErrorLn = liftIO . putErrorLnIO :: String -> ExceptT.ExceptT e IO ()
-    let ghcOptions = config & _conf_forward & _options_ghc & runIdentity
-    -- there is a good of code duplication between the following code and the
-    -- `pureModuleTransform` function. Unfortunately, there are also a good
-    -- amount of slight differences: This module is a bit more verbose, and
-    -- it tries to use the full-blown `parseModule` function which supports
-    -- CPP (but requires the input to be a file..).
-    let cppMode = config & _conf_preprocessor & _ppconf_CPPMode & confUnpack
-    -- the flag will do the following: insert a marker string
-    -- ("-- BRITANY_INCLUDE_HACK ") right before any lines starting with
-    -- "#include" before processing (parsing) input; and remove that marker
-    -- string from the transformation output.
-    -- The flag is intentionally misspelled to prevent clashing with
-    -- inline-config stuff.
-    let
-      hackAroundIncludes =
-        config & _conf_preprocessor & _ppconf_hackAroundIncludes & confUnpack
-    let
-      exactprintOnly = viaGlobal || viaDebug
-       where
-        viaGlobal = config & _conf_roundtrip_exactprint_only & confUnpack
-        viaDebug =
-          config & _conf_debug & _dconf_roundtrip_exactprint_only & confUnpack
+  planAll [] = pure []
+  planAll (path : remaining) = do
+    plan <- planOne path
+    rest <- planAll remaining
+      `Exception.onException` cleanupPlans [plan]
+    pure $ plan : rest
 
+  planOne path = do
+    original <- ByteString.readFile path
+    permissions <- Directory.getPermissions path
+    candidate <- createCandidatePath
     let
-      cppCheckFunc dynFlags = if GHC.xopt GHC.Cpp dynFlags
-        then case cppMode of
-          CPPModeAbort -> do
-            return $ Left cppUnsupportedMessage
-          CPPModeWarn -> do
-            putErrorLnIO
-              $ "Warning: Encountered -XCPP."
-              ++ " Be warned that -XCPP is not supported and that"
-              ++ " brittany cannot check that its output is syntactically"
-              ++ " valid in its presence."
-            return $ Right True
-          CPPModeNowarn -> return $ Right True
-        else return $ Right False
-    (parseResult, originalContents) <- case inputPathM of
+      cleanupCandidate = cleanupPath candidate
+      putFileError message = putErrorLine $ path ++ ": " ++ message
+    result <- coreIO putFileError config suppressOutput False
+      (Just path) (Just candidate)
+      `Exception.onException` cleanupCandidate
+    pure InplacePlan
+      { inplacePlanPath = path
+      , inplacePlanOriginal = original
+      , inplacePlanPermissions = permissions
+      , inplacePlanCandidate = candidate
+      , inplacePlanResult = result
+      }
+
+  toPlannedWrite plan = do
+    replacementResult <- IOError.tryIOError
+      $ ByteString.readFile $ inplacePlanCandidate plan
+    pure $ replacementResult <&> \replacement -> PlannedWrite
+      { plannedTarget = inplacePlanPath plan
+      , plannedOriginal = inplacePlanOriginal plan
+      , plannedReplacement = replacement
+      , plannedPermissions = inplacePlanPermissions plan
+      }
+
+  transactionFailed message = do
+    putErrorLine $ "transactional inplace update failed: " ++ message
+    pure [Left 74]
+
+  handlePlanningFailure action = Exception.catch action handleException
+
+  handleException :: Exception.SomeException -> IO [Either Int ChangeStatus]
+  handleException exception =
+    case Exception.fromException exception of
+      Just asyncException -> Exception.throwIO
+        (asyncException :: Exception.AsyncException)
       Nothing -> do
-        -- TODO: refactor this hack to not be mixed into parsing logic
-        let
-          hackF s = if "#include" `isPrefixOf` s
-            then "-- BRITANY_INCLUDE_HACK " ++ s
-            else s
-        let
-          hackTransform = if hackAroundIncludes && not exactprintOnly
-            then List.intercalate "\n" . fmap hackF . lines'
-            else id
-        inputString <- liftIO System.IO.getContents
-        parseRes <- liftIO $ parseModuleFromString
-          ghcOptions
-          "stdin"
-          cppCheckFunc
-          (hackTransform inputString)
-        return (parseRes, Text.pack inputString)
-      Just p -> liftIO $ do
-        parseRes <- parseModule ghcOptions p cppCheckFunc
-        inputText <- Text.IO.readFile p
-        -- The above means we read the file twice, but the
-        -- GHC API does not really expose the source it
-        -- read. Should be in cache still anyways.
-        --
-        -- We do not use TextL.IO.readFile because lazy IO is evil.
-        -- (not identical -> read is not finished ->
-        -- handle still open -> write below crashes - evil.)
-        return (parseRes, inputText)
-    case parseResult of
-      Left left -> do
-        putErrorLn "parse error:"
-        putErrorLn left
-        ExceptT.throwE 60
-      Right (anns, parsedSource, hasCPP) -> do
-        (inlineConf, perItemConf) <-
-          case
-            extractCommentConfigs anns (getTopLevelDeclNameMap parsedSource)
-          of
-            Left (err, input) -> do
-              putErrorLn $ "Error: parse error in inline configuration:"
-              putErrorLn err
-              putErrorLn $ "  in the string \"" ++ input ++ "\"."
-              ExceptT.throwE 61
-            Right c -> -- trace (showTree c) $
-              pure c
-        let moduleConf = cZipWith fromOptionIdentity config inlineConf
-        when (config & _conf_debug & _dconf_dump_ast_full & confUnpack) $ do
-          let val = printTreeWithCustom 100 (customLayouterF anns) parsedSource
-          trace ("---- ast ----\n" ++ show val) $ return ()
-        let
-          disableFormatting =
-            moduleConf & _conf_disable_formatting & confUnpack
-        (errsWarns, outSText, hasChanges) <- do
-          let
-            ensureTrailingNewline t =
-              if Text.null t || Text.last t /= '\n'
-                then Text.append t (Text.singleton '\n')
-                else t
-          if
-            | disableFormatting -> do
-              let out = ensureTrailingNewline originalContents
-              pure ([], out, out /= originalContents)
-            | exactprintOnly -> do
-              let
-                r = ensureTrailingNewline
-                  $ Text.pack
-                  $ ExactPrint.exactPrint parsedSource
-                reportFallbacks =
-                  (moduleConf & _conf_debug & _dconf_dump_fallbacks & confUnpack)
-                    || ( moduleConf
-                      & _conf_debug
-                      & _dconf_dump_fallbacks_json
-                      & confUnpack
-                       )
-                    || ( moduleConf
-                      & _conf_errorHandling
-                      & _econf_failOnExactSourceFallback
-                      & confUnpack
-                       )
-                fallbacks =
-                  [ ExactSourceFallback
-                    $ fallbackRenderNotice ExactPrintOnlyFallback
-                    $ show $ getLocA declaration
-                  | reportFallbacks
-                  , declaration <- hsmodDecls $ unLoc parsedSource
-                  ]
-              pure (fallbacks, r, r /= originalContents)
-            | otherwise -> do
-              let
-                omitCheck =
-                  moduleConf
-                    & _conf_errorHandling
-                    .> _econf_omit_output_valid_check
-                    .> confUnpack
-              (ews, outRaw) <- if hasCPP || omitCheck
-                then return
-                  $ pPrintModuleWithSource
-                    (Just originalContents)
-                    moduleConf
-                    perItemConf
-                    anns
-                    parsedSource
-                else liftIO $ pPrintModuleAndCheckWithSource
-                  (Just originalContents)
-                  moduleConf
-                  perItemConf
-                  anns
-                  parsedSource
-              let
-                hackF s = fromMaybe s $ TextL.stripPrefix
-                  (TextL.pack "-- BRITANY_INCLUDE_HACK ")
-                  s
-              let
-                out = TextL.toStrict $ if hackAroundIncludes
-                  then
-                    TextL.intercalate (TextL.pack "\n")
-                    $ hackF
-                    <$> TextL.splitOn (TextL.pack "\n") outRaw
-                  else outRaw
-              out' <- if moduleConf & _conf_obfuscate & confUnpack
-                then lift $ obfuscate out
-                else pure out
-              let out'' = ensureTrailingNewline out'
-              pure $ (ews, out'', out'' /= originalContents)
-        let
-          customErrOrder ErrorInput{} = 4
-          customErrOrder LayoutWarning{} = -1 :: Int
-          customErrOrder ExactSourceFallback{} = -3
-          customErrOrder SupportedOpaqueSyntax{} = -4
-          customErrOrder ErrorOutputCheck{} = 1
-          customErrOrder ErrorSemanticChange{} = 7
-          customErrOrder ErrorSemanticProjection{} = 8
-          customErrOrder ErrorUnusedComment{} = 2
-          customErrOrder ErrorUnknownNode{} = -2 :: Int
-          customErrOrder ErrorMacroConfig{} = 5
-          customErrOrder ErrorCommentPlan{} = 6
-          dumpTextNotices =
-            (moduleConf & _conf_debug & _dconf_dump_fallbacks & confUnpack)
-              || ( moduleConf
-                & _conf_errorHandling
-                & _econf_failOnExactSourceFallback
-                & confUnpack
-                 )
-              || ( moduleConf
-                & _conf_errorHandling
-                & _econf_failOnOpaque
-                & confUnpack
-                 )
-          dumpJsonNotices = moduleConf
-            & _conf_debug
-            & _dconf_dump_fallbacks_json
-            & confUnpack
-          renderNotices = catMaybes $ errsWarns <&> \case
-            ExactSourceFallback notice -> Just notice
-            SupportedOpaqueSyntax notice -> Just notice
-            _ -> Nothing
-        unless (null errsWarns) $ do
-          let
-            groupedErrsWarns =
-              Data.List.Extra.groupOn customErrOrder
-                $ List.sortOn customErrOrder
-                $ errsWarns
-          groupedErrsWarns `forM_` \case
-            (ErrorOutputCheck{} : _) -> do
-              putErrorLn
-                $ "ERROR: brittany pretty printer"
-                ++ " returned syntactically invalid result."
-            semanticChanges@(ErrorSemanticChange{} : _) -> do
-              putErrorLn "ERROR: formatted output changes parsed semantics."
-              semanticChanges `forM_` \case
-                ErrorSemanticChange path inputSummary outputSummary -> do
-                  putErrorLn $ "  path: " ++ path
-                  putErrorLn $ "  input: " ++ inputSummary
-                  putErrorLn $ "  output: " ++ outputSummary
-                _ -> error "cannot happen (TM)"
-            projectionErrors@(ErrorSemanticProjection{} : _) -> do
-              putErrorLn "ERROR: semantic syntax comparison is incomplete."
-              projectionErrors `forM_` \case
-                ErrorSemanticProjection path unknownType -> do
-                  putErrorLn $ "  path: " ++ path
-                  putErrorLn $ "  unknown syntax type: " ++ unknownType
-                _ -> error "cannot happen (TM)"
-            (ErrorInput str : _) -> do
-              putErrorLn $ "ERROR: parse error: " ++ str
-            uns@(ErrorUnknownNode{} : _) -> do
-              putErrorLn
-                $ "WARNING: encountered unknown syntactical constructs:"
-              uns `forM_` \case
-                ErrorUnknownNode str ast@(L loc _) -> do
-                  putErrorLn $ "  " <> str <> " at " <> showSDocUnsafe (ppr loc)
-                  when
-                      (config
-                      & _conf_debug
-                      & _dconf_dump_ast_unknown
-                      & confUnpack
-                      )
-                    $ do
-                        putErrorLn $ "  " ++ show (astToDoc ast)
-                _ -> error "cannot happen (TM)"
-              putErrorLn
-                "  -> falling back on exactprint for this element of the module"
-            warns@(LayoutWarning{} : _) -> do
-              putErrorLn $ "WARNINGS:"
-              warns `forM_` \case
-                LayoutWarning str -> putErrorLn str
-                _ -> error "cannot happen (TM)"
-            fallbacks@(ExactSourceFallback{} : _) -> do
-              when dumpTextNotices $ do
-                putErrorLn "EXACT-SOURCE FALLBACKS:"
-                fallbacks `forM_` \case
-                  ExactSourceFallback notice ->
-                    putErrorLn $ "  " ++ renderRenderNotice notice
-                  _ -> error "cannot happen (TM)"
-            opaqueNotices@(SupportedOpaqueSyntax{} : _) -> do
-              when dumpTextNotices $ do
-                putErrorLn "SUPPORTED OPAQUE SYNTAX:"
-                opaqueNotices `forM_` \case
-                  SupportedOpaqueSyntax notice ->
-                    putErrorLn $ "  " ++ renderRenderNotice notice
-                  _ -> error "cannot happen (TM)"
-            unused@(ErrorUnusedComment{} : _) -> do
-              putErrorLn
-                $ "Error: detected unprocessed comments."
-                ++ " The transformation output will most likely"
-                ++ " not contain some of the comments"
-                ++ " present in the input haskell source file."
-              putErrorLn $ "Affected are the following comments:"
-              unused `forM_` \case
-                ErrorUnusedComment str -> putErrorLn str
-                _ -> error "cannot happen (TM)"
-            planErrors@(ErrorCommentPlan{} : _) -> do
-              putErrorLn "Error: source comment ownership is ambiguous or unstable."
-              planErrors `forM_` \case
-                ErrorCommentPlan str -> putErrorLn $ "  " ++ str
-                _ -> error "cannot happen (TM)"
-            (ErrorMacroConfig err input : _) -> do
-              putErrorLn $ "Error: parse error in inline configuration:"
-              putErrorLn err
-              putErrorLn $ "  in the string \"" ++ input ++ "\"."
-            [] -> error "cannot happen"
-        when dumpJsonNotices $ putErrorLn $ renderRenderInventory renderNotices
-        -- TODO: don't output anything when there are errors unless user
-        -- adds some override?
-        let
-          failOnFallback =
-            moduleConf
-              & _conf_errorHandling
-              & _econf_failOnExactSourceFallback
-              & confUnpack
-          failOnOpaque =
-            moduleConf
-              & _conf_errorHandling
-              & _econf_failOnOpaque
-              & confUnpack
-          hasErrors =
-            (failOnFallback && any isFallback errsWarns)
-              || (failOnOpaque && any isOpaque errsWarns)
-              || if config & _conf_errorHandling & _econf_Werror & confUnpack
-                then any isWarningOrError errsWarns
-                else 0 < maximum (-1 : fmap customErrOrder errsWarns)
-          isWarningOrError ExactSourceFallback{} = False
-          isWarningOrError SupportedOpaqueSyntax{} = False
-          isWarningOrError _ = True
-          isFallback ExactSourceFallback{} = True
-          isFallback _ = False
-          isOpaque SupportedOpaqueSyntax{} = True
-          isOpaque _ = False
-          outputOnErrs =
-            config
-              & _conf_errorHandling
-              & _econf_produceOutputOnErrors
-              & confUnpack
-          shouldOutput = shouldEmitOutput
-            suppressOutput
-            checkMode
-            hasErrors
-            outputOnErrs
-            errsWarns
+        putErrorLine $ "transactional inplace planning failed: "
+          ++ Exception.displayException exception
+        pure [Left 74]
 
-        when shouldOutput
-          $ addTraceSep (_conf_debug config)
-          $ case outputPathM of
-              Nothing -> liftIO $ Text.IO.putStr $ outSText
-              Just p -> liftIO $ do
-                let
-                  isIdentical = case inputPathM of
-                    Nothing -> False
-                    Just _ -> not hasChanges
-                unless isIdentical $ Text.IO.writeFile p $ outSText
+createCandidatePath :: IO FilePath.FilePath
+createCandidatePath = Exception.bracketOnError
+  (Directory.getTemporaryDirectory >>= \directory ->
+    System.IO.openBinaryTempFile directory "brittany-plan")
+  (\(path, handle) -> System.IO.hClose handle >> cleanupPath path)
+  (\(path, handle) -> System.IO.hClose handle >> pure path)
 
-        when (checkMode && hasChanges) $ case inputPathM of
-          Nothing -> pure ()
-          Just p -> liftIO $ putStrLn $ "formatting would modify: " ++ p
+cleanupPlans :: [InplacePlan] -> IO ()
+cleanupPlans = mapM_ $ cleanupPath . inplacePlanCandidate
 
-        when hasErrors $ ExceptT.throwE 70
-        return (if hasChanges then Changes else NoChanges)
- where
-  addTraceSep conf =
-    if or
-        [ confUnpack $ _dconf_dump_annotations conf
-        , confUnpack $ _dconf_dump_fallbacks conf
-        , confUnpack $ _dconf_dump_ast_unknown conf
-        , confUnpack $ _dconf_dump_ast_full conf
-        , confUnpack $ _dconf_dump_bridoc_raw conf
-        , confUnpack $ _dconf_dump_bridoc_simpl_alt conf
-        , confUnpack $ _dconf_dump_bridoc_simpl_floating conf
-        , confUnpack $ _dconf_dump_bridoc_simpl_columns conf
-        , confUnpack $ _dconf_dump_bridoc_simpl_indent conf
-        , confUnpack $ _dconf_dump_bridoc_final conf
-        ]
-      then trace "----"
-      else id
+cleanupPath :: FilePath.FilePath -> IO ()
+cleanupPath path = void $ IOError.tryIOError $ Directory.removeFile path
+
+showTransactionError :: TransactionError -> String
+showTransactionError = show

@@ -155,6 +155,12 @@ log the size of the input, but _not_ the full input/output of requests.)
     brittany --write-mode=inplace *.hs # apply formatting to all ./*.hs inplace
     ~~~~
 
+  Multi-file inplace runs validate the complete batch before changing any
+  target. Successful changes are staged beside their targets, checked for
+  concurrent edits, and committed with rollback for ordinary I/O failures.
+  See the [transaction guarantee boundary](doc/implementation/transactional-inplace.md)
+  for the precise behavior during process or system crashes.
+
 - For stdin/stdout usage it makes sense to enable certain syntactic extensions
   by default, i.e. to add something like this to your
   `~/.config/brittany/config.yaml` (execute `brittany` once to create default):

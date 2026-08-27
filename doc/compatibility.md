@@ -130,3 +130,12 @@ remains observable. Singleton parenthesized and unparenthesized deriving clauses
 compare equally, while strategies, via types, class lists, and all
 order-sensitive syntax remain distinct. Unknown generic representations still
 fail closed, and diagnostics report named semantic fields.
+
+Issue #110 makes multi-file `--write-mode=inplace` validation transactional.
+Every input is formatted and validated before target mutation; one parse,
+comment, fallback, output, or semantic failure therefore writes no targets.
+Successful changed files use sibling staging and recovery copies, preserve
+portable permissions, verify their original bytes before replacement, and roll
+back earlier renames after ordinary commit failures. Check and display modes
+remain non-mutating. Cross-file process-crash atomicity is not claimed because
+filesystems expose only per-path atomic rename operations.
