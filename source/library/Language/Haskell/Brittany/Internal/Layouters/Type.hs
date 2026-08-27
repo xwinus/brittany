@@ -17,6 +17,7 @@ import GHC.Types.SourceText (SourceText(..))
 import qualified GHC.Data.FastString as FastString
 import GHC.Utils.Outputable (ftext, showSDocUnsafe)
 import Language.Haskell.Brittany.Internal.LayouterBasics
+import Language.Haskell.Brittany.Internal.ExactSource (nodeSourceFragment)
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
@@ -466,10 +467,8 @@ layoutType ltype = layoutType' (toL ltype)
   --             applyLayouterRestore layouter defaultParams
   --     , _layouter_ast = ltype
   --     }
-    HsSpliceTy{} -> -- TODO
-      briDocByExactInlineOnly TypeFallback ltype
-    HsDocTy{} -> -- TODO
-      briDocByExactInlineOnly TypeFallback ltype
+    HsSpliceTy{} -> layoutExactSourceType ltype
+    HsDocTy{} -> layoutExactSourceType ltype
     HsExplicitListTy _ _ typs -> do
       typDocs <- (docSharedWrapper layoutType) `mapM` (map toL typs)
       hasComments <- hasAnyCommentsBelow ltype
@@ -519,8 +518,7 @@ layoutType ltype = layoutType' (toL ltype)
                   end = docLit $ Text.pack " ]"
                 in docSetBaseY $ docLines $ [start] ++ linesM ++ [lineN] ++ [end]
         ]
-    HsExplicitTupleTy{} -> -- TODO
-      briDocByExactInlineOnly TypeFallback ltype
+    HsExplicitTupleTy{} -> layoutExactSourceType ltype
     HsTyLit _ lit -> case lit of
       HsNumTy (SourceText srctext) _ -> docLit $ Text.pack (FastString.unpackFS srctext)
       HsNumTy NoSourceText _ ->
@@ -529,14 +527,13 @@ layoutType ltype = layoutType' (toL ltype)
       HsStrTy NoSourceText _ ->
         error "overLitValBriDoc: literal with no SourceText"
     HsWildCardTy _ -> docLit $ Text.pack "_"
-    HsSumTy{} -> -- TODO
-      briDocByExactInlineOnly TypeFallback ltype
+    HsSumTy{} -> layoutExactSourceType ltype
     HsStarTy _ isUnicode -> do
       if isUnicode
         then docLit $ Text.pack "\x2605" -- Unicode star
         else docLit $ Text.pack "*"
     XHsType{} -> error "brittany internal error: XHsType"
-    _ -> briDocByExactInlineOnly TypeFallback ltype
+    _ -> layoutExactSourceType ltype
     HsAppKindTy _ ty kind -> do
       t <- docSharedWrapper layoutType (toL ty)
       k <- docSharedWrapper layoutType (toL kind)
@@ -549,6 +546,17 @@ layoutType ltype = layoutType' (toL ltype)
           ]
         , docPar t (docSeq [docLit $ Text.pack "@", k])
         ]
+
+layoutExactSourceType
+  :: GenLocated SrcSpan (HsType GhcPs) -> ToBriDocM BriDocNumbered
+layoutExactSourceType type' = do
+  OriginalSource source <- mAsk
+  anns <- mAsk
+  commentPlan <- mAsk
+  case nodeSourceFragment source type' anns commentPlan of
+    Nothing -> briDocByExactInlineOnly TypeFallback type'
+    Just fragment -> briDocByExactSourceFragmentNoComment
+      TypeFallback type' fragment
 
 layoutTyVarBndrs
   :: forall flag. [LHsTyVarBndr flag GhcPs]

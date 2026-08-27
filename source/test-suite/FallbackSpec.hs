@@ -282,22 +282,20 @@ spec projectRoot = Hspec.describe "fallback inventory and reporting" $ do
       "StandaloneDerivingEdgeInput.hs"
     messages `Hspec.shouldNotSatisfy` any (List.isInfixOf "Fallback")
 
-  Hspec.it "reports unsupported standalone deriving at declaration scope" $ do
+  Hspec.it "scopes unsupported standalone deriving types inline" $ do
     messages <- runFormatter projectRoot fallbackReportingConfig
       "StandaloneDerivingUnsupported.hs"
-    messages `Hspec.shouldSatisfy` any
+    messages `Hspec.shouldSatisfy` any (List.isInfixOf "TypeFallback")
+    messages `Hspec.shouldSatisfy` any (List.isInfixOf "inline scope")
+    messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "DeclarationFallback")
-    messages `Hspec.shouldSatisfy` any (List.isInfixOf "declaration scope")
     messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "WholeModuleFallback")
 
-  Hspec.it "reports unsupported commented single constructors safely" $ do
+  Hspec.it "keeps existential single constructors on the native path" $ do
     messages <- runFormatter projectRoot fallbackReportingConfig
       "DocumentedSingleConstructorUnsupported.hs"
-    messages `Hspec.shouldSatisfy` any
-      (List.isInfixOf "DeclarationFallback")
-    messages `Hspec.shouldNotSatisfy` any
-      (List.isInfixOf "WholeModuleFallback")
+    messages `Hspec.shouldNotSatisfy` any (List.isInfixOf "Fallback")
 
   Hspec.it "does not report a fallback for a supported instance head" $ do
     messages <- runFormatter projectRoot fallbackReportingConfig
@@ -305,12 +303,15 @@ spec projectRoot = Hspec.describe "fallback inventory and reporting" $ do
     messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "TypeClassDeclarationFallback")
 
-  Hspec.it "reports an unsupported instance head at declaration scope" $ do
+  Hspec.it "scopes unsupported instance-head types inline" $ do
     messages <- runFormatter projectRoot fallbackReportingConfig
       "InstanceHeadUnsupported.hs"
-    messages `Hspec.shouldSatisfy` any
+    messages `Hspec.shouldSatisfy` any (List.isInfixOf "TypeFallback")
+    messages `Hspec.shouldSatisfy` any (List.isInfixOf "inline scope")
+    messages `Hspec.shouldNotSatisfy` any
+      (List.isInfixOf "DeclarationFallback")
+    messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "TypeClassDeclarationFallback")
-    messages `Hspec.shouldSatisfy` any (List.isInfixOf "declaration scope")
     messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "WholeModuleFallback")
 

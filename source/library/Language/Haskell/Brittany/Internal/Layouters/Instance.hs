@@ -18,7 +18,6 @@ import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import Language.Haskell.Brittany.Internal.Layouters.Type
 import Language.Haskell.Brittany.Internal.Prelude
-import Language.Haskell.Brittany.Internal.TypeFallbacks (exactSourceTypes)
 import Language.Haskell.Brittany.Internal.Types
 
 layoutInstance
@@ -94,8 +93,7 @@ layoutInstance lcid@(L _ cid) memberAction = case cid_poly_ty cid of
       ]
 
 supportsNativeHead :: ClsInstDecl GhcPs -> Bool
-supportsNativeHead cid = null (exactSourceTypes $ cid_poly_ty cid)
-  && supportsOverlapMode (cid_overlap_mode cid)
+supportsNativeHead cid = supportsOverlapMode (cid_overlap_mode cid)
 
 supportsOverlapMode :: Maybe (GenLocated l OverlapMode) -> Bool
 supportsOverlapMode overlapMode = case unLoc <$> overlapMode of

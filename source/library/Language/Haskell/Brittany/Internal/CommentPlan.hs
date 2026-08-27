@@ -123,11 +123,11 @@ toSourceComment (key, occurrence) = do
 
 classifyComment :: Anns -> CommentOccurrence -> CommentRole
 classifyComment annotations occurrence
-  | isPostDocText stripped = case ownerConstructor of
-      "HsConDeclRecField" -> HaddockPostDoc RecordField
-      "SigD" -> HaddockPostDoc SignatureResult
-      _ | ownerInside "SigD" -> HaddockPostDoc SignatureArgument
-        | otherwise -> Unattached
+  | isPostDocText stripped = postDocRole
+  | isPostDocContinuation
+  , not (isLeadingDocText stripped)
+  , not (isSectionText stripped)
+  , not (isPragmaText stripped) = postDocRole
   | isSectionText stripped = SectionComment
   | isPragmaText stripped = PragmaComment
   | ownerConstructor == "HsDerivingClause"
@@ -156,6 +156,37 @@ classifyComment annotations occurrence
       (Just ownerSpan, Just commentSpan) ->
         SrcLoc.srcSpanEndLine ownerSpan == SrcLoc.srcSpanStartLine commentSpan
       _ -> False
+  postDocRole = case ownerConstructor of
+    "HsConDeclRecField" -> HaddockPostDoc RecordField
+    "SigD" -> HaddockPostDoc SignatureResult
+    _ | ownerInside "HsConDeclRecField" -> HaddockPostDoc RecordField
+      | ownerInside "SigD" -> HaddockPostDoc SignatureArgument
+      | ownerInside "TyClD" -> HaddockPostDoc SignatureArgument
+      | otherwise -> Unattached
+  isPostDocContinuation = case srcSpanToRealSpan $ commentIdentifier comment of
+    Nothing -> False
+    Just commentSpan -> any (endsOnPreviousLine commentSpan)
+      [ previousComment
+      | annotation <- Map.elems annotations
+      , previousComment <- annotationSourceComments annotation
+      , isPostDocText
+          $ dropWhile Char.isSpace
+          $ commentContents previousComment
+      ]
+
+annotationSourceComments :: Annotation -> [Comment]
+annotationSourceComments annotation =
+  fmap fst (annPriorComments annotation)
+    ++ fmap fst (annFollowingComments annotation)
+    ++ [comment | (AnnComment comment, _) <- annsDP annotation]
+
+endsOnPreviousLine :: SrcLoc.RealSrcSpan -> Comment -> Bool
+endsOnPreviousLine current previous = case
+  srcSpanToRealSpan $ commentIdentifier previous of
+  Nothing -> False
+  Just previousSpan ->
+    SrcLoc.srcSpanEndLine previousSpan + 1
+      == SrcLoc.srcSpanStartLine current
 
 annotationSpans :: String -> Anns -> [SrcLoc.RealSrcSpan]
 annotationSpans constructorName annotations =
@@ -217,7 +248,7 @@ commentPlanFingerprint plan =
   [ ( sourceCommentText sourceComment
     , sourceCommentSyntax sourceComment
     , placementRole placement
-    , ownerConstructor $ placementOwner placement
+    , fingerprintOwner placement
     )
   | (key, placement) <- List.sortOn (placementRelativeOrder . snd)
       $ Map.toList $ commentPlanPlacements plan
@@ -225,6 +256,11 @@ commentPlanFingerprint plan =
   ]
  where
   ownerConstructor (NodeId (AnnKey _ name)) = unConName name
+  fingerprintOwner placement
+    | placementRole placement `elem` [LeadingDoc, LeadingOrdinary]
+    , ownerConstructor (placementOwner placement) `elem`
+        ["HsFunTy", "HsListTy", "HsSig", "HsTyVar"] = "TypeMember"
+    | otherwise = ownerConstructor $ placementOwner placement
 
 isPostDocText :: String -> Bool
 isPostDocText = \case

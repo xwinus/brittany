@@ -2,6 +2,6 @@ module ExactSourceFragmentInput where
 
 -- | Documented value.
 sample
-    :: Int
-    -- ^ result value
+  :: Int
+  -- ^ result value
 sample = 1

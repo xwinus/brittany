@@ -87,6 +87,7 @@ data ExactSourceFragment = ExactSourceFragment
   , fragmentRange :: SourceRange
   , fragmentAnnotationKeys :: Set AnnKey
   , fragmentCommentKeys :: Set SourceCommentKey
+  , fragmentAbsoluteColumn :: Maybe Int
   }
   deriving (Data.Data.Data, Eq, Ord, Show)
 

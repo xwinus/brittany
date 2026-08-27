@@ -156,7 +156,9 @@ layoutBriDocM = \case
         ++ show (annKey, Map.lookup annKey anns)
         ++ "-}"
     case (externalSource, tlines) of
-      (SourceFragment{}, firstLine : remainingLines) -> do
+      (SourceFragment fragment, firstLine : remainingLines) -> do
+        forM_ (fragmentAbsoluteColumn fragment) $ \column ->
+          layoutMoveToAbsoluteCommentPos 0 column (length tlines)
         initialState <- mGet
         let fragmentColumn = case _lstate_curYOrAddNewline initialState of
               Left column -> column
@@ -216,20 +218,33 @@ layoutBriDocM = \case
         -- since layoutMoveToCommentPos uses indLevelLinger + x.
         let baseYGap = max 0 (lstate_baseY state - _lstate_indLevelLinger state)
         let forceInline = priorCommentMode == PriorCommentInline
+        commentPlan <- mAsk
+        indentAmount <-
+          mAsk
+          <&> _conf_layout
+          .> _lconfig_indentAmount
+          .> confUnpack
         let emittedPriors = filter
               (\(comment, _) -> ExactPrintCompat.commentContents comment
                 `notElem` ["(", ")"])
               priors
         zip [0 :: Int ..] emittedPriors
           `forM_` \(commentIndex,
-                     (ExactPrintCompat.Comment _ _ commentStr,
+                     (comment@(ExactPrintCompat.Comment _ _ commentStr),
                       ExactPrintCompat.DP (y, x))) -> do
                       commentState <- mGet
-                      let commentLines = Text.lines $ Text.pack commentStr
+                      let role = lookupCommentRole commentPlan comment
+                          recordPostDoc =
+                            role == Just (HaddockPostDoc RecordField)
+                          commentLines = Text.lines $ Text.pack commentStr
                           inlineFirst = forceInline && commentIndex == 0
-                          adjustedY = if inlineFirst then 0 else y
+                          adjustedY
+                            | inlineFirst = 0
+                            | recordPostDoc = 1
+                            | otherwise = y
                           adjustedX
                             | inlineFirst = 1
+                            | recordPostDoc = indentAmount
                             | forceInline, y > 0 = max 0
                                 $ fromMaybe x
                                   (_lstate_commentCol commentState)
@@ -240,6 +255,10 @@ layoutBriDocM = \case
                         ('#' : _) ->
                           layoutMoveToCommentPos adjustedY (-999) (length commentLines)
                                    --  ^ evil hack for CPP
+                        _ | recordPostDoc -> layoutMoveToAbsoluteCommentPos
+                          adjustedY
+                          (lstate_baseY commentState + indentAmount)
+                          (length commentLines)
                         _ -> layoutMoveToCommentPos
                           adjustedY adjustedX (length commentLines)
                       layoutWriteAppendMultiline commentLines
@@ -281,15 +300,33 @@ layoutBriDocM = \case
     case mComments of
       Nothing -> pure ()
       Just comments -> do
+        commentPlan <- mAsk
+        commentState <- mGet
+        indentAmount <-
+          mAsk
+          <&> _conf_layout
+          .> _lconfig_indentAmount
+          .> confUnpack
         comments
-          `forM_` \(ExactPrintCompat.Comment _ _ commentStr, ExactPrintCompat.DP (y, x)) ->
+          `forM_` \(comment@(ExactPrintCompat.Comment _ _ commentStr),
+                     ExactPrintCompat.DP (y, x)) ->
                     when (commentStr /= "(" && commentStr /= ")") $ do
-                      let commentLines = Text.lines $ Text.pack commentStr
+                      let recordPostDoc = lookupCommentRole commentPlan comment
+                            == Just (HaddockPostDoc RecordField)
+                          adjustedY = if recordPostDoc then 1 else y
+                          adjustedX = if recordPostDoc then indentAmount else x
+                          commentLines = Text.lines $ Text.pack commentStr
                       -- evil hack for CPP:
                       case commentStr of
                         ('#' : _) ->
-                          layoutMoveToCommentPos y (-999) (length commentLines)
-                        _ -> layoutMoveToCommentPos y x (length commentLines)
+                          layoutMoveToCommentPos adjustedY (-999)
+                            (length commentLines)
+                        _ | recordPostDoc -> layoutMoveToAbsoluteCommentPos
+                          adjustedY
+                          (lstate_baseY commentState + indentAmount)
+                          (length commentLines)
+                        _ -> layoutMoveToCommentPos adjustedY adjustedX
+                          (length commentLines)
                       -- fixedX <- fixMoveToLineByIsNewline x
                       -- replicateM_ fixedX layoutWriteNewline
                       -- layoutMoveToIndentCol y
@@ -359,6 +396,7 @@ layoutBriDocM = \case
                             | otherwise = x
                           commentLines = Text.lines $ Text.pack commentStr
                           adjustedY
+                            | role == Just (HaddockPostDoc RecordField) = 1
                             | y > 0
                             , role == Just (BetweenChildren TypeOperator) = 1
                             | otherwise = y
@@ -367,10 +405,11 @@ layoutBriDocM = \case
                                 max 0 $ commentIndent - indLinger
                             | y > 0
                             , role == Just (BetweenChildren TypeOperator) = 0
+                            | role == Just (HaddockPostDoc RecordField) =
+                                indentAmount
                             | y > 0
                             , role `elem`
                                 [ Just SectionComment
-                                , Just $ HaddockPostDoc RecordField
                                 , Just $ BetweenChildren DerivingClause
                                 ] =
                                 max 0
@@ -386,6 +425,10 @@ layoutBriDocM = \case
                         ")" -> pure ()
                                    --  ^ fixes the formatting of parens
                                    --    on the lhs of type alias defs
+                        _ | role == Just (HaddockPostDoc RecordField) ->
+                          layoutMoveToAbsoluteCommentPos adjustedY
+                            (lstate_baseY restState + indentAmount)
+                            (length commentLines)
                         _ -> layoutMoveToCommentPos adjustedY adjustedX
                           (length commentLines)
                       -- fixedX <- fixMoveToLineByIsNewline x
