@@ -43,6 +43,10 @@ features:
     kind: syntax
     support: native
     tracking-issue: 101
+  - name: CompactParenthesizedPatterns
+    kind: syntax
+    support: native
+    tracking-issue: 103
   - name: SemanticASTValidation
     kind: syntax
     support: native
@@ -405,6 +409,16 @@ cases:
     kind: malformed
     fixture: source/test-suite/fixtures/ConstructorFieldModifiersInvalid.hs
     features: [ConstructorFieldModifiers]
+    expected-result: parse-failure
+  - name: keeps fitting parenthesized constructor patterns compact
+    kind: expected
+    fixture: source/test-suite/fixtures/CompactParenthesizedPatternExpected.hs
+    features: [CompactParenthesizedPatterns, LambdaCase]
+    expected-result: formats
+  - name: rejects a malformed parenthesized constructor pattern
+    kind: malformed
+    fixture: source/test-suite/fixtures/CompactParenthesizedPatternInvalid.hs
+    features: [CompactParenthesizedPatterns]
     expected-result: parse-failure
   - name: formats deriving strategies on documented single constructors
     kind: expected

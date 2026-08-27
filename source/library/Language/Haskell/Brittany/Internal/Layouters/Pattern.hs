@@ -241,7 +241,10 @@ layoutPatMultiline lpat@(L _ pat) = case pat of
   ParPat _ inner -> layoutPatMultiline inner >>= \case
     Nothing -> return Nothing
     Just innerDoc -> fmap Just $ docWrapNode (toL lpat)
-      $ docDelimitedBlock docParenL (return innerDoc) docParenR
+      $ docAlt
+        [ docSeq [docParenL, return innerDoc, docParenR]
+        , docDelimitedBlock docParenL (return innerDoc) docParenR
+        ]
   _ -> return Nothing
 
 colsWrapPat :: Seq BriDocNumbered -> ToBriDocM BriDocNumbered
