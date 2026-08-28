@@ -263,11 +263,28 @@ extractToplevelAnns lmod anns = output
       $ [ (captured, declMap1 Map.! k)
         | (k, ExactPrint.Ann (Just captured) _ _ _ _ _) <- Map.toList anns
         ]
-  declMap = declMap1 `Map.union` declMap2
+  declSpans =
+    [ (ExactPrint.mkAnnKey declaration, declarationSpan)
+    | declaration <- ldecls
+    , Just declarationSpan <-
+        [ExactPrint.srcSpanToRealSpan $ SrcLoc.getLoc declaration]
+    ]
+  declMapBySpan = Map.fromList
+    [ (annotationKey, declarationKey)
+    | annotationKey <- Map.keys anns
+    , Just annotationSpan <- [ExactPrint.annKeyRealSpan annotationKey]
+    , (declarationKey, declarationSpan) <- declSpans
+    , containsSpan declarationSpan annotationSpan
+    ]
+  declMap = declMap1 `Map.union` declMap2 `Map.union` declMapBySpan
   -- Use getLocA for consistent SrcSpan-based keys with ExtractAnns (mkAnnKeyL)
   lmodSrc = L (getLocA lmod) (unLoc lmod)
   modKey = ExactPrint.mkAnnKey lmodSrc
   output = groupMap (\k _ -> Map.findWithDefault modKey k declMap) anns
+
+  containsSpan outer inner =
+    SrcLoc.realSrcSpanStart outer <= SrcLoc.realSrcSpanStart inner
+      && SrcLoc.realSrcSpanEnd inner <= SrcLoc.realSrcSpanEnd outer
 
 groupMap :: (Ord k, Ord l) => (k -> a -> l) -> Map k a -> Map l (Map k a)
 groupMap f = Map.foldlWithKey'

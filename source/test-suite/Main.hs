@@ -4,6 +4,7 @@ import qualified Control.Monad as Monad
 import qualified CompatibilitySpec
 import qualified CanonicalSemanticModelSpec
 import qualified CommentPlanSpec
+import qualified CommentOwnershipSpec
 import qualified CompactParenthesizedPatternSpec
 import qualified ComposableDeclarationSpec
 import qualified ConstructorFieldModifierSpec
@@ -96,6 +97,7 @@ main = Hspec.hspec $ do
   ExactSourceFragmentSpec.spec projectRoot
   CompatibilitySpec.spec projectRoot
   CommentPlanSpec.spec
+  CommentOwnershipSpec.spec
   CompactParenthesizedPatternSpec.spec projectRoot
   ComposableDeclarationSpec.spec projectRoot
   ConstructorFieldModifierSpec.spec projectRoot
