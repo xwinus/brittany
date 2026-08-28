@@ -18,6 +18,7 @@ import qualified FixitySignatureSpec
 import qualified InstanceHeadSpec
 import qualified Language.Haskell.Brittany.Main as Brittany
 import qualified OpaqueSyntaxSpec
+import qualified PatternSynonymBindingSpec
 import qualified PreambleSpacingSpec
 import qualified PreprocessorSpec
 import qualified PriorCommentSeparationSpec
@@ -100,6 +101,7 @@ main = Hspec.hspec $ do
   FixitySignatureSpec.spec projectRoot
   InstanceHeadSpec.spec projectRoot
   OpaqueSyntaxSpec.spec projectRoot
+  PatternSynonymBindingSpec.spec projectRoot
   PreambleSpacingSpec.spec projectRoot
   TemplateHaskellFallbackSpec.spec projectRoot
   PreprocessorSpec.spec projectRoot

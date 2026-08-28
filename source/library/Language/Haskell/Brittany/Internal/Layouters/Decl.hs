@@ -11,6 +11,7 @@ import qualified Data.Foldable
 import qualified Data.Maybe
 import qualified Data.Map as Map
 import qualified Data.Semigroup as Semigroup
+import qualified Data.Set as Set
 import qualified Data.Text as Text
 import GHC (GenLocated(L))
 import qualified GHC.Data.FastString as FastString
@@ -209,12 +210,15 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
                 regularDeclarationComments
                )
              )
-    let requiresExactLayout = or
+    let isPatternSynonymBinding = case bind of
+          PatSynBind{} -> True
+          _            -> False
+        requiresExactLayout = not isPatternSynonymBinding && or
           [ not $ null (exactSourceExpressions declaration)
           , not $ null (exactSourcePatterns declaration)
-          , requiresExactBinding bind
           ]
-    if hasSensitiveComments || requiresExactLayout
+    if (hasSensitiveComments && not isPatternSynonymBinding)
+      || requiresExactLayout
       then layoutExact DeclarationFallback declaration exactText
       else withTransformedAnns declaration
         $ docWrapNode declaration
@@ -375,10 +379,6 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
     Just fragment -> briDocByExactSourceFragmentNoComment
       fallback declaration fragment
     Nothing -> briDocByExactNoComment fallback declaration
-
-  requiresExactBinding = \case
-    PatSynBind{} -> True
-    _ -> False
 
   requiresExactSignature = \case
     SpecSig{} -> True
@@ -1156,8 +1156,12 @@ layoutPatSynBind name patSynDetails patDir rpat = do
     binderDoc = case patDir of
       ImplicitBidirectional -> docLit $ Text.pack "="
       _ -> docLit $ Text.pack "<-"
-    body = colsWrapPat =<< layoutPat rpat
     whereDoc = docLit $ Text.pack "where"
+  body <- docSharedWrapper (\pat -> colsWrapPat =<< layoutPat pat) rpat
+  hasBodyComments <- hasAnyRegularCommentsConnectedNoFollowing (toL rpat)
+  mMultilineBody <- if hasBodyComments
+    then layoutPatMultiline rpat
+    else pure Nothing
   mWhereDocs <- layoutPatSynWhere patDir
   headDoc <-
     fmap pure
@@ -1169,7 +1173,7 @@ layoutPatSynBind name patSynDetails patDir rpat = do
       , binderDoc
       ]
   runFilteredAlternative $ do
-    addAlternative
+    addAlternativeCond (not hasBodyComments)
       $
       -- pattern .. where
       --   ..
@@ -1192,8 +1196,16 @@ layoutPatSynBind name patSynDetails patDir rpat = do
       $ docPar
           headDoc
           (case mWhereDocs of
-            Nothing -> body
-            Just ds -> docLines ([docSeq [body, docSeparator, whereDoc]] ++ ds)
+            Nothing -> maybe body pure mMultilineBody
+            Just ds -> docLines
+              ( [ docSeq
+                    [ maybe body pure mMultilineBody
+                    , docSeparator
+                    , whereDoc
+                    ]
+                ]
+                ++ ds
+              )
           )
 
 -- | Helper method for the left hand side of a pattern synonym
@@ -1230,9 +1242,47 @@ layoutPatSynWhere
 layoutPatSynWhere hs = case hs of
   ExplicitBidirectional (MG _ (L _ lbinds)) -> do
     binderDoc <- docLit $ Text.pack "="
-    Just
-      <$> mapM (docSharedWrapper $ layoutPatternBind Nothing binderDoc) lbinds
+    Just <$> mapM (layoutPatSynBuilder binderDoc) lbinds
   _ -> pure Nothing
+
+layoutPatSynBuilder
+  :: BriDocNumbered
+  -> LMatch GhcPs (LHsExpr GhcPs)
+  -> ToBriDocM (ToBriDocM BriDocNumbered)
+layoutPatSynBuilder binderDoc match = do
+  builderDoc <- docSharedWrapper (layoutPatternBind Nothing binderDoc) match
+  commentPlan <- mAsk
+  let matchKeys = foldedAnnKeys match
+      leadingComments =
+        [ sourceComment
+        | (key, placement) <- List.sortOn
+            (placementRelativeOrder . snd)
+            $ Map.toList
+            $ commentPlanPlacements commentPlan
+        , NodeId ownerKey <- [placementOwner placement]
+        , Set.member ownerKey matchKeys
+        , placementRole placement `elem` [LeadingDoc, LeadingOrdinary]
+        , Just sourceComment <- [Map.lookup key $ commentPlanSources commentPlan]
+        , commentBeforeMatch sourceComment
+        ]
+  pure $ case leadingComments of
+    [] -> builderDoc
+    _  -> docLines
+      $ (layoutPatSynComment <$> leadingComments) ++ [builderDoc]
+ where
+  commentBeforeMatch sourceComment = case
+      srcSpanToRealSpan $ getLoc $ toL match
+    of
+      Nothing -> False
+      Just matchSpan ->
+        ( srcSpanEndLine $ sourceCommentSpan sourceComment
+        , srcSpanEndCol $ sourceCommentSpan sourceComment
+        ) <= (srcSpanStartLine matchSpan, srcSpanStartCol matchSpan)
+
+layoutPatSynComment :: SourceComment -> ToBriDocM BriDocNumbered
+layoutPatSynComment sourceComment = briDocBySourceFragmentNoComment
+  (L (realSpanToSrcSpan $ sourceCommentSpan sourceComment) sourceComment)
+  (sourceCommentFragment sourceComment)
 
 --------------------------------------------------------------------------------
 -- TyClDecl
