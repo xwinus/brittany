@@ -195,6 +195,7 @@ test-suite brittany-test-suite
     FixitySignatureSpec
     InstanceHeadSpec
     OpaqueSyntaxSpec
+    PatternSynonymBindingSpec
     PreambleSpacingSpec
     PreprocessorSpec
     PriorCommentSeparationSpec
