@@ -42,6 +42,7 @@ import Language.Haskell.Brittany.Internal.CommentPlan
   , lookupCommentRole
   )
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey(..), mkAnnKey, Comment(..), realSpanToSrcSpan, srcSpanToRealSpan, unConName)
+import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrintCompat
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.ExactSource (sourceCommentFragment)
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
@@ -618,7 +619,8 @@ layoutBind lbind@(L _ bind) = case bind of
     binderDoc <- docLit $ Text.pack "="
     funcPatDocs <-
       docWrapNode (toL lbind)
-      $ docWrapNode (toL lmatches)
+      $ docWrapAnnKeyList
+        (ExactPrintCompat.mkNamedAnnKey "MatchGroup" $ getLoc $ toL lmatches)
       $ layoutPatternBind (Just idStr) binderDoc
       `mapM` matches
     return $ Left $ funcPatDocs

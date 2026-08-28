@@ -57,7 +57,7 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
                     <$> lrdrNameToTextAnn (toL consName)
                   tyVarLine <- return <$> createBndrDoc bndrs
                   rhsDoc <- return <$> createDetailsDoc consNameStr details
-                  createDerivingPar mDerivs $ docSeq
+                  constructorDoc <- docWrapNode (toL lcons) $ docSeq
                     [ appSep $ docLitS "newtype"
                     , appSep $ docLit nameStr
                     , appSep tyVarLine
@@ -66,6 +66,7 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
                     , docSeparator
                     , rhsDoc
                     ]
+                  createDerivingPar mDerivs $ return constructorDoc
         _ -> briDocByExactNoComment DataDeclarationFallback ltycl
 
   -- data MyData a b
@@ -161,7 +162,7 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
                 (Nothing, Nothing) ->
                   docSeq
                     [docLitS "=", docSeparator, anchoredStructuralRhsDoc]
-              consAltDoc <- return $ (docAlt
+              consAltDoc <- return <$> docWrapNode (toL lcons) (docAlt
                 [ -- data D = forall a . Show a => D a
                   docSeq
                   [ docNodeAnnKW ltycl (Just AnnData) $ docSeq
@@ -293,7 +294,9 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
           | hasPriorComments -> docWrapNode
               (toL lcons)
               (detailsLayout constructorNameStr details)
-          | otherwise -> detailsLayout constructorNameStr details
+          | otherwise -> docWrapNode
+              (toL lcons)
+              (detailsLayout constructorNameStr details)
       pure (toL lcons, hasPriorComments, inlineHaddock, constructorDoc)
     let header = docNodeAnnKW ltycl (Just AnnData) $ docSeq
           [ appSep $ docLitS keyword

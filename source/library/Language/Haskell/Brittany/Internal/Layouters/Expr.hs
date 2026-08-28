@@ -10,8 +10,8 @@ import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import GHC (GenLocated(L), RdrName(..), SrcSpan, unLoc)
 import GHC.Types.Name.Reader (RdrName(Exact))
-import GHC.Types.SrcLoc (noSrcSpan)
-import GHC.Parser.Annotation (EpAnn(..), EpaLocation(..))
+import GHC.Types.SrcLoc (getLoc, noSrcSpan)
+import GHC.Parser.Annotation (EpAnn(..), EpaLocation(..), HasLoc)
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..))
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrintCompat
 import qualified GHC.Data.FastString as FastString
@@ -61,6 +61,12 @@ isSymbolicSectionOp (L _ expr) =
     _ -> False
   where
     isSymbolic s = not (null s) && head s `elem` ("!:#$%&*+./<=>?@\\^|-~" :: String)
+
+matchGroupKey
+  :: HasLoc l => GenLocated l e -> ExactPrintCompat.AnnKey
+matchGroupKey lmatches = ExactPrintCompat.mkNamedAnnKey
+  "MatchGroup"
+  (getLoc $ toL lmatches)
 
 layoutOpaqueExpression
   :: OpaqueFamily
@@ -124,14 +130,15 @@ layoutExpr' lexpr@(L _ expr) = do
     HsLit _ lit -> do
       allocateNode $ litBriDoc lit
     HsLam _ LamCase (MG _ lmatches) | null (unLoc lmatches) -> do
-      docSetParSpacing
+      docWrapAnnKey (matchGroupKey lmatches)
+        $ docSetParSpacing
         $ docAddBaseY BrIndentRegular
         $ (docLit $ Text.pack "\\case {}")
     HsLam _ LamCase (MG _ lmatches) -> do
       let matches = unLoc lmatches
       binderDoc <- docLit $ Text.pack "->"
       funcPatDocs <-
-        docWrapNode (toL lmatches)
+        docWrapAnnKeyList (matchGroupKey lmatches)
         $ layoutPatternBind Nothing binderDoc
         `mapM` matches
       docSetParSpacing $ docAddBaseY BrIndentRegular $ docPar
@@ -522,9 +529,9 @@ layoutExpr' lexpr@(L _ expr) = do
                   [docCommaSep, docNodeAnnKW lexpr (Just AnnOpenP) eN]
                 end = closeLit
               in docSetBaseY $ docLines $ [start] ++ linesM ++ [lineN, end]
-    HsCase _ cExp (MG _ (L _ [])) -> do
+    HsCase _ cExp (MG _ lmatches@(L _ [])) -> do
       cExpDoc <- docSharedWrapper layoutExpr' (toL cExp)
-      docAlt
+      docWrapAnnKey (matchGroupKey lmatches) $ docAlt
         [ docAddBaseY BrIndentRegular $ docSeq
           [ appSep $ docLit $ Text.pack "case"
           , appSep $ docForceSingleline cExpDoc
@@ -541,7 +548,7 @@ layoutExpr' lexpr@(L _ expr) = do
       cExpDoc <- docSharedWrapper layoutExpr' (toL cExp)
       binderDoc <- docLit $ Text.pack "->"
       funcPatDocs <-
-        docWrapNode (toL lmatches)
+        docWrapAnnKeyList (matchGroupKey lmatches)
         $ layoutPatternBind Nothing binderDoc
         `mapM` matches
       docAlt

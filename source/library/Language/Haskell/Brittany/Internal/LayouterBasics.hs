@@ -777,6 +777,31 @@ docNodeMoveToKWDP
 docNodeMoveToKWDP ast kw shouldRestoreIndent bdm =
   docMoveToKWDP (ExactPrintCompat.mkAnnKey ast) kw shouldRestoreIndent bdm
 
+docWrapAnnKey
+  :: AnnKey -> ToBriDocM BriDocNumbered -> ToBriDocM BriDocNumbered
+docWrapAnnKey annKey bdm = do
+  bd <- bdm
+  i1 <- allocNodeIndex
+  i2 <- allocNodeIndex
+  return
+    $ (,) i1
+    $ BDFAnnotationPrior PriorCommentSource annKey
+    $ (,) i2
+    $ BDFAnnotationRest annKey bd
+
+docWrapAnnKeyList
+  :: AnnKey -> ToBriDocM [BriDocNumbered] -> ToBriDocM [BriDocNumbered]
+docWrapAnnKeyList annKey bdsm = do
+  bds <- bdsm
+  case bds of
+    [] -> return []
+    [bd] -> return <$> docWrapAnnKey annKey (return bd)
+    (bd1 : bdR) | (bdN : bdM) <- reverse bdR -> do
+      bd1' <- docAnnotationPrior annKey $ return bd1
+      bdN' <- docAnnotationRest annKey $ return bdN
+      return $ bd1' : reverse bdM ++ [bdN']
+    _ -> error "cannot happen (TM)"
+
 class DocWrapable a where
   docWrapNode :: ( Data.Data.Data ast)
               => Located ast
@@ -792,16 +817,7 @@ class DocWrapable a where
                    -> a
 
 instance DocWrapable (ToBriDocM BriDocNumbered) where
-  docWrapNode ast bdm = do
-    bd <- bdm
-    i1 <- allocNodeIndex
-    i2 <- allocNodeIndex
-    return
-      $ (,) i1
-      $ BDFAnnotationPrior PriorCommentSource (ExactPrintCompat.mkAnnKey ast)
-      $ (,) i2
-      $ BDFAnnotationRest (ExactPrintCompat.mkAnnKey ast)
-      $ bd
+  docWrapNode ast = docWrapAnnKey $ ExactPrintCompat.mkAnnKey ast
   docWrapNodePrior ast bdm = do
     bd <- bdm
     i1 <- allocNodeIndex

@@ -260,6 +260,12 @@ commentPlanFingerprint plan =
     | placementRole placement `elem` [LeadingDoc, LeadingOrdinary]
     , ownerConstructor (placementOwner placement) `elem`
         ["HsFunTy", "HsListTy", "HsSig", "HsTyVar"] = "TypeMember"
+    | placementRole placement `elem` [LeadingDoc, LeadingOrdinary]
+    , ownerConstructor (placementOwner placement) `elem`
+        ["FunBind", "HsValBinds"] = "ValueBinding"
+    | placementRole placement == TrailingSameLine
+    , ownerConstructor (placementOwner placement) `elem`
+        ["HsLit", "HsPar"] = "ExpressionMember"
     | otherwise = ownerConstructor $ placementOwner placement
 
 isPostDocText :: String -> Bool
