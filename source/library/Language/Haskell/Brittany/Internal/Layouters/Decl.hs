@@ -56,6 +56,7 @@ import Language.Haskell.Brittany.Internal.Layouters.DataDecl.Support
   , supportsDocumentedSingleH98Comments
   )
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
+import Language.Haskell.Brittany.Internal.Layouters.FixitySignature
 import Language.Haskell.Brittany.Internal.Layouters.Pattern
 import Language.Haskell.Brittany.Internal.Layouters.StandaloneKindSignature
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Stmt
@@ -430,6 +431,10 @@ layoutSigWithComments hasOuterComments lsig@(L _loc sig) = case sig of
   PatSynSig _ names sigTy -> case unLoc sigTy of
     HsSig{} -> layoutNamesAndType (Just "pattern") names sigTy
     _ -> briDocByExactNoComment SignatureFallback (toL lsig)
+  FixSig _ fixitySignature ->
+    case layoutFixitySignature (toL lsig) fixitySignature of
+      Just fixityDoc -> fixityDoc
+      Nothing       -> briDocByExactNoComment SignatureFallback (toL lsig)
   _ -> briDocByExactNoComment SignatureFallback (toL lsig) -- TODO
  where
   layoutNamesAndType mKeyword names sigType = docWrapNode (toL lsig) $ do
