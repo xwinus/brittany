@@ -22,9 +22,11 @@ import GHC.Hs.Decls (DerivClauseTys(..), HsDerivingClause(..))
 import GHC.Hs.ImpExp (XImportDeclPass(..))
 import qualified GHC.Types.Name as Name
 import qualified GHC.Types.Name.Occurrence as Occurrence
+import qualified GHC.Types.Name.Reader as Reader
 import GHC.Types.PkgQual (RawPkgQual(..))
 import GHC.Types.SourceText (StringLiteral(..))
 import GHC.Unit.Types (IsBootInterface(..))
+import qualified GHC.Utils.Outputable as Outputable
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.SemanticModel
 import Language.Haskell.Syntax.ImpExp
@@ -60,6 +62,8 @@ projectValue path value
       Just <$> projectModule path parsedModule
   | Just derivingClause <- Data.cast value =
       Just <$> projectDerivingClause path derivingClause
+  | Just readerName <- Data.cast value =
+      projectReaderName path readerName
   | ignoredRepresentation typeRepresentation = pure Nothing
   | Just atomValue <- atomicValue value =
       pure $ Just $ SemanticAtom typeName atomValue
@@ -68,6 +72,18 @@ projectValue path value
   typeRepresentation = Typeable.typeOf value
   typeConstructor = Typeable.typeRepTyCon typeRepresentation
   typeName = Typeable.tyConName typeConstructor
+
+projectReaderName
+  :: [String]
+  -> Reader.RdrName
+  -> Either SemanticProjectionError (Maybe SemanticModel)
+projectReaderName path = \case
+  Reader.Exact name
+    | Name.isTupleTyConName name ->
+        projectGeneric path $ Reader.Unqual $ Occurrence.mkOccName
+          (Name.nameNameSpace name)
+          (Outputable.showSDocUnsafe $ Outputable.ppr name)
+  readerName -> projectGeneric path readerName
 
 projectModule
   :: [String]
@@ -382,12 +398,23 @@ atomicValue value = asum
   , FastString.unpackFS <$> (Data.cast value :: Maybe FastString.FastString)
   , ModuleName.moduleNameString
       <$> (Data.cast value :: Maybe ModuleName.ModuleName)
-  , Occurrence.occNameString
-      <$> (Data.cast value :: Maybe Occurrence.OccName)
+  , occurrenceValue <$> (Data.cast value :: Maybe Occurrence.OccName)
   , Name.nameStableString <$> (Data.cast value :: Maybe Name.Name)
   , show <$> (Data.cast value :: Maybe ByteString.ByteString)
   , show <$> (Data.cast value :: Maybe ShortByteString.ShortByteString)
   ]
+
+occurrenceValue :: Occurrence.OccName -> String
+occurrenceValue occurrence = namespace ++ ":" ++ Occurrence.occNameString occurrence
+ where
+  nameSpace = Occurrence.occNameSpace occurrence
+  namespace
+    | Occurrence.isFieldNameSpace nameSpace = "field"
+    | Occurrence.isDataConNameSpace nameSpace = "data-constructor"
+    | Occurrence.isTvNameSpace nameSpace = "type-variable"
+    | Occurrence.isTcClsNameSpace nameSpace = "type-constructor-or-class"
+    | Occurrence.isVarNameSpace nameSpace = "variable"
+    | otherwise = "unknown"
 
 projectionFailure
   :: [String]
