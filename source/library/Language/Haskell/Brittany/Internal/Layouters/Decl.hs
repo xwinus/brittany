@@ -57,6 +57,7 @@ import Language.Haskell.Brittany.Internal.Layouters.DataDecl.Support
   )
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
 import Language.Haskell.Brittany.Internal.Layouters.Pattern
+import Language.Haskell.Brittany.Internal.Layouters.StandaloneKindSignature
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Stmt
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import Language.Haskell.Brittany.Internal.Layouters.Instance
@@ -89,6 +90,9 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
   SigD _ sig
     | requiresExactSignature sig -> layoutExact SignatureFallback d exactText
   SigD _ sig -> withTransformedAnns d $ docWrapNode d $ layoutSig (L loc sig)
+  KindSigD _ signature -> withTransformedAnns d
+    $ docWrapNode d
+    $ layoutStandaloneKindSignature (L loc signature)
   ValD _ bind -> layoutValueDeclaration d bind
   TyClD _ tycl
     | requiresExactTypeDeclaration tycl ->

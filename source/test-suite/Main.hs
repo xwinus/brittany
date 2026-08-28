@@ -27,6 +27,7 @@ import qualified SemanticFingerprintSpec
 import qualified SignaturePostDocSpec
 import qualified SiblingBindingAlignmentSpec
 import qualified StandaloneDerivingSpec
+import qualified StandaloneKindSignatureSpec
 import qualified System.Directory as Directory
 import qualified System.FilePath as FilePath
 import qualified TemplateHaskellFallbackSpec
@@ -85,6 +86,7 @@ main = Hspec.hspec $ do
   SignaturePostDocSpec.spec projectRoot
   SiblingBindingAlignmentSpec.spec projectRoot
   StandaloneDerivingSpec.spec projectRoot
+  StandaloneKindSignatureSpec.spec projectRoot
   DataDeclSingleConstructorSpec.spec projectRoot
   ExtractAnnsSpec.spec
   ExactSourceFragmentSpec.spec projectRoot

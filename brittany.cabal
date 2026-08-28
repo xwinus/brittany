@@ -132,6 +132,7 @@ library
     Language.Haskell.Brittany.Internal.Layouters.Module
     Language.Haskell.Brittany.Internal.Layouters.Pattern
     Language.Haskell.Brittany.Internal.Layouters.StandaloneDeriving
+    Language.Haskell.Brittany.Internal.Layouters.StandaloneKindSignature
     Language.Haskell.Brittany.Internal.Layouters.Stmt
     Language.Haskell.Brittany.Internal.Layouters.Type
     Language.Haskell.Brittany.Internal.Obfuscation
@@ -202,6 +203,7 @@ test-suite brittany-test-suite
     SignaturePostDocSpec
     SiblingBindingAlignmentSpec
     StandaloneDerivingSpec
+    StandaloneKindSignatureSpec
     TemplateHaskellFallbackSpec
     TopLevelSpacingSpec
     TypeOperatorRecordSpec
