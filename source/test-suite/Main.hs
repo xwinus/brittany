@@ -38,6 +38,7 @@ import qualified Test.Hspec as Hspec
 import qualified TopLevelSpacingSpec
 import qualified TransactionalInplaceSpec
 import qualified TypeOperatorRecordSpec
+import qualified TupleSemanticNameSpec
 
 findProjectRoot :: FilePath -> IO FilePath
 findProjectRoot dir = do
@@ -113,6 +114,7 @@ main = Hspec.hspec $ do
   TopLevelSpacingSpec.spec
   TransactionalInplaceSpec.spec projectRoot
   TypeOperatorRecordSpec.spec projectRoot
+  TupleSemanticNameSpec.spec projectRoot
 
 type Literal :: Type
 newtype Literal

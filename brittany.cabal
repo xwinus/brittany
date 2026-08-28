@@ -211,4 +211,5 @@ test-suite brittany-test-suite
     TemplateHaskellFallbackSpec
     TopLevelSpacingSpec
     TypeOperatorRecordSpec
+    TupleSemanticNameSpec
   type: exitcode-stdio-1.0

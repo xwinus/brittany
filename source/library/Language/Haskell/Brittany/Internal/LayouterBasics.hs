@@ -20,7 +20,7 @@ import DataTreePrint
 import GHC (GenLocated(L), Located, moduleName, moduleNameString)
 import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey, Annotation)
-import GHC.Types.Name (getOccString)
+import qualified GHC.Types.Name as Name
 import GHC.Types.Name.Occurrence (occNameString)
 import GHC.Types.Name.Reader (RdrName(..))
 import qualified GHC.Types.SrcLoc as GHC
@@ -207,7 +207,9 @@ rdrNameToText (Qual mname occname) =
   Text.pack $ moduleNameString mname ++ "." ++ occNameString occname
 rdrNameToText (Orig modul occname) =
   Text.pack $ moduleNameString (moduleName modul) ++ occNameString occname
-rdrNameToText (Exact name) = Text.pack $ getOccString name
+rdrNameToText (Exact name)
+  | Name.isTupleTyConName name = Text.pack $ showOutputable name
+  | otherwise = Text.pack $ Name.getOccString name
 
 lrdrNameToText :: GenLocated l RdrName -> Text
 lrdrNameToText (L _ n) = rdrNameToText n
