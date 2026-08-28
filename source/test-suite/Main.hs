@@ -14,6 +14,7 @@ import qualified DataDeclSingleConstructorSpec
 import qualified ExtractAnnsSpec
 import qualified ExactSourceFragmentSpec
 import qualified FallbackSpec
+import qualified FixitySignatureSpec
 import qualified InstanceHeadSpec
 import qualified Language.Haskell.Brittany.Main as Brittany
 import qualified OpaqueSyntaxSpec
@@ -96,6 +97,7 @@ main = Hspec.hspec $ do
   ComposableDeclarationSpec.spec projectRoot
   ConstructorFieldModifierSpec.spec projectRoot
   FallbackSpec.spec projectRoot
+  FixitySignatureSpec.spec projectRoot
   InstanceHeadSpec.spec projectRoot
   OpaqueSyntaxSpec.spec projectRoot
   PreambleSpacingSpec.spec projectRoot

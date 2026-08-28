@@ -126,6 +126,7 @@ library
     Language.Haskell.Brittany.Internal.Layouters.DataDecl.Constructor
     Language.Haskell.Brittany.Internal.Layouters.Decl
     Language.Haskell.Brittany.Internal.Layouters.Expr
+    Language.Haskell.Brittany.Internal.Layouters.FixitySignature
     Language.Haskell.Brittany.Internal.Layouters.IE
     Language.Haskell.Brittany.Internal.Layouters.Import
     Language.Haskell.Brittany.Internal.Layouters.Instance
@@ -191,6 +192,7 @@ test-suite brittany-test-suite
     ExtractAnnsSpec
     ExactSourceFragmentSpec
     FallbackSpec
+    FixitySignatureSpec
     InstanceHeadSpec
     OpaqueSyntaxSpec
     PreambleSpacingSpec
