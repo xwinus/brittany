@@ -16,6 +16,7 @@ import qualified ExactSourceFragmentSpec
 import qualified FallbackSpec
 import qualified FixitySignatureSpec
 import qualified InstanceHeadSpec
+import qualified LetStatementBoundarySpec
 import qualified Language.Haskell.Brittany.Main as Brittany
 import qualified OpaqueSyntaxSpec
 import qualified PatternSynonymBindingSpec
@@ -100,6 +101,7 @@ main = Hspec.hspec $ do
   FallbackSpec.spec projectRoot
   FixitySignatureSpec.spec projectRoot
   InstanceHeadSpec.spec projectRoot
+  LetStatementBoundarySpec.spec projectRoot
   OpaqueSyntaxSpec.spec projectRoot
   PatternSynonymBindingSpec.spec projectRoot
   PreambleSpacingSpec.spec projectRoot

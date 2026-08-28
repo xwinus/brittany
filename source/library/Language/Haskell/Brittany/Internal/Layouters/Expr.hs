@@ -86,6 +86,20 @@ isParenthesizedBlockExpression = \case
   HsPar _ inner -> isBlockLikeExpression $ unLoc inner
   _ -> False
 
+layoutOperatorLeftOperand
+  :: LHsExpr GhcPs -> ToBriDocM (ToBriDocM BriDocNumbered)
+layoutOperatorLeftOperand expLeft@(L _ (HsPar _ inner))
+  | isBlockLikeExpression $ unLoc inner = do
+    innerDoc <- docSharedWrapper
+      (docWrapNode (toL expLeft) . layoutExpr')
+      (toL inner)
+    fmap pure $ docWrapNode (toL expLeft) $ docLines
+      [ docParenL
+      , docEnsureIndent BrIndentRegular $ docSetIndentLevel innerDoc
+      , docEnsureIndent BrIndentRegular docParenR
+      ]
+layoutOperatorLeftOperand expLeft = docSharedWrapper layoutExpr' (toL expLeft)
+
 layoutExpr :: ToBriDoc HsExpr
 layoutExpr lexpr = layoutExpr' (toL lexpr)
 
@@ -364,7 +378,7 @@ layoutExpr' lexpr@(L _ expr) = do
           ++ [docCols ColOpPrefix [appSep opLastDoc, docSetBaseY expLastDoc]]
           )
     OpApp _ expLeft expOp expRight -> do
-      expDocLeft <- docSharedWrapper layoutExpr' (toL expLeft)
+      expDocLeft <- layoutOperatorLeftOperand expLeft
       expDocOp <- docSharedWrapper layoutExpr' (toL expOp)
       -- GHC 9.14: wrap alphanumeric infix ops with backticks
       isSymOp <- isSymbolicSectionOp expOp
@@ -381,9 +395,16 @@ layoutExpr' lexpr@(L _ expr) = do
         leftIsDoBlock = case expLeft of
           L _ HsDo{} -> True
           _ -> False
+        leftIsParenthesizedBlock =
+          isParenthesizedBlockExpression $ unLoc expLeft
         layoutRight = if isParenthesizedBlockExpression $ unLoc expRight
           then expDocRight
           else docSetBaseY expDocRight
+        layoutMultiline opAndRight
+          | leftIsParenthesizedBlock = docSeq [appSep expDocLeft, opAndRight]
+          | leftIsDoBlock = docLines [expDocLeft, opAndRight]
+          | otherwise = docAddBaseY BrIndentRegular
+            $ docPar expDocLeft opAndRight
       runFilteredAlternative $ do
         -- one-line
         addAlternative $ docSeq
@@ -397,10 +418,7 @@ layoutExpr' lexpr@(L _ expr) = do
             expDocOpAndRight = docForceSingleline $ docCols
               ColOpPrefix
               [appSep $ expDocOp', layoutRight]
-          if leftIsDoBlock
-            then docLines [expDocLeft, expDocOpAndRight]
-            else docAddBaseY BrIndentRegular
-              $ docPar expDocLeft expDocOpAndRight
+          layoutMultiline expDocOpAndRight
         -- one-line + par
         addAlternativeCond allowPar $ docSeq
           [ appSep $ docForceSingleline expDocLeft
@@ -412,10 +430,7 @@ layoutExpr' lexpr@(L _ expr) = do
           let
             expDocOpAndRight =
               docCols ColOpPrefix [appSep expDocOp', layoutRight]
-          if leftIsDoBlock
-            then docLines [expDocLeft, expDocOpAndRight]
-            else docAddBaseY BrIndentRegular
-              $ docPar expDocLeft expDocOpAndRight
+          layoutMultiline expDocOpAndRight
     NegApp _ op _ -> do
       opDoc <- docSharedWrapper layoutExpr' (toL op)
       docSeq [docLit $ Text.pack "-", opDoc]

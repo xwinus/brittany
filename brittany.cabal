@@ -194,6 +194,7 @@ test-suite brittany-test-suite
     FallbackSpec
     FixitySignatureSpec
     InstanceHeadSpec
+    LetStatementBoundarySpec
     OpaqueSyntaxSpec
     PatternSynonymBindingSpec
     PreambleSpacingSpec
