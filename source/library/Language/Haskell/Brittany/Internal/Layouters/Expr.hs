@@ -102,11 +102,12 @@ layoutOperatorLeftOperand expLeft@(L _ (HsPar _ inner))
     innerDoc <- docSharedWrapper
       (docWrapNode (toL expLeft) . layoutExpr')
       (toL inner)
-    fmap pure $ docWrapNode (toL expLeft) $ docLines
-      [ docParenL
-      , docEnsureIndent BrIndentRegular $ docSetIndentLevel innerDoc
-      , docEnsureIndent BrIndentRegular docParenR
-      ]
+    fmap pure $ docWrapNode (toL expLeft)
+      $ docDelimitedBlock
+        DelimiterAttached
+        docParenL
+        innerDoc
+        (docEnsureIndent (BrIndentSpecial 1) docParenR)
 layoutOperatorLeftOperand expLeft = docSharedWrapper layoutExpr' (toL expLeft)
 
 layoutFlattenedOperatorApplication
@@ -549,7 +550,7 @@ layoutExprNative lexpr@(L _ expr) = do
           , docLit $ Text.pack ")"
           ]
         addAlternativeCond (isBlockLikeExpression $ unLoc innerExp)
-          $ docDelimitedBlock docParenL innerExpDoc docParenR
+          $ docDelimitedBlock DelimiterAttached docParenL innerExpDoc docParenR
         addAlternativeCond (not $ isBlockLikeExpression $ unLoc innerExp)
           $ docSetBaseY
           $ docLines

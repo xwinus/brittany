@@ -77,9 +77,9 @@ productionModuleExample projectRoot = Hspec.it
       Brittany.mainWith "brittany" args
       firstPass <- readFile output
       firstPass `Hspec.shouldSatisfy` List.isInfixOf
-        "    ) `Exception.onException` cleanupReplacement"
+        "   ) `Exception.onException` cleanupReplacement"
       firstPass `Hspec.shouldSatisfy` List.isInfixOf
-        "    ) `Exception.onException` cleanupBoth"
+        "   ) `Exception.onException` cleanupBoth"
       assertParses output firstPass
       Brittany.mainWith "brittany" args
       readFile output `Hspec.shouldReturn` firstPass

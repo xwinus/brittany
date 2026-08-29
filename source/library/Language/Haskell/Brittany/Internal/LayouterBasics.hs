@@ -748,16 +748,25 @@ docParenL = docLit $ Text.pack "("
 docParenR :: ToBriDocM BriDocNumbered
 docParenR = docLit $ Text.pack ")"
 
+data DelimiterLayout
+  = DelimiterAttached
+  | DelimiterVertical
+
 docDelimitedBlock
-  :: ToBriDocM BriDocNumbered
+  :: DelimiterLayout
   -> ToBriDocM BriDocNumbered
   -> ToBriDocM BriDocNumbered
   -> ToBriDocM BriDocNumbered
-docDelimitedBlock open child close = docLines
-  [ open
-  , docEnsureIndent BrIndentRegular $ docSetIndentLevel child
-  , close
-  ]
+  -> ToBriDocM BriDocNumbered
+docDelimitedBlock layout open child close = case layout of
+  DelimiterAttached -> docPar
+    (docSeq [open, docSetIndentLevel child])
+    close
+  DelimiterVertical -> docLines
+    [ open
+    , docEnsureIndent BrIndentRegular $ docSetIndentLevel child
+    , close
+    ]
 
 docParenHashLSep :: ToBriDocM BriDocNumbered
 docParenHashLSep = docSeq [docLit $ Text.pack "(#", docSeparator]

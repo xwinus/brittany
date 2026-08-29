@@ -14,6 +14,7 @@ import Data.Kind (Type)
 import qualified Data.List as List
 import qualified Data.Set as Set
 import qualified DataDeclSingleConstructorSpec
+import qualified DelimiterLayoutSpec
 import qualified ExtractAnnsSpec
 import qualified ExactSourceFragmentSpec
 import qualified FallbackSpec
@@ -98,6 +99,7 @@ main = Hspec.hspec $ do
   StandaloneKindSignatureSpec.spec projectRoot
   StructuralCommentSpec.spec
   DataDeclSingleConstructorSpec.spec projectRoot
+  DelimiterLayoutSpec.spec
   ExtractAnnsSpec.spec
   ExactSourceFragmentSpec.spec projectRoot
   CompatibilitySpec.spec projectRoot
