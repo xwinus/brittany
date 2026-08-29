@@ -151,7 +151,7 @@ representation corresponds to the input source code.
 For the purpose of exactprinting, what we need to look at are the annotations.
 The `ghc-exactprint` library returns the syntax tree and annotations as two
 different entities:
-- [You can start looking at the module level](https://downloads.haskell.org/ghc/latest/docs/html/libraries/ghc-8.8.1/HsSyn.html#v:HsModule)
+- [You can start looking at the module level](https://hackage.haskell.org/package/ghc-9.14.1/docs/GHC-Hs.html#t:HsModule)
 and work your way down to any syntactical construct from there;
 - The [Annotation type and its `Ann` constructor](https://hackage.haskell.org/package/ghc-exactprint-0.6.2/docs/Language-Haskell-GHC-ExactPrint-Types.html#t:Annotation).
 
