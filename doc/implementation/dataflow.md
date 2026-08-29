@@ -14,7 +14,7 @@ inducing too much boilerplate.
 
 Firstly, the topmost layer, the IO bits:
 
-<img src="https://cdn.rawgit.com/lspitzner/brittany/7775812cfdc7d2596883f87b5ba9207fbf61f2b3/doc-svg-gen/generated/periphery.svg">
+<img src="../../doc-svg-gen/generated/periphery.svg">
 
 The corresponding code is in these modules:
 
@@ -27,13 +27,13 @@ Note that `MultiRWS` here behaves like a nicer version of a stack like
 `ReaderT x (ReaderT y (WriterT w1 (WriterT2 w2 (Writer w3)..)`.
 The next graph zooms in on that transformation:
 
-<img src="https://cdn.rawgit.com/lspitzner/brittany/7775812cfdc7d2596883f87b5ba9207fbf61f2b3/doc-svg-gen/generated/ppm.svg">
+<img src="../../doc-svg-gen/generated/ppm.svg">
 
 Two places (The `BriDoc` generation and the backend) have additional local
 state (added to the monadic context).
 The following is a very simplified description of the BriDoc generation:
 
-<img src="https://cdn.rawgit.com/lspitzner/brittany/7775812cfdc7d2596883f87b5ba9207fbf61f2b3/doc-svg-gen/generated/bridocgen.svg">
+<img src="../../doc-svg-gen/generated/bridocgen.svg">
 
 
 For the `BriDoc` generation, the relevant modules are
