@@ -53,6 +53,17 @@ data CommentRole
   | Unattached
   deriving (Data.Data.Data, Eq, Ord, Show)
 
+data CommentAnchor
+  = BeforeNode
+  | AfterNode
+  | WithinNode
+  deriving (Data.Data.Data, Eq, Ord, Show)
+
+data CommentLineRelation
+  = InlineComment
+  | CommentOwnLine
+  deriving (Data.Data.Data, Eq, Ord, Show)
+
 data SourceComment = SourceComment
   { sourceCommentKey :: SourceCommentKey
   , sourceCommentText :: Text
@@ -64,6 +75,8 @@ data SourceComment = SourceComment
 data CommentPlacement = CommentPlacement
   { placementOwner :: NodeId
   , placementRole :: CommentRole
+  , placementAnchor :: CommentAnchor
+  , placementLineRelation :: CommentLineRelation
   , placementRelativeOrder :: Int
   }
   deriving (Data.Data.Data, Eq, Ord, Show)
@@ -76,7 +89,9 @@ data CommentPlan = CommentPlan
 
 data CommentPlanError
   = AmbiguousCommentOwnership SourceCommentKey [NodeId]
-  | AmbiguousCommentPlacement SourceCommentKey [CommentRole]
+  | AmbiguousCommentPlacement
+      SourceCommentKey
+      [(CommentRole, CommentAnchor, CommentLineRelation)]
   | InvalidSourceCommentSpan String SrcSpan
   deriving (Data.Data.Data, Eq, Show)
 

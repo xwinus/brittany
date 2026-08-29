@@ -110,6 +110,8 @@ spec projectRoot = Hspec.describe "exact-source comment ownership" $ do
           , commentPlanPlacements = Map.singleton commentKey CommentPlacement
             { placementOwner = NodeId externalOwner
             , placementRole = LeadingOrdinary
+            , placementAnchor = BeforeNode
+            , placementLineRelation = CommentOwnLine
             , placementRelativeOrder = 0
             }
           }

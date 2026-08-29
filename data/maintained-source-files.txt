@@ -85,6 +85,7 @@ source/test-suite/SiblingBindingAlignmentSpec.hs
 source/test-suite/SignaturePostDocSpec.hs
 source/test-suite/StandaloneDerivingSpec.hs
 source/test-suite/StandaloneKindSignatureSpec.hs
+source/test-suite/StructuralCommentSpec.hs
 source/test-suite/TemplateHaskellFallbackSpec.hs
 source/test-suite/TopLevelSpacingSpec.hs
 source/test-suite/TransactionalInplaceSpec.hs

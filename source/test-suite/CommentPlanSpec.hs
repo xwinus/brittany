@@ -92,6 +92,19 @@ spec = Hspec.describe "normalized source comment ownership" $ do
         Left [AmbiguousCommentPlacement _ roles] -> length roles == 2
         _ -> False
 
+  Hspec.it "rejects conflicting line relations for one structural placement" $ do
+    let comment = sourceCommentAt "PlacementLine.hs" 3 "-- shared"
+        annotation = (annotationWithPrior comment)
+          { EP.annPriorComments =
+              [(comment, EP.DP (0, 1)), (comment, EP.DP (1, 0))]
+          }
+    normalizeCommentPlan
+      (Map.singleton (nodeKeyAt "Owner" 2) annotation)
+      `Hspec.shouldSatisfy` \case
+        Left [AmbiguousCommentPlacement _ placements] ->
+          length placements == 2
+        _ -> False
+
   Hspec.it "rejects source comments without a real source span" $ do
     let comment = EP.Comment Nothing SrcLoc.noSrcSpan "-- invalid"
         annotations = Map.singleton

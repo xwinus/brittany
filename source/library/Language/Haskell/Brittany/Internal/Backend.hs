@@ -22,7 +22,10 @@ import qualified GHC.OldList as List
 import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.BackendUtils
 import Language.Haskell.Brittany.Internal.Config.Types
-import Language.Haskell.Brittany.Internal.CommentPlan (lookupCommentRole)
+import Language.Haskell.Brittany.Internal.CommentPlan
+  ( isCanonicalInlinePlacement
+  , lookupCommentPlacement
+  )
 import Language.Haskell.Brittany.Internal.ExactSource
   ( validateExactSourceFragment
   )
@@ -172,6 +175,8 @@ layoutBriDocM = \case
             when (fragmentRebaseContinuation fragment)
               $ layoutWriteAppendSpaces fragmentColumn
             layoutWriteAppend line
+        when (sourceFragmentRequiresLineBoundary fragment)
+          layoutFinishPriorCommentLine
       _ -> do
         let tlineCount = length tlines
         zip [1 ..] tlines `forM_` \(i, line) -> do
@@ -238,18 +243,23 @@ layoutBriDocM = \case
                           sourceDelta = priorCommentLineDelta
                             previousComment comment
                           sourceColumn = priorCommentSourceColumn comment
-                      let role = lookupCommentRole commentPlan comment
+                      let placement = lookupCommentPlacement commentPlan comment
+                          role = placementRole <$> placement
+                          structuralInline = maybe False
+                            isCanonicalInlinePlacement placement
                           recordPostDoc =
                             role == Just (HaddockPostDoc RecordField)
                           commentLines = Text.lines $ Text.pack commentStr
                           inlineFirst = forceInline && commentIndex == 0
                           adjustedY
                             | inlineFirst = 0
+                            | structuralInline = 0
                             | recordPostDoc = 1
                             | y > 0 = sourceDelta
                             | otherwise = y
                           adjustedX
                             | inlineFirst = 1
+                            | structuralInline = 1
                             | recordPostDoc = indentAmount
                             | forceInline, y > 0 = max 0
                                 $ fromMaybe x
@@ -322,10 +332,20 @@ layoutBriDocM = \case
           `forM_` \(comment@(ExactPrintCompat.Comment _ _ commentStr),
                      ExactPrintCompat.DP (y, x)) ->
                     when (commentStr /= "(" && commentStr /= ")") $ do
-                      let recordPostDoc = lookupCommentRole commentPlan comment
+                      let placement = lookupCommentPlacement commentPlan comment
+                          role = placementRole <$> placement
+                          structuralInline = maybe False
+                            isCanonicalInlinePlacement placement
+                          recordPostDoc = role
                             == Just (HaddockPostDoc RecordField)
-                          adjustedY = if recordPostDoc then 1 else y
-                          adjustedX = if recordPostDoc then indentAmount else x
+                          adjustedY
+                            | structuralInline = 0
+                            | recordPostDoc = 1
+                            | otherwise = y
+                          adjustedX
+                            | structuralInline = 1
+                            | recordPostDoc = indentAmount
+                            | otherwise = x
                           commentLines = Text.lines $ Text.pack commentStr
                       -- evil hack for CPP:
                       case commentStr of
@@ -396,7 +416,10 @@ layoutBriDocM = \case
           `forM_` \(commentIndex,
                      (comment, ExactPrintCompat.DP (y, x))) ->
                     let commentStr = ExactPrintCompat.commentContents comment
-                        role = lookupCommentRole commentPlan comment
+                        placement = lookupCommentPlacement commentPlan comment
+                        role = placementRole <$> placement
+                        structuralInline = maybe False
+                          isCanonicalInlinePlacement placement
                         previousComment
                           | commentIndex <= 0 = Nothing
                           | otherwise = fst <$> Maybe.listToMaybe
@@ -415,12 +438,14 @@ layoutBriDocM = \case
                             | otherwise = x
                           commentLines = Text.lines $ Text.pack commentStr
                           adjustedY
+                            | structuralInline = 0
                             | role == Just (HaddockPostDoc RecordField) = 1
                             | y > 0
                             , role == Just (BetweenChildren TypeOperator) = 1
                             | y > 0 = sourceDelta
                             | otherwise = y
                           adjustedX
+                            | structuralInline = 1
                             | y > 0, signaturePostDoc =
                                 max 0 $ commentIndent - indLinger
                             | y > 0
@@ -608,6 +633,13 @@ priorCommentSourceColumn comment = do
   span' <- ExactPrintCompat.srcSpanToRealSpan
     $ ExactPrintCompat.commentIdentifier comment
   pure $ SrcLoc.srcSpanStartCol span' - 1
+
+sourceFragmentRequiresLineBoundary :: ExactSourceFragment -> Bool
+sourceFragmentRequiresLineBoundary fragment = case reverse
+  $ Text.lines
+  $ fragmentText fragment <> Text.singleton '\n' of
+  lastLine : _ -> priorCommentRequiresLineBoundary $ Text.unpack lastLine
+  [] -> False
 
 consumeSourceFragment
   :: Set.Set ExactPrintCompat.AnnKey

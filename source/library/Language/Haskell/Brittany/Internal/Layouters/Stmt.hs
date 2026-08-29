@@ -79,11 +79,25 @@ layoutStmt lstmt@(L _ stmt) = do
     LetStmt _ binds -> do
       let isFree = indentPolicy == IndentPolicyFree
       let indentFourPlus = indentAmount >= 4
-      layoutLocalBinds (L (localBindsSpan binds) binds) >>= \case
-        Nothing -> docLit $ Text.pack "let"
+      let locatedBinds = L (localBindsSpan binds) binds
+      letComments <- filter (sourceCommentPrecedesNode locatedBinds)
+        <$> sourceCommentsWithinNode lstmt
+      let letDoc = appendSourceComments
+            (docLit $ Text.pack "let")
+            letComments
+          commentedBindDocs bindDocs = prependConsumedComments letComments
+            $ docAddBaseY BrIndentRegular
+            $ docPar letDoc
+            $ docSetBaseAndIndent
+            $ docLines
+            $ return <$> bindDocs
+      layoutLocalBinds locatedBinds >>= \case
+        Nothing -> prependConsumedComments letComments letDoc
           -- i just tested the above, and it is indeed allowed. heh.
-        Just [] -> docLit $ Text.pack "let" -- this probably never happens
+        Just [] -> prependConsumedComments letComments letDoc
         -- let bind = expr
+        Just [bindDoc] | not (null letComments) ->
+          commentedBindDocs [bindDoc]
         Just [bindDoc] -> docAlt
           [ docCols
             ColDoLet
@@ -103,6 +117,8 @@ layoutStmt lstmt@(L _ stmt) = do
             (docLit $ Text.pack "let")
             (docSetBaseAndIndent $ return bindDoc)
           ]
+        Just bindDocs | not (null letComments) ->
+          commentedBindDocs bindDocs
         Just bindDocs -> runFilteredAlternative $ do
           -- let aaa = expra
           --     bbb = exprb
