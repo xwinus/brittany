@@ -31,7 +31,8 @@ data SourceCommentSyntax
   deriving (Data.Data.Data, Eq, Ord, Show)
 
 data CommentedNode
-  = SignatureArgument
+  = DataConstructor
+  | SignatureArgument
   | SignatureResult
   | RecordField
   deriving (Data.Data.Data, Eq, Ord, Show)

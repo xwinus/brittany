@@ -4,30 +4,20 @@
 
 module Language.Haskell.Brittany.Internal.Layouters.DataDecl where
 
-import qualified Data.Char as Char
-import qualified Data.Map as Map
-import GHC (GenLocated(L), Located, getLoc, unLoc)
+import GHC (GenLocated(L), Located, unLoc)
 import GHC.Hs
 import GHC.Types.SrcLoc (noSrcSpan)
-import qualified GHC.Types.SrcLoc as SrcLoc
 import qualified GHC.OldList as List
-import Language.Haskell.Brittany.Internal.ExactPrintCompat
-  ( AnnKeywordId(..)
-  , Annotation(annPriorComments)
-  , Comment(commentContents, commentIdentifier)
-  , mkAnnKey
-  , realSpanToSrcSpan
-  , srcSpanToRealSpan
-  )
-import Language.Haskell.Brittany.Internal.ExactSource (sourceCommentFragment)
+import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..))
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.LayouterBasics
+import Language.Haskell.Brittany.Internal.Layouters.DataDecl.Boundary
 import Language.Haskell.Brittany.Internal.Layouters.DataDecl.Constructor
+import Language.Haskell.Brittany.Internal.Layouters.DataDecl.Deriving
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import Language.Haskell.Brittany.Internal.Layouters.Type
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
-import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.Types
 
 
@@ -50,7 +40,7 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
       case lcons of
         L _ (ConDeclH98 _ consName False [] context details _)
           | contextIsEmpty mCtxt && contextIsEmpty context -> do
-              (hasPriorComments, _) <- constructorCommentFlags (toL lcons)
+              hasPriorComments <- constructorHasPriorComments (toL lcons)
               if hasPriorComments
                 then layoutH98Constructors
                   "newtype" createAnnotatedDetailsDoc mCtxt mDerivs
@@ -98,7 +88,7 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
             layoutGadtConstructors mKindSig mCtxt mDerivs simpleConstructors
           _ -> briDocByExactNoComment DataDeclarationFallback ltycl
     DataTypeCons _ [lcons] -> do
-      (hasPriorComments, _) <- constructorCommentFlags (toL lcons)
+      hasPriorComments <- constructorHasPriorComments (toL lcons)
       case ( simpleConstructor lcons
         , hasPriorComments
         , contextIsEmpty mCtxt
@@ -292,12 +282,10 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
       $ unLoc (maybe (L noSrcSpan []) toL context)
     nameStr <- lrdrNameToTextAnn name
     tyVarLine <- return <$> createBndrDoc bndrs
-    constructorDocs <- constructors `forM`
+    constructorLayouts <- constructors `forM`
       \(lcons, constructorName, qvars, rhsContext, details) -> do
       constructorNameStr <- applyNameAdornment constructorName
         <$> lrdrNameToTextAnn (toL constructorName)
-      (hasPriorComments, inlineHaddock) <-
-        constructorCommentFlags (toL lcons)
       let forallParts = case createForallDoc qvars of
             Nothing -> []
             Just forallDoc ->
@@ -309,91 +297,20 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
             $ forallParts
             ++ contextParts
             ++ [detailsLayout constructorNameStr details]
-      constructorDoc <- return <$> case () of
-        _ | inlineHaddock -> docWrapNodeRest
-              (toL lcons)
-              detailsDoc
-          | hasPriorComments -> docWrapNode
-              (toL lcons)
-              detailsDoc
-          | otherwise -> docWrapNode
-              (toL lcons)
-              detailsDoc
-      pure (toL lcons, hasPriorComments, inlineHaddock, constructorDoc)
+      buildConstructorLayout (toL lcons) detailsDoc
     let header = docNodeAnnKW ltycl (Just AnnData) $ docSeq
           [ appSep $ docLitS keyword
           , docForceSingleline lhsContextDoc
           , appSep $ docLit nameStr
           , tyVarLine
           ]
-        constructorLines = zipWith constructorLine
+        constructorLines = zipWith renderH98Constructor
           ("=" : repeat "|")
-          constructorDocs
+          constructorLayouts
         multilineLayout = docAddBaseY BrIndentRegular
           $ docPar header
           $ docLines constructorLines
     createDerivingPar derivings multilineLayout
-
-  constructorLine
-    separator (constructor, hasPriorComments, inlineHaddock, constructorDoc)
-    | inlineHaddock = docLines
-        [ docSeq
-          [ docLitS separator
-          , docSeparator
-          , docAnnotationPriorInline (mkAnnKey constructor) docEmpty
-          ]
-        , docEnsureIndent BrIndentRegular constructorDoc
-        ]
-    | hasPriorComments = docLines
-        [ docLitS separator
-        , docEnsureIndent BrIndentRegular constructorDoc
-        ]
-    | otherwise = docSeq
-        [ docLitS separator
-        , docSeparator
-        , docSetBaseY constructorDoc
-        ]
-
-  constructorCommentFlags
-    :: Located (ConDecl GhcPs) -> ToBriDocM (Bool, Bool)
-  constructorCommentFlags constructor@(L constructorSpan _) =
-    astAnn constructor <&> \case
-    Just ann -> case filter
-      (commentPrecedesConstructor constructorSpan . fst)
-      (annPriorComments ann) of
-      (firstComment, _) : restComments ->
-        ( True
-        , isSingleLineHaddock firstComment
-            && all (isSingleLineComment . fst) restComments
-        )
-      [] -> (False, False)
-    Nothing -> (False, False)
-
-  commentPrecedesConstructor constructorSpan sourceComment = case
-    ( srcSpanToRealSpan $ commentIdentifier sourceComment
-    , srcSpanToRealSpan constructorSpan
-    ) of
-      (Just commentSpan, Just declarationSpan) ->
-        realLocation (SrcLoc.realSrcSpanEnd commentSpan)
-          <= realLocation (SrcLoc.realSrcSpanStart declarationSpan)
-      _ -> False
-
-  realLocation location =
-    (SrcLoc.srcLocLine location, SrcLoc.srcLocCol location)
-
-  isSingleLineHaddock priorComment =
-    let contents = commentContents priorComment
-        trimmed = dropWhile Char.isSpace contents
-    in case trimmed of
-      '-' : '-' : rest
-        | '|' : _ <- dropWhile Char.isSpace rest ->
-            isSingleLine contents
-      _ -> False
-
-  isSingleLineComment = isSingleLine . commentContents
-
-  isSingleLine contents =
-    '\n' `notElem` contents && '\r' `notElem` contents
 
   layoutGadtConstructors kindSignature context derivings constructors =
     docWrapNode ltycl $ do
@@ -402,13 +319,13 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
     nameStr <- lrdrNameToTextAnn name
     tyVarLine <- return <$> createBndrDoc bndrs
     kindDoc <- traverse (docSharedWrapper layoutType . toL) kindSignature
-    constructorDocs <- constructors `forM`
+    constructorLayouts <- constructors `forM`
       \(lcons, constructorName, arguments, resultType) -> do
         constructorNameStr <- applyNameAdornment constructorName
           <$> lrdrNameToTextAnn (toL constructorName)
-        return <$> docWrapNode (toL lcons)
-          (createGadtDetailsDoc
-            (toL lcons) constructorNameStr arguments resultType)
+        buildConstructorLayout (toL lcons)
+          $ createGadtDetailsDoc
+            (toL lcons) constructorNameStr arguments resultType
     let header = docNodeAnnKW ltycl (Just AnnData) $ docSeq
           [ appSep $ docLitS "data"
           , docForceSingleline lhsContextDoc
@@ -428,7 +345,7 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
     createDerivingPar derivings
       $ docAddBaseY BrIndentRegular
       $ docPar header
-      $ docLines constructorDocs
+      $ docLines $ renderGadtConstructor <$> constructorLayouts
 
 createContextDoc :: HsContext GhcPs -> ToBriDocM BriDocNumbered
 createContextDoc [] = docEmpty
@@ -474,116 +391,6 @@ createBndrDoc bs = do
         , kind
         , docLitS ")"
         ]
-
-createDerivingPar
-  :: HsDeriving GhcPs -> ToBriDocM BriDocNumbered -> ToBriDocM BriDocNumbered
-createDerivingPar derivs mainDoc = do
-  case derivs of
-    [] -> mainDoc
-    types ->
-      docPar mainDoc
-        $ docEnsureIndent BrIndentRegular
-        $ docLines
-        $ derivingClauseDoc
-        <$> types
-
-derivingClauseDoc :: LHsDerivingClause GhcPs -> ToBriDocM BriDocNumbered
-derivingClauseDoc clause@(L _ (HsDerivingClause _ext mStrategy lTys)) = do
-  let ts = case lTys of
-        L _ (DctSingle _ ty) -> [ty]
-        L _ (DctMulti _ tys) -> tys
-        _ -> []
-      tsLength = length ts
-      whenMoreThan1Type val = if tsLength > 1 then docLitS val else docLitS ""
-      (lhsStrategy, rhsStrategy) =
-        maybe (docEmpty, docEmpty) strategyLeftRight (fmap toL mStrategy)
-  clauseComments <- derivingClauseComments (toL clause)
-  let firstTypeStart = case ts of
-        [] -> Nothing
-        firstType : _ -> fmap sourcePositionStart
-          $ srcSpanToRealSpan $ getLoc $ toL firstType
-      (leadingComments, trailingComments) = case firstTypeStart of
-        Nothing -> (clauseComments, [])
-        Just typeStart -> List.partition
-          ((<= typeStart) . sourcePositionEnd . sourceCommentSpan)
-          clauseComments
-      typeDoc = docSeq
-        [ whenMoreThan1Type "("
-        , docSeq
-          $ List.intersperse docCommaSep
-          $ ((\lty -> case unLoc lty of
-              HsSig _ _ body -> layoutType (toL body)
-              _ -> docLitS "?") <$> ts)
-        , whenMoreThan1Type ")"
-        ]
-  if null ts then docSeq []
-  else if null clauseComments
-    then docWrapNodePrior (toL clause) $ docSeq
-       [ docDeriving
-       , docWrapNodePrior (toL lTys) $ lhsStrategy
-       , docSeparator
-       , whenMoreThan1Type "("
-       , docWrapNodeRest (toL lTys)
-       $ docSeq
-       $ List.intersperse docCommaSep
-       $ ((\lty -> case unLoc lty of HsSig _ _ body -> layoutType (toL body); _ -> docLitS "?") <$> ts)
-       , whenMoreThan1Type ")"
-       , rhsStrategy
-       ]
-    else docWrapNodePrior (toL clause) $ docLines
-      $ [docSeq [docDeriving, lhsStrategy]]
-      ++ (layoutDerivingComment <$> leadingComments ++ trailingComments)
-      ++ [typeDoc, rhsStrategy]
- where
-  strategyLeftRight = \case
-    (L _ (StockStrategy _)) -> (docLitS " stock", docEmpty)
-    (L _ (AnyclassStrategy _)) -> (docLitS " anyclass", docEmpty)
-    (L _ (NewtypeStrategy _)) -> (docLitS " newtype", docEmpty)
-    lVia@(L _ (ViaStrategy (XViaStrategyPs _ viaType))) ->
-      ( docEmpty
-      , docSeq
-        [ docWrapNode (toL lVia) $ docLitS " via"
-        , docSeparator
-        , layoutSigType viaType
-        ]
-      )
-
-  layoutSigType :: LHsSigType GhcPs -> ToBriDocM BriDocNumbered
-  layoutSigType (L _ (HsSig _ _ body)) = layoutType (toL body)
-
-derivingClauseComments
-  :: Located (HsDerivingClause GhcPs) -> ToBriDocM [SourceComment]
-derivingClauseComments clause = do
-  commentPlan <- mAsk
-  pure $ case srcSpanToRealSpan $ getLoc clause of
-    Nothing -> []
-    Just clauseSpan -> List.sortOn
-      (sourcePositionStart . sourceCommentSpan)
-      [ sourceComment
-      | (key, placement) <- Map.toList $ commentPlanPlacements commentPlan
-      , placementRole placement == BetweenChildren DerivingClause
-      , Just sourceComment <- [Map.lookup key $ commentPlanSources commentPlan]
-      , sourcePositionStart (sourceCommentSpan sourceComment)
-          >= sourcePositionStart clauseSpan
-      , sourcePositionEnd (sourceCommentSpan sourceComment)
-          <= sourcePositionEnd clauseSpan
-      ]
-
-layoutDerivingComment :: SourceComment -> ToBriDocM BriDocNumbered
-layoutDerivingComment sourceComment = briDocBySourceFragmentNoComment
-  (L (realSpanToSrcSpan $ sourceCommentSpan sourceComment) sourceComment)
-  (sourceCommentFragment sourceComment)
-
-sourcePositionStart :: SrcLoc.RealSrcSpan -> (Int, Int)
-sourcePositionStart span' =
-  (SrcLoc.srcSpanStartLine span', SrcLoc.srcSpanStartCol span')
-
-sourcePositionEnd :: SrcLoc.RealSrcSpan -> (Int, Int)
-sourcePositionEnd span' =
-  (SrcLoc.srcSpanEndLine span', SrcLoc.srcSpanEndCol span')
-
-docDeriving :: ToBriDocM BriDocNumbered
-docDeriving = docLitS "deriving"
 
 createForallDoc
   :: [LHsTyVarBndr flag GhcPs] -> Maybe (ToBriDocM BriDocNumbered)

@@ -7,6 +7,7 @@ source/library/Language/Haskell/Brittany/Internal/Backend.hs
 source/library/Language/Haskell/Brittany/Internal/BackendUtils.hs
 source/library/Language/Haskell/Brittany/Internal/CommentPlan.hs
 source/library/Language/Haskell/Brittany/Internal/CommentUtils.hs
+source/library/Language/Haskell/Brittany/Internal/ConstructorComments.hs
 source/library/Language/Haskell/Brittany/Internal/Config.hs
 source/library/Language/Haskell/Brittany/Internal/Config/Types.hs
 source/library/Language/Haskell/Brittany/Internal/Config/Types/Instances.hs
@@ -18,7 +19,9 @@ source/library/Language/Haskell/Brittany/Internal/ExtractAnns.hs
 source/library/Language/Haskell/Brittany/Internal/Fallbacks.hs
 source/library/Language/Haskell/Brittany/Internal/LayouterBasics.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/DataDecl.hs
+source/library/Language/Haskell/Brittany/Internal/Layouters/DataDecl/Boundary.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/DataDecl/Constructor.hs
+source/library/Language/Haskell/Brittany/Internal/Layouters/DataDecl/Deriving.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/DataDecl/Support.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Decl.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Expr.hs
@@ -62,6 +65,7 @@ source/test-suite/CompactParenthesizedPatternSpec.hs
 source/test-suite/CompatibilityMatrix.hs
 source/test-suite/CompatibilitySpec.hs
 source/test-suite/ComposableDeclarationSpec.hs
+source/test-suite/ConstructorBoundarySpec.hs
 source/test-suite/ConstructorFieldModifierSpec.hs
 source/test-suite/DataDeclSingleConstructorSpec.hs
 source/test-suite/ExactSourceFragmentSpec.hs
