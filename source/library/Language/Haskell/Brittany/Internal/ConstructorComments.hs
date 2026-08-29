@@ -11,11 +11,13 @@ import           Data.Data                                ( Data )
 import qualified Data.Generics                           as SYB
 import           Data.Kind                                ( Type )
 import qualified Data.Map                                as Map
+import qualified Data.Maybe                              as Maybe
 import           GHC                                      ( GenLocated(L)
                                                           , getLoc
                                                           , unLoc
                                                           )
 import           GHC.Hs                                   ( DataDefnCons(..)
+                                                          , HsDecl(..)
                                                           , HsDataDefn(..)
                                                           , LHsDecl
                                                           , TyClDecl(..)
@@ -33,7 +35,9 @@ data BoundaryNode = BoundaryNode
 
 normalizeConstructorComments :: [LHsDecl GhcPs] -> Anns -> Anns
 normalizeConstructorComments declarations annotations =
-  foldl moveGroup annotations $ constructorBoundaryGroups declarations
+  foldl moveGroup annotations
+    $ constructorBoundaryGroups declarations
+    ++ terminalConstructorBoundaryGroups declarations
  where
   moveGroup currentAnnotations nodes =
     foldl movePostDocs currentAnnotations $ zip nodes $ drop 1 nodes
@@ -170,6 +174,30 @@ constructorBoundaryGroups = SYB.everything (++) query
     locatedNode (L (getLocA constructor) $ unLoc constructor)
   derivingNode derivingClause =
     locatedNode (L (getLocA derivingClause) $ unLoc derivingClause)
+
+terminalConstructorBoundaryGroups :: [LHsDecl GhcPs] -> [[BoundaryNode]]
+terminalConstructorBoundaryGroups declarations = Maybe.mapMaybe boundaryGroup
+  $ zip declarations $ drop 1 declarations
+ where
+  boundaryGroup :: (LHsDecl GhcPs, LHsDecl GhcPs) -> Maybe [BoundaryNode]
+  boundaryGroup (declaration, nextDeclaration) = case unLoc declaration of
+    TyClD _ DataDecl
+      { tcdDataDefn = HsDataDefn
+          { dd_cons = constructors
+          , dd_derivs = derivings
+          }
+      } -> Just
+        $ fmap constructorNode (constructorList constructors)
+        ++ fmap derivingNode derivings
+        ++ [locatedNode $ L (getLocA nextDeclaration) $ unLoc nextDeclaration]
+    _ -> Nothing
+  constructorList = \case
+    NewTypeCon constructor -> [constructor]
+    DataTypeCons _ constructors -> constructors
+  constructorNode constructor =
+    locatedNode $ L (getLocA constructor) $ unLoc constructor
+  derivingNode derivingClause =
+    locatedNode $ L (getLocA derivingClause) $ unLoc derivingClause
 
 locatedNode :: Data a => GenLocated SrcLoc.SrcSpan a -> BoundaryNode
 locatedNode node =

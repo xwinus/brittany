@@ -29,12 +29,15 @@ collectCommentPositions :: ParsedSource -> [(Int, Int)]
 collectCommentPositions = fmap fst . collectSourceComments
 
 collectSourceComments :: ParsedSource -> [((Int, Int), String)]
-collectSourceComments parsedSource = List.nub
+collectSourceComments parsedSource = foldl addTransport []
   [ (commentPosition exactComment, ExactPrintTypes.commentContents exactComment)
   | comment <- collectComments parsedSource
   , exactComment <- ExactPrintUtils.tokComment comment
   ]
  where
+  addTransport comments sourceComment
+    | sourceComment `elem` comments = comments
+    | otherwise = comments ++ [sourceComment]
   commentPosition comment =
     let span' = epaLocationRealSrcSpan $ ExactPrintTypes.commentLoc comment
     in (srcSpanStartLine span', srcSpanStartCol span')

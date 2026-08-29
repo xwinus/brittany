@@ -48,10 +48,11 @@ import GHC.Types.SrcLoc (SrcSpan)
 import Language.Haskell.Brittany.Internal.Backend
 import Language.Haskell.Brittany.Internal.BackendUtils
 import Language.Haskell.Brittany.Internal.CommentUtils
-  ( collectCommentContents
-  , collectCommentPositions
+  ( collectCommentPositions
   )
 import Language.Haskell.Brittany.Internal.CommentPlan
+import Language.Haskell.Brittany.Internal.CommentBoundary
+  ( canonicalCommentGraph )
 import Language.Haskell.Brittany.Internal.Config
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactSource (nodeSourceSlice)
@@ -525,12 +526,12 @@ pPrintModuleAndCheckWithSource originalSource conf inlineConf anns parsedModule 
               (Left planErrors, _) -> fmap (ErrorCommentPlan . show) planErrors
               (_, Left planErrors) -> fmap (ErrorCommentPlan . show) planErrors
               (Right inputPlan, Right outputPlan) ->
-                let inputComments = List.nub
-                      $ collectCommentContents parsedModule
-                    outputComments = List.nub
-                      $ collectCommentContents outputModule
-                    inputFingerprint = commentPlanFingerprint inputPlan
-                    outputFingerprint = commentPlanFingerprint outputPlan
+                let inputComments = commentPlanCommentTexts inputPlan
+                    outputComments = commentPlanCommentTexts outputPlan
+                    inputFingerprint =
+                      canonicalCommentGraph parsedModule inputPlan
+                    outputFingerprint =
+                      canonicalCommentGraph outputModule outputPlan
                 in [ ErrorUnusedComment
                     $ "Comment missing from formatted output: " ++ show commentText
                 | commentText <- inputComments List.\\ outputComments
@@ -726,8 +727,22 @@ ppModule originalSource lmod@(L _loc _m@(HsModule _ _name _exports imports decls
           <$> EP.srcSpanToRealSpan (getLocA limport)
   let declUnit ldecl =
         let node = toL ldecl
-        in (`topLevelUnit` annotationFor (mkAnnKey node))
-          <$> EP.srcSpanToRealSpan (getLocA ldecl)
+            nodeKey = mkAnnKey node
+            descendantSpans = do
+              annotation <- Map.elems
+                $ Map.findWithDefault Map.empty nodeKey annGroups
+              comment <- fmap fst
+                (annPriorComments annotation ++ annFollowingComments annotation)
+                ++ [inner | (AnnComment inner, _) <- annsDP annotation]
+              Data.Maybe.maybeToList
+                $ EP.srcSpanToRealSpan $ commentIdentifier comment
+        in (\nodeSpan ->
+              let unit = topLevelUnit nodeSpan $ annotationFor nodeKey
+              in unit
+                { topLevelFollowingSpans =
+                    topLevelFollowingSpans unit ++ descendantSpans
+                }
+           ) <$> EP.srcSpanToRealSpan (getLocA ldecl)
   let moduleUnit = (`topLevelUnit` annotationFor (mkAnnKey $ toL lmod))
         <$> moduleWhereSpan _m
   let preambleUnit =

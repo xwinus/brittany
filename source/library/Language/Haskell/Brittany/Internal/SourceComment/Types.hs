@@ -43,6 +43,34 @@ data CommentBoundary
   | ListChildren
   deriving (Data.Data.Data, Eq, Ord, Show)
 
+data CommentBoundaryPath
+  = ModuleBoundaryPath
+  | ImportBoundaryPath String Int
+  | DeclarationBoundaryPath Int
+  | ConstructorBoundaryPath Int Int
+  deriving (Data.Data.Data, Eq, Ord, Show)
+
+data CommentBoundaryGap
+  = BeforeBoundary
+  | WithinBoundary
+  | BetweenBoundary
+  | AfterLastBoundary
+  deriving (Data.Data.Data, Eq, Ord, Show)
+
+data CommentBoundaryId = CommentBoundaryId
+  { commentBoundaryPath :: CommentBoundaryPath
+  , commentBoundaryGap :: CommentBoundaryGap
+  }
+  deriving (Data.Data.Data, Eq, Ord, Show)
+
+data CanonicalComment = CanonicalComment
+  { canonicalCommentBoundary :: CommentBoundaryId
+  , canonicalCommentText :: Text
+  , canonicalCommentSyntax :: SourceCommentSyntax
+  , canonicalCommentRole :: CommentRole
+  }
+  deriving (Data.Data.Data, Eq, Ord, Show)
+
 data CommentRole
   = LeadingDoc
   | LeadingOrdinary
