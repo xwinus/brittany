@@ -301,7 +301,7 @@ layoutPatStructural lpat@(L _ pat)
     fmap Just $ docWrapNode (toL lpat)
       $ docAlt
         [ docSeq [docParenL, pure innerDoc, docParenR]
-        , docDelimitedBlock docParenL (pure innerDoc) docParenR
+        , docDelimitedBlock DelimiterAttached docParenL (pure innerDoc) docParenR
         ]
   TuplePat _ elements boxity -> case boxity of
     Boxed -> layoutDelimitedPattern lpat docParenL docParenR elements

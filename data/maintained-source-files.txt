@@ -72,6 +72,7 @@ source/test-suite/ComposableDeclarationSpec.hs
 source/test-suite/ConstructorBoundarySpec.hs
 source/test-suite/ConstructorFieldModifierSpec.hs
 source/test-suite/DataDeclSingleConstructorSpec.hs
+source/test-suite/DelimiterLayoutSpec.hs
 source/test-suite/ExactSourceFragmentSpec.hs
 source/test-suite/ExtractAnnsSpec.hs
 source/test-suite/FallbackSpec.hs
