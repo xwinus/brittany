@@ -8,6 +8,7 @@ module Language.Haskell.Brittany.Internal.CommentPlan
   , lookupCommentRole
   , isCanonicalInlinePlacement
   , commentPlanKeys
+  , commentPlanCommentTexts
   , commentPlanFingerprint
   , commentPlanStructuralFingerprint
   ) where
@@ -62,14 +63,14 @@ normalizeCommentPlan annotations = case
     [ AmbiguousCommentOwnership key
         owners
     | (key, groupedOccurrences) <- Map.toAscList grouped
-    , let owners = List.nub $ occurrenceOwner <$> groupedOccurrences
+    , let owners = orderedDistinct $ occurrenceOwner <$> groupedOccurrences
     , length owners > 1
     ]
   placementErrors =
     [ AmbiguousCommentPlacement key placements
     | (key, groupedOccurrences) <- Map.toAscList grouped
-    , let owners = List.nub $ occurrenceOwner <$> groupedOccurrences
-          placements = List.nub
+    , let owners = orderedDistinct $ occurrenceOwner <$> groupedOccurrences
+          placements = orderedDistinct
             $ classifyPlacement annotations <$> groupedOccurrences
     , length owners == 1
     , length placements > 1
@@ -78,8 +79,8 @@ normalizeCommentPlan annotations = case
     [ (key, occurrence)
     | (key, groupedOccurrences) <- Map.toAscList grouped
     , occurrence : _ <- [groupedOccurrences]
-    , length (List.nub $ occurrenceOwner <$> groupedOccurrences) == 1
-    , length (List.nub $ classifyPlacement annotations <$> groupedOccurrences) == 1
+    , allEqual $ occurrenceOwner <$> groupedOccurrences
+    , allEqual $ classifyPlacement annotations <$> groupedOccurrences
     ]
   orderedOccurrences = List.sortOn (commentPosition . occurrenceComment . snd)
     uniqueOccurrences
@@ -214,28 +215,42 @@ classifyComment annotations occurrence
       | otherwise -> Unattached
   isPostDocContinuation = case srcSpanToRealSpan $ commentIdentifier comment of
     Nothing -> False
-    Just commentSpan -> any (endsOnPreviousLine commentSpan)
-      [ previousComment
-      | annotation <- Map.elems annotations
-      , previousComment <- annotationSourceComments annotation
-      , isPostDocText
-          $ dropWhile Char.isSpace
-          $ commentContents previousComment
-      ]
+    Just _ -> followsPostDocSeed boundaryComments comment
+  boundaryComments = case Map.lookup ownerKey annotations of
+    Nothing -> []
+    Just annotation -> case occurrenceSlot occurrence of
+      PriorSlot -> fmap fst $ annPriorComments annotation
+      FollowingSlot -> fmap fst $ annFollowingComments annotation
+      InnerSlot -> [inner | (AnnComment inner, _) <- annsDP annotation]
 
-annotationSourceComments :: Annotation -> [Comment]
-annotationSourceComments annotation =
-  fmap fst (annPriorComments annotation)
-    ++ fmap fst (annFollowingComments annotation)
-    ++ [comment | (AnnComment comment, _) <- annsDP annotation]
+followsPostDocSeed :: [Comment] -> Comment -> Bool
+followsPostDocSeed comments target = go False Nothing
+  $ List.sortOn commentPosition comments
+ where
+  go _ _ [] = False
+  go inPostDocRun previous (current : rest)
+    | commentKey current == commentKey target =
+        inPostDocRun && maybe False (`commentsAreAdjacent` current) previous
+    | otherwise =
+        let stripped = dropWhile Char.isSpace $ commentContents current
+            adjacent = maybe False (`commentsAreAdjacent` current) previous
+            continues = inPostDocRun
+              && adjacent
+              && not (isLeadingDocText stripped)
+              && not (isSectionText stripped)
+              && not (isPragmaText stripped)
+            nextInRun = isPostDocText stripped || continues
+        in go nextInRun (Just current) rest
 
-endsOnPreviousLine :: SrcLoc.RealSrcSpan -> Comment -> Bool
-endsOnPreviousLine current previous = case
-  srcSpanToRealSpan $ commentIdentifier previous of
-  Nothing -> False
-  Just previousSpan ->
+commentsAreAdjacent :: Comment -> Comment -> Bool
+commentsAreAdjacent previous current = case
+  ( srcSpanToRealSpan $ commentIdentifier previous
+  , srcSpanToRealSpan $ commentIdentifier current
+  ) of
+  (Just previousSpan, Just currentSpan) ->
     SrcLoc.srcSpanEndLine previousSpan + 1
-      == SrcLoc.srcSpanStartLine current
+      == SrcLoc.srcSpanStartLine currentSpan
+  _ -> False
 
 annotationSpans :: String -> Anns -> [SrcLoc.RealSrcSpan]
 annotationSpans constructorName annotations =
@@ -292,62 +307,27 @@ lookupCommentRole plan comment = placementRole
 commentPlanKeys :: CommentPlan -> Set.Set SourceCommentKey
 commentPlanKeys = Map.keysSet . commentPlanSources
 
+commentPlanCommentTexts :: CommentPlan -> [Text.Text]
+commentPlanCommentTexts plan = sourceCommentText . fst <$> orderedComments plan
+
 commentPlanFingerprint :: CommentPlan -> [(Text.Text, SourceCommentSyntax, CommentRole, String)]
-commentPlanFingerprint plan = List.sort $ deduplicateTransport
-  $ List.sortOn sourceIdentity
+commentPlanFingerprint plan =
   [ ( sourceCommentText sourceComment
     , sourceCommentSyntax sourceComment
     , fingerprintRole sourceComment placement
     , fingerprintOwner sourceComment placement
     )
-  | (key, placement) <- Map.toList $ commentPlanPlacements plan
-  , Just sourceComment <- [Map.lookup key $ commentPlanSources plan]
+  | (sourceComment, placement) <- orderedComments plan
   ]
  where
-  sourceIdentity (commentText, syntax, _, _) = (commentText, syntax)
-  deduplicateTransport [] = []
-  deduplicateTransport (entry : entries) = entry
-    : deduplicateTransport (List.dropWhile (sameSourceComment entry) entries)
-  sameSourceComment (leftText, leftSyntax, _, _)
-      (rightText, rightSyntax, _, _) =
-    leftText == rightText && leftSyntax == rightSyntax
-
-  ownerConstructor (NodeId (AnnKey _ name)) = unConName name
-  isBindingMember placement = any
-    (`List.isInfixOf` ownerConstructor (placementOwner placement))
-    [ "ConPat"
-    , "FunBind"
-    , "BodyStmt"
-    , "GRHS"
-    , "HsFunTy"
-    , "HsListTy"
-    , "HsQualTy"
-    , "HsSig"
-    , "HsTyVar"
-    , "HsValBinds"
-    , "InvisPat"
-    , "Match"
-    , "PatBind"
-    , "TuplePat"
-    , "VarPat"
-    , "WildPat"
-    ]
   fingerprintRole sourceComment placement
     | sourceCommentSyntax sourceComment == BlockComment
     , placementRole placement `elem` [LeadingOrdinary, TrailingSameLine] =
         LeadingOrdinary
-    | placementRole placement == TrailingSameLine = LeadingOrdinary
-    | "SigD" `List.isInfixOf` ownerConstructor (placementOwner placement)
-    , placementRole placement `elem`
+    | placementRole placement `elem`
         [LeadingOrdinary, TrailingSameLine, Unattached] = LeadingOrdinary
-    | placementRole placement == Unattached
-    , isBindingMember placement = LeadingOrdinary
     | otherwise = placementRole placement
-  fingerprintOwner sourceComment placement
-    | fingerprintRole sourceComment placement == LeadingOrdinary =
-        "LeadingMember"
-    | isBindingMember placement = "BindingMember"
-    | otherwise = ownerConstructor $ placementOwner placement
+  fingerprintOwner _ _ = "CanonicalBoundary"
 
 commentPlanStructuralFingerprint
   :: CommentPlan
@@ -360,11 +340,7 @@ commentPlanStructuralFingerprint
        )
      ]
 commentPlanStructuralFingerprint plan = fmap fingerprint
-  $ List.sortOn (placementRelativeOrder . snd)
-  [ (sourceComment, placement)
-  | (key, placement) <- Map.toList $ commentPlanPlacements plan
-  , Just sourceComment <- [Map.lookup key $ commentPlanSources plan]
-  ]
+  $ orderedComments plan
  where
   fingerprint (sourceComment, placement) =
     ( sourceCommentText sourceComment
@@ -375,6 +351,25 @@ commentPlanStructuralFingerprint plan = fmap fingerprint
     , ownerConstructor $ placementOwner placement
     )
   ownerConstructor (NodeId (AnnKey _ ownerName)) = unConName ownerName
+
+orderedComments :: CommentPlan -> [(SourceComment, CommentPlacement)]
+orderedComments plan = List.sortOn (placementRelativeOrder . snd)
+  [ (sourceComment, placement)
+  | (key, placement) <- Map.toList $ commentPlanPlacements plan
+  , Just sourceComment <- [Map.lookup key $ commentPlanSources plan]
+  ]
+
+orderedDistinct :: Eq value => [value] -> [value]
+orderedDistinct = foldl addIfMissing []
+ where
+  addIfMissing values value
+    | value `elem` values = values
+    | otherwise = values ++ [value]
+
+allEqual :: Eq value => [value] -> Bool
+allEqual = \case
+  [] -> True
+  firstValue : remaining -> all (== firstValue) remaining
 
 isCanonicalInlinePlacement :: CommentPlacement -> Bool
 isCanonicalInlinePlacement placement =

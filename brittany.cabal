@@ -115,6 +115,7 @@ library
     Language.Haskell.Brittany.Internal.Backend
     Language.Haskell.Brittany.Internal.BackendUtils
     Language.Haskell.Brittany.Internal.CommentPlan
+    Language.Haskell.Brittany.Internal.CommentBoundary
     Language.Haskell.Brittany.Internal.Config
     Language.Haskell.Brittany.Internal.Config.Types
     Language.Haskell.Brittany.Internal.Config.Types.Instances
@@ -194,6 +195,7 @@ test-suite brittany-test-suite
     CompatibilitySpec
     CommentPlanSpec
     CommentOwnershipSpec
+    CommentBoundaryGraphSpec
     CompactParenthesizedPatternSpec
     CompositionalPatternSpec
     ComposableDeclarationSpec
