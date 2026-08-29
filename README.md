@@ -213,7 +213,8 @@ that comes out of a tools budget instead of somebody's pocket.
 
 Copyright (C) 2016-2019 Lennart Spitzner\
 Copyright (C) 2019      PRODA LTD\
-Copyright (C) 2026      xwinus
+Copyright (C) 2026      Nadia Chambers\
+Copyright (C) 2026      Vaclav Svejcar (xwinus)
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the
