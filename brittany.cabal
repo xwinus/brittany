@@ -12,10 +12,11 @@ description:
 license:              AGPL-3.0-only
 license-file:         LICENSE
 author:               Lennart Spitzner
-maintainer:           xwinus
+maintainer:           Vaclav Svejcar (xwinus)
 copyright:            Copyright (C) 2016-2019 Lennart Spitzner
                       Copyright (C) 2019 PRODA LTD
-                      Copyright (C) 2026 xwinus
+                      Copyright (C) 2026 Nadia Chambers
+                      Copyright (C) 2026 Vaclav Svejcar (xwinus)
 category:             Language
 build-type:           Simple
 homepage:             https://github.com/xwinus/brittany/
