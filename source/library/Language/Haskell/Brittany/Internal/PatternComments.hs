@@ -4,6 +4,8 @@
 module Language.Haskell.Brittany.Internal.PatternComments
   ( commentSensitivePatterns
   , exactSourcePatterns
+  , isCommentSensitivePattern
+  , requiresExactSourcePattern
   , supportedBangPatterns
   , supportedStrictBindingNames
   ) where
@@ -28,12 +30,12 @@ import Language.Haskell.Brittany.Internal.Prelude
 -- | Find patterns whose comments cannot be laid out natively without losing
 -- their attachment to syntax punctuation.
 commentSensitivePatterns :: Data ast => ast -> [Located (Pat GhcPs)]
-commentSensitivePatterns = collectPatterns isCommentSensitive
+commentSensitivePatterns = collectPatterns isCommentSensitivePattern
 
 -- | Find pattern shapes that require exact-source rendering even without
 -- comments.
 exactSourcePatterns :: Data ast => ast -> [Located (Pat GhcPs)]
-exactSourcePatterns = collectPatterns requiresExactSource
+exactSourcePatterns = collectPatterns requiresExactSourcePattern
 
 -- | Find bang patterns that the native pattern layouter can render safely.
 supportedBangPatterns :: Data ast => ast -> [Located (Pat GhcPs)]
@@ -72,8 +74,8 @@ collectPatterns predicate = SYB.everything (++) patternQuery
         [L (getLocA pattern') (unLoc pattern')]
     | otherwise = []
 
-isCommentSensitive :: Pat GhcPs -> Bool
-isCommentSensitive = \case
+isCommentSensitivePattern :: Pat GhcPs -> Bool
+isCommentSensitivePattern = \case
   BangPat{} -> True
   ConPat _ _ (RecCon _) -> True
   EmbTyPat{} -> True
@@ -86,11 +88,8 @@ isCommentSensitive = \case
   ViewPat{} -> True
   _ -> False
 
-requiresExactSource :: Pat GhcPs -> Bool
-requiresExactSource = \case
-  InvisPat{} -> True
-  LazyPat{} -> True
-  OrPat{} -> True
+requiresExactSourcePattern :: Pat GhcPs -> Bool
+requiresExactSourcePattern = \case
   SplicePat _ HsQuasiQuote{} -> False
   SplicePat{} -> True
   SumPat{} -> True

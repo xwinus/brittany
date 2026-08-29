@@ -1,2 +1,4 @@
 {-# LANGUAGE RecordWildCards #-}
-v = A { .. } where b = 2
+v = A { .. }
+ where
+  b = 2

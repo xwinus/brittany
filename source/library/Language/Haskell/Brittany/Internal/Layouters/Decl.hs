@@ -34,29 +34,18 @@ import Language.Haskell.Syntax.BooleanFormula
   ( BooleanFormula(..)
   , LBooleanFormula
   )
-import GHC.Parser.Annotation (getLocA)
+import GHC.Parser.Annotation (EpAnn(..), EpaLocation(..), getLocA)
 import GHC.Types.SrcLoc (Located, RealSrcSpan, SrcSpan(..), getLoc, noSrcSpan, srcSpanStartCol, srcSpanStartLine, srcSpanEndCol, srcSpanEndLine, unLoc)
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.CommentPlan
-  ( lookupCommentPlacement
-  , lookupCommentRole
-  )
-import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey(..), mkAnnKey, Comment(..), realSpanToSrcSpan, srcSpanToRealSpan, unConName)
+  ( lookupCommentRole )
+import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), AnnKey(..), mkAnnKey, Comment(..), realSpanToSrcSpan, srcSpanToRealSpan)
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrintCompat
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.ExactSource (sourceCommentFragment)
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
-import Language.Haskell.Brittany.Internal.ExpressionComments
-  ( commentSensitiveExpressions
-  , exactSourceExpressions
-  )
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.DataDecl
-import Language.Haskell.Brittany.Internal.Layouters.DataDecl.Support
-  ( documentedSingleH98Constructor
-  , supportsCommentedDataDecl
-  , supportsDocumentedSingleH98Comments
-  )
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
 import Language.Haskell.Brittany.Internal.Layouters.FixitySignature
 import Language.Haskell.Brittany.Internal.Layouters.Pattern
@@ -69,12 +58,6 @@ import Language.Haskell.Brittany.Internal.Layouters.Type
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.SourceComment.Types
-import Language.Haskell.Brittany.Internal.PatternComments
-  ( commentSensitivePatterns
-  , exactSourcePatterns
-  , supportedBangPatterns
-  , supportedStrictBindingNames
-  )
 import Language.Haskell.Brittany.Internal.TypeFallbacks
   ( requiresExactTypeDeclaration )
 import Language.Haskell.Brittany.Internal.Types
@@ -84,10 +67,15 @@ import qualified Language.Haskell.GHC.ExactPrint.Utils as ExactPrint
 
 
 layoutDecl :: ToBriDoc HsDecl
-layoutDecl = layoutDeclWithExactText Nothing False
+layoutDecl = layoutDeclWithExactText Nothing False []
 
-layoutDeclWithExactText :: Maybe ExactSourceFragment -> Bool -> ToBriDoc HsDecl
-layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl of
+layoutDeclWithExactText
+  :: Maybe ExactSourceFragment
+  -> Bool
+  -> [SourceComment]
+  -> ToBriDoc HsDecl
+layoutDeclWithExactText exactText hasSourceComments sourceComments
+    d@(L loc decl) = case decl of
   SigD _ sig@TypeSig{}
     -> layoutTypeSignature d sig
   SigD _ sig
@@ -100,31 +88,25 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
   TyClD _ tycl
     | requiresExactTypeDeclaration tycl ->
         layoutExact TypeClassDeclarationFallback d exactText
-    | supportsCommentedDataDecl tycl ->
-        withTransformedAnns d $ docWrapNode d $ layoutTyCl (L loc tycl)
-    | Just (constructor, equalsSpan) <- documentedSingleH98Constructor tycl ->
-        layoutDocumentedSingleH98 d equalsSpan (toL constructor)
-          $ layoutTyCl (L loc tycl)
-    | SynDecl{} <- tycl -> layoutExactUnlessComposable d
-        (isComposableTypeSynonymComment d)
-        $ layoutTyCl (L loc tycl)
+    | SynDecl{} <- tycl -> layoutNativeDeclaration d $ layoutTyCl (L loc tycl)
     | ClassDecl{} <- tycl
-    , supportsNativeClass tycl -> layoutExactUnlessComposable d
-        isComposableClassComment
-        $ layoutTyCl (L loc tycl)
+    , supportsNativeClass tycl ->
+        layoutExactUnlessComposable TypeClassDeclarationFallback d
+          isComposableClassComment
+          $ layoutTyCl (L loc tycl)
     | FamDecl{} <- tycl
-    , supportsNativeFamily tycl -> layoutExactUnlessComposable d
-        (isPriorDeclarationComment d)
-        $ layoutTyCl (L loc tycl)
-    | DataDecl{} <- tycl -> layoutExactUnlessComposable d
-        (isComposableDataComment d)
-        $ layoutTyCl (L loc tycl)
+    , supportsNativeFamily tycl ->
+        layoutExactUnlessComposable TypeClassDeclarationFallback d
+          (isPriorDeclarationComment d)
+          $ layoutTyCl (L loc tycl)
+    | DataDecl{} <- tycl -> layoutDataDeclaration d tycl
     | otherwise -> layoutExactWhenCommented d $ layoutTyCl (L loc tycl)
   InstD _ (TyFamInstD _ tfid) ->
-    layoutExactUnlessComposable d (isPriorDeclarationComment d)
+    layoutExactUnlessComposable TypeClassDeclarationFallback d
+      (isPriorDeclarationComment d)
       $ layoutTyFamInstDecl False d tfid
   InstD _ (ClsInstD _ inst) ->
-    layoutInstanceExactWhenCommented d $ do
+    layoutClassInstance d inst $ do
       followComments <- astFollowingComments d
       docSeq
         [ layoutClsInst (L loc inst)
@@ -137,7 +119,7 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
         ++ [docLitS (" " ++ commentContents c) | (c, _) <- followComments]
   DerivD _ deriv -> case layoutStandaloneDeriving deriv of
     Nothing -> layoutExact DeclarationFallback d exactText
-    Just formatted -> layoutExactUnlessComposable d
+    Just formatted -> layoutExactUnlessComposable TypeClassDeclarationFallback d
       (isPriorDeclarationComment d)
       formatted
   ForD{} -> layoutExact DeclarationFallback d exactText
@@ -154,97 +136,71 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
     -> HsBind GhcPs
     -> ToBriDocM BriDocNumbered
   layoutValueDeclaration declaration bind = do
-    let sensitiveExpressions = commentSensitiveExpressions declaration
-    let sensitivePatterns = commentSensitivePatterns declaration
-        directlySensitivePatterns = filter
-          (not . isSupportedBangPattern)
-          sensitivePatterns
-        bangPatterns = supportedBangPatterns declaration
-        strictBindingNames = supportedStrictBindingNames declaration
-    hasConnectedExpressionComments <- orM
-      $ hasAnyRegularCommentsConnected
-      <$> sensitiveExpressions
-    hasConnectedPatternComments <- orM
-      $ hasAnyRegularCommentsConnected
-      <$> directlySensitivePatterns
-    connectedDeclarationComments <- astConnectedComments declaration
     commentPlan <- mAsk
-    let regularDeclarationComments = filter
-          isRegularComment
-          connectedDeclarationComments
-    -- GHC attaches end-of-line strict-binding comments to ancestor nodes.
-    -- Their source position distinguishes them from unsafe pattern comments.
-    let hasTrailingBangComments = or
-          [ isAfterNode pattern' sourceComment
-          | pattern' <- bangPatterns
-          , sourceComment <- regularDeclarationComments
-          ]
-        hasTrailingStrictBindingComments = or
-          [ isAfterNode bindingName sourceComment
-          | bindingName <- strictBindingNames
-          , sourceComment <- regularDeclarationComments
-          ]
-        hasTrailingSupportedComments = hasTrailingBangComments
-          || hasTrailingStrictBindingComments
-    let hasSensitiveNodes = not
-          $ null sensitiveExpressions
-          && null sensitivePatterns
-          && null strictBindingNames
-        hasInternalSensitiveComments = hasSensitiveNodes
-          && any
-            (\sourceComment ->
-              not (isPriorDeclarationComment declaration commentPlan sourceComment)
-                && not (isSafeStatementComment commentPlan sourceComment)
-            )
-            regularDeclarationComments
-        hasSensitiveComments = hasConnectedExpressionComments
-          || hasConnectedPatternComments
-          || ( not (null regularDeclarationComments)
-            && not hasTrailingSupportedComments
-            && ( hasInternalSensitiveComments
-              || any
-                (\sourceComment ->
-                  isCommentOnSensitiveNode sensitiveExpressions sourceComment
-                    || isCommentOnSensitiveNode
-                      directlySensitivePatterns sourceComment
-                )
-                regularDeclarationComments
-               )
-             )
-    let isPatternSynonymBinding = case bind of
-          PatSynBind{} -> True
-          _            -> False
-        requiresExactLayout = not isPatternSynonymBinding && or
-          [ not $ null (exactSourceExpressions declaration)
-          , not $ null (exactSourcePatterns declaration)
-          ]
-    if (hasSensitiveComments && not isPatternSynonymBinding)
-      || requiresExactLayout
-      then layoutExact DeclarationFallback declaration exactText
-      else withTransformedAnns declaration
-        $ docWrapNode declaration
-        $ layoutBind (L loc bind) >>= \case
-          Left ns -> docLines $ return <$> ns
-          Right n -> return n
+    grhsComments <- List.concat <$> mapM (astConnectedComments . toL)
+      (bindingGrhss bind)
+    let declarationCommentKeys = maybe Set.empty fragmentCommentKeys exactText
+        fragmentComments = Map.elems $ Map.restrictKeys
+          (commentPlanSources commentPlan)
+          declarationCommentKeys
+        declarationComments = List.nubBy
+          (\left right -> sourceCommentKey left == sourceCommentKey right)
+          $ sourceComments
+          ++ fragmentComments
+          ++ Data.Maybe.mapMaybe exactCommentToSourceComment grhsComments
+    withTransformedAnns declaration
+      $ docWrapNode declaration
+      $ layoutBindWithComments declarationComments (L loc bind)
+        >>= \case
+        Left ns -> docLines $ return <$> ns
+        Right n -> return n
+
+  bindingGrhss = \case
+    FunBind _ _ (MG _ (L _ matches)) -> List.concatMap matchGrhss matches
+    PatBind _ _ _ grhss -> grhssList grhss
+    _ -> []
+
+  matchGrhss (L _ (Match _ _ _ grhss)) = grhssList grhss
+  matchGrhss (L _ (XMatch _)) = []
+
+  grhssList (GRHSs _ grhssNE _) = NonEmpty.toList grhssNE
+  grhssList (XGRHSs _) = []
+
+  exactCommentToSourceComment (sourceComment, _) = do
+    commentSpan <- srcSpanToRealSpan $ commentIdentifier sourceComment
+    let commentText = Text.pack $ commentContents sourceComment
+        syntax = if Text.isPrefixOf (Text.pack "--") commentText
+          then LineComment
+          else BlockComment
+    pure SourceComment
+      { sourceCommentKey = SourceCommentKey $ commentIdentifier sourceComment
+      , sourceCommentText = commentText
+      , sourceCommentSpan = commentSpan
+      , sourceCommentSyntax = syntax
+      }
 
   layoutTypeSignature declaration signature = do
     connectedComments <- astConnectedComments declaration
     commentPlan <- mAsk
     let hasPostDocs = any (isSignaturePostDoc commentPlan) connectedComments
-        commentsAreComposable = all
-          (\connectedComment ->
-            not (isRegularComment connectedComment)
-              || isSignaturePostDoc commentPlan connectedComment
-              || isPriorDeclarationComment declaration
-                  commentPlan connectedComment
-          )
-          connectedComments
-        hasUnownedSourceComments = hasSourceComments && null connectedComments
-    if commentsAreComposable && not hasUnownedSourceComments
-      then withTransformedAnns declaration
-        $ docWrapNode declaration
-        $ layoutSigWithComments hasPostDocs (L loc signature)
-      else layoutExact DeclarationFallback declaration exactText
+        regularSourceComments = filter
+          (isRegularSourceComment commentPlan)
+          sourceComments
+    withTransformedAnns declaration
+      $ docWrapNode declaration
+      $ layoutSigWithSourceComments
+        hasPostDocs regularSourceComments (L loc signature)
+
+  isRegularSourceComment commentPlan sourceComment = case
+      Map.lookup (sourceCommentKey sourceComment)
+        $ commentPlanPlacements commentPlan of
+    Just placement -> case placementRole placement of
+      HaddockPostDoc{} -> False
+      LeadingDoc -> False
+      SectionComment -> False
+      PragmaComment -> False
+      _ -> True
+    Nothing -> True
 
   isSignaturePostDoc commentPlan (postDocComment, _) =
     lookupCommentRole commentPlan postDocComment `elem`
@@ -252,39 +208,19 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
       , Just $ HaddockPostDoc SignatureResult
       ]
 
-  isAfterNode node (sourceComment, _) = case
-    ( srcSpanToRealSpan $ getLoc node
-    , srcSpanToRealSpan $ commentIdentifier sourceComment
-    ) of
-      (Just nodeSpan, Just commentSpan) ->
-        (srcSpanStartLine commentSpan, srcSpanStartCol commentSpan)
-          >= (srcSpanEndLine nodeSpan, srcSpanEndCol nodeSpan)
-      _ -> False
+  layoutClassInstance declaration instanceDeclaration formatted = do
+    connectedComments <- astConnectedComments declaration
+    let hasAssociatedFamilies = not (null $ cid_tyfam_insts instanceDeclaration)
+          || not (null $ cid_datafam_insts instanceDeclaration)
+        hasRegularComments = any isRegularComment connectedComments
+    if hasAssociatedFamilies && hasRegularComments
+      then layoutExact TypeClassDeclarationFallback declaration exactText
+      else layoutNativeDeclaration declaration formatted
 
-  isSupportedBangPattern (L _ BangPat{}) = True
-  isSupportedBangPattern _ = False
-
-  isCommentOnSensitiveNode sensitiveNodes sourceComment = any
-    (\node -> commentWithinNode node sourceComment)
-    sensitiveNodes
-
-  isSafeStatementComment commentPlan (sourceComment, _) = case
-      lookupCommentPlacement commentPlan sourceComment of
-    Just CommentPlacement
-      { placementOwner = NodeId (AnnKey _ ownerName)
-      } -> unConName ownerName `elem` ["BindStmt", "BodyStmt"]
-    _ -> False
-
-  commentWithinNode node (sourceComment, _) = case
-    ( srcSpanToRealSpan $ getLoc node
-    , srcSpanToRealSpan $ commentIdentifier sourceComment
-    ) of
-      (Just nodeSpan, Just commentSpan) ->
-        (srcSpanStartLine nodeSpan, srcSpanStartCol nodeSpan)
-          <= (srcSpanStartLine commentSpan, srcSpanStartCol commentSpan)
-          && (srcSpanEndLine commentSpan, srcSpanEndCol commentSpan)
-            <= (srcSpanEndLine nodeSpan, srcSpanEndCol nodeSpan)
-      _ -> False
+  layoutDataDeclaration declaration dataDeclaration = case dataDeclaration of
+    DataDecl{} -> layoutNativeDeclaration declaration
+      $ layoutTyCl (L loc dataDeclaration)
+    _ -> layoutNativeDeclaration declaration $ layoutTyCl (L loc dataDeclaration)
 
   layoutExactWhenCommented declaration formatted = do
     layoutExactOrCommented declaration
@@ -298,7 +234,7 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
       then layoutExact DeclarationFallback declaration exactText
       else formatted
 
-  layoutExactUnlessComposable declaration supportsComment formatted = do
+  layoutExactUnlessComposable fallback declaration supportsComment formatted = do
     connectedComments <- astConnectedComments declaration
     commentPlan <- mAsk
     let sourceComments = filter isRegularComment connectedComments
@@ -307,35 +243,10 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
         && all (supportsComment commentPlan) sourceComments
       then withTransformedAnns declaration
         $ docWrapNode declaration formatted
-      else layoutExact DeclarationFallback declaration exactText
+      else layoutExact fallback declaration exactText
 
-  layoutDocumentedSingleH98 declaration equalsSpan constructor formatted = do
-    connectedComments <- astConnectedComments declaration
-    commentPlan <- mAsk
-    if supportsDocumentedSingleH98Comments
-      commentPlan declaration equalsSpan constructor connectedComments
-      then withTransformedAnns declaration
-        $ docWrapNode declaration formatted
-      else layoutExact DeclarationFallback declaration exactText
-
-  layoutInstanceExactWhenCommented declaration formatted = do
-    connectedComments <- astConnectedComments declaration
-    commentPlan <- mAsk
-    let sourceComments = filter
-          (\connectedPair ->
-            isRegularComment connectedPair
-              && lookupCommentRole commentPlan (fst connectedPair)
-                /= Just PragmaComment
-          )
-          connectedComments
-        hasUnownedSourceComments = hasSourceComments && null connectedComments
-        commentsAreComposable = all
-          (isPriorDeclarationComment declaration commentPlan)
-          sourceComments
-    if hasUnownedSourceComments || not commentsAreComposable
-      then layoutExact DeclarationFallback declaration exactText
-      else withTransformedAnns declaration
-        $ docWrapNode declaration formatted
+  layoutNativeDeclaration declaration formatted = withTransformedAnns declaration
+    $ docWrapNode declaration formatted
 
   isPriorDeclarationComment declaration commentPlan (sourceComment, _) =
     lookupCommentRole commentPlan sourceComment `elem`
@@ -361,21 +272,6 @@ layoutDeclWithExactText exactText hasSourceComments d@(L loc decl) = case decl o
       , Just $ HaddockPostDoc SignatureResult
       ]
 
-  isComposableTypeSynonymComment declaration commentPlan connectedComment =
-    isPriorDeclarationComment declaration commentPlan connectedComment
-      || lookupCommentRole commentPlan (fst connectedComment) `elem`
-        [ Just $ HaddockPostDoc SignatureArgument
-        , Just $ HaddockPostDoc SignatureResult
-        ]
-
-  isComposableDataComment declaration commentPlan connectedComment =
-    isPriorDeclarationComment declaration commentPlan connectedComment
-      || lookupCommentRole commentPlan (fst connectedComment) `elem`
-        [ Just $ HaddockPostDoc RecordField
-        , Just $ BetweenChildren DerivingClause
-        , Just $ BetweenChildren TypeOperator
-        ]
-
   layoutExact fallback declaration source = case source of
     Just fragment -> briDocByExactSourceFragmentNoComment
       fallback declaration fragment
@@ -395,7 +291,12 @@ layoutSig :: ToBriDoc Sig
 layoutSig = layoutSigWithComments False
 
 layoutSigWithComments :: Bool -> ToBriDoc Sig
-layoutSigWithComments hasOuterComments lsig@(L _loc sig) = case sig of
+layoutSigWithComments hasOuterComments =
+  layoutSigWithSourceComments hasOuterComments []
+
+layoutSigWithSourceComments :: Bool -> [SourceComment] -> ToBriDoc Sig
+layoutSigWithSourceComments hasOuterComments sourceComments
+    lsig@(L _loc sig) = case sig of
   TypeSig _ names sigTy -> case sigTy of
     HsWC _ body -> case unLoc body of
       HsSig{} -> layoutNamesAndType Nothing names body
@@ -542,16 +443,34 @@ layoutSigWithComments hasOuterComments lsig@(L _loc sig) = case sig of
               ]
     hasNestedComments <- hasAnyCommentsBelow (toL lsig)
     let hasComments = hasOuterComments || hasNestedComments
+        ( nameComments
+          , separatorComments
+          , trailingSameLineComments
+          , followingComments
+          ) =
+          signatureBoundaryComments names (toL sigType) sourceComments
+        hasBoundaryComments = any (not . null)
+          [ nameComments
+          , separatorComments
+          , trailingSameLineComments
+          , followingComments
+          ]
+        lhsDoc = appSep . docWrapNodeRest (toL lsig) . docSeq
+          $ keyDoc <> [docLit nameStr]
     shouldBeHanging <-
       mAsk <&> _conf_layout .> _lconfig_hangingTypeSignature .> confUnpack
-    if shouldBeHanging
+    if hasBoundaryComments
+      then layoutCommentedSignature
+        lhsDoc
+        nameComments
+        separatorComments
+        fullTypeDoc
+        trailingSameLineComments
+        followingComments
+      else if shouldBeHanging
       then
         docSeq
-          $ [ appSep
-            $ docWrapNodeRest (toL lsig)
-            $ docSeq
-            $ keyDoc
-            <> [docLit nameStr]
+          $ [ lhsDoc
             , docSetBaseY $ docLines
               [ docCols
                   ColTyOpPrefix
@@ -562,9 +481,101 @@ layoutSigWithComments hasOuterComments lsig@(L _loc sig) = case sig of
             ]
       else layoutLhsAndType
         hasComments
-        (appSep . docWrapNodeRest (toL lsig) . docSeq $ keyDoc <> [docLit nameStr])
+        lhsDoc
         "::"
         fullTypeDoc
+
+signatureBoundaryComments
+  :: [LocatedN RdrName]
+  -> Located ast
+  -> [SourceComment]
+  -> ( [SourceComment]
+     , [SourceComment]
+     , [SourceComment]
+     , [SourceComment]
+     )
+signatureBoundaryComments names signatureType sourceComments = case
+    (nameEnd, typeRange) of
+  (Just namePosition, Just (typeStart, typeEnd)) ->
+    ( filter (isNameComment namePosition typeStart) orderedComments
+    , filter (isSeparatorComment namePosition typeStart) orderedComments
+    , filter (isTrailingSameLineComment typeEnd) orderedComments
+    , filter (isFollowingComment typeEnd) orderedComments
+    )
+  _ -> ([], [], [], [])
+ where
+  orderedComments = List.sortOn sourceCommentStart sourceComments
+  nameEnd = case Data.Maybe.mapMaybe
+      (fmap sourceSpanEnd . srcSpanToRealSpan . getLocA)
+      names of
+    [] -> Nothing
+    positions -> Just $ maximum positions
+  typeRange = do
+    typeSpan <- srcSpanToRealSpan $ getLoc signatureType
+    pure (sourceSpanStart typeSpan, sourceSpanEnd typeSpan)
+  isNameComment namePosition typeStart sourceComment =
+    fst (sourceCommentStart sourceComment) == fst namePosition
+      && sourceCommentStart sourceComment >= namePosition
+      && sourceCommentEnd sourceComment <= typeStart
+  isSeparatorComment namePosition typeStart sourceComment =
+    sourceCommentStart sourceComment > namePosition
+      && sourceCommentEnd sourceComment <= typeStart
+      && not (isNameComment namePosition typeStart sourceComment)
+  isTrailingSameLineComment typeEnd sourceComment =
+    fst (sourceCommentStart sourceComment) == fst typeEnd
+      && sourceCommentStart sourceComment >= typeEnd
+  isFollowingComment typeEnd sourceComment =
+    fst (sourceCommentStart sourceComment) > fst typeEnd
+
+layoutCommentedSignature
+  :: ToBriDocM BriDocNumbered
+  -> [SourceComment]
+  -> [SourceComment]
+  -> ToBriDocM BriDocNumbered
+  -> [SourceComment]
+  -> [SourceComment]
+  -> ToBriDocM BriDocNumbered
+layoutCommentedSignature lhs nameComments separatorComments typeDoc
+    trailingSameLineComments followingComments =
+  docAddBaseY BrIndentRegular $ docPar lhsWithComments $ docLines
+    $ [ separatorWithComments
+      , docAddBaseY (BrIndentSpecial 3) typeWithComments
+      ]
+    ++ (layoutPatSynComment <$> followingComments)
+ where
+  lhsWithComments = appendSourceComments lhs nameComments
+  separatorWithComments = appendSourceComments
+    (docLitS "::") separatorComments
+  typeWithComments = appendSourceComments typeDoc trailingSameLineComments
+
+appendSourceComments
+  :: ToBriDocM BriDocNumbered
+  -> [SourceComment]
+  -> ToBriDocM BriDocNumbered
+appendSourceComments base comments = docSeq
+  $ base
+  : List.concat
+    [ [docLitS " ", layoutPatSynComment sourceComment]
+    | sourceComment <- comments
+    ]
+
+sourceCommentStart :: SourceComment -> (Int, Int)
+sourceCommentStart sourceComment =
+  ( srcSpanStartLine $ sourceCommentSpan sourceComment
+  , srcSpanStartCol $ sourceCommentSpan sourceComment
+  )
+
+sourceCommentEnd :: SourceComment -> (Int, Int)
+sourceCommentEnd sourceComment =
+  ( srcSpanEndLine $ sourceCommentSpan sourceComment
+  , srcSpanEndCol $ sourceCommentSpan sourceComment
+  )
+
+sourceSpanStart :: RealSrcSpan -> (Int, Int)
+sourceSpanStart span' = (srcSpanStartLine span', srcSpanStartCol span')
+
+sourceSpanEnd :: RealSrcSpan -> (Int, Int)
+sourceSpanEnd span' = (srcSpanEndLine span', srcSpanEndCol span')
 
 layoutBooleanFormula
   :: LBooleanFormula GhcPs -> ToBriDocM BriDocNumbered
@@ -613,7 +624,12 @@ layoutGuardLStmt lgstmt@(L _ stmtLR) = docWrapNode (toL lgstmt) $ case stmtLR of
 
 layoutBind
   :: ToBriDocC (HsBindLR GhcPs GhcPs) (Either [BriDocNumbered] BriDocNumbered)
-layoutBind lbind@(L _ bind) = case bind of
+layoutBind = layoutBindWithComments []
+
+layoutBindWithComments
+  :: [SourceComment]
+  -> ToBriDocC (HsBindLR GhcPs GhcPs) (Either [BriDocNumbered] BriDocNumbered)
+layoutBindWithComments declarationComments lbind@(L _ bind) = case bind of
   FunBind _ fId (MG _ lmatches@(L _ matches)) -> do
     idStr <- applyNameAdornment fId <$> lrdrNameToTextAnn (toL fId)
     binderDoc <- docLit $ Text.pack "="
@@ -621,26 +637,23 @@ layoutBind lbind@(L _ bind) = case bind of
       docWrapNode (toL lbind)
       $ docWrapAnnKeyList
         (ExactPrintCompat.mkNamedAnnKey "MatchGroup" $ getLoc $ toL lmatches)
-      $ layoutPatternBind (Just idStr) binderDoc
+      $ layoutPatternBind declarationComments (Just idStr) binderDoc
       `mapM` matches
     return $ Left $ funcPatDocs
   PatBind _ pat _ (GRHSs _ grhssNE whereBinds) -> do
     let grhss = NonEmpty.toList grhssNE
     patDocs <- colsWrapPat =<< layoutPat pat
     multilinePatDoc <- layoutPatMultiline pat
-    clauseDocs <- layoutGrhs `mapM` grhss
-    mWhereDocs <- layoutLocalBinds (L noSrcSpan whereBinds)
+    clauseDocs <- layoutGrhs declarationComments `mapM` grhss
+    mWhereDocs <- layoutLocalBinds (L (localBindsSpan whereBinds) whereBinds)
     let mWhereArg = mWhereDocs <&> (,) (mkAnnKey (toL lbind)) -- TODO: is this the right AnnKey?
     binderDoc <- docLit $ Text.pack "="
     hasComments <- hasAnyCommentsBelow (toL lbind)
-    fmap Right $ docWrapNode (toL lbind) $ layoutPatternBindFinal
-      Nothing
-      binderDoc
-      (Just patDocs)
-      multilinePatDoc
-      clauseDocs
-      mWhereArg
+    formatted <- docWrapNode (toL lbind) $ layoutPatternBindFinal
+      Nothing binderDoc (Just patDocs) multilinePatDoc clauseDocs mWhereArg
       hasComments
+    Right <$> prependConsumedComments (handledClauseComments clauseDocs)
+      (pure formatted)
   PatSynBind _ (PSB _ patID lpat rpat dir) -> do
     fmap Right $ docWrapNode (toL lbind) $ layoutPatSynBind (toL patID) lpat dir rpat
   _ -> Right <$> unknownNodeError "" (toL lbind)
@@ -657,7 +670,7 @@ layoutIPBind lipbind@(L _ bind) = case bind of
         binderDoc
         (Just ipName)
         Nothing
-        [([], exprDoc, expr)]
+        [([], exprDoc, expr, [])]
         Nothing
         hasComments
     _ -> briDocByExactNoComment ImplicitParameterFallback (toL lipbind)
@@ -672,7 +685,12 @@ bindOrSigtoSrcSpan (BagSig s) = getLocA s
 
 layoutLocalBinds
   :: ToBriDocC (HsLocalBindsLR GhcPs GhcPs) (Maybe [BriDocNumbered])
-layoutLocalBinds lbinds@(L _ binds) = case binds of
+layoutLocalBinds = layoutLocalBindsWithComments []
+
+layoutLocalBindsWithComments
+  :: [SourceComment]
+  -> ToBriDocC (HsLocalBindsLR GhcPs GhcPs) (Maybe [BriDocNumbered])
+layoutLocalBindsWithComments outerComments lbinds@(L _ binds) = case binds of
   -- HsValBinds (ValBindsIn lhsBindsLR []) ->
   --   Just . (>>= either id return) . Data.Foldable.toList <$> mapBagM layoutBind lhsBindsLR -- TODO: fix ordering
   -- x@(HsValBinds (ValBindsIn{})) ->
@@ -683,31 +701,197 @@ layoutLocalBinds lbinds@(L _ binds) = case binds of
         [ BagBind b | b <- Data.Foldable.toList bindlrs ]
         ++ [ BagSig s | s <- sigs ]
       ordered = List.sortOn (ExactPrint.rs . bindOrSigtoSrcSpan) unordered
-    docs <- docWrapNode lbinds $ join <$> ordered `forM` \case
-      BagBind b -> either id return <$> layoutBind (toL b)
-      BagSig s -> return <$> layoutSig (toL s)
-    return $ Just $ docs
+    nestedComments <- sourceCommentsWithinNode lbinds
+    let localComments = List.nubBy
+          (\left right -> sourceCommentKey left == sourceCommentKey right)
+          $ outerComments ++ nestedComments
+    itemDocs <- forM ordered $ \case
+      BagBind binding -> do
+        let bindingComments = filter
+              (sourceCommentWithinNodeSpan $ toL binding)
+              localComments
+        layoutBindWithComments bindingComments (toL binding) >>= \case
+          Left docs -> docLines $ pure <$> docs
+          Right doc -> pure doc
+      BagSig signature -> layoutSig (toL signature)
+    docs <- docWrapAnnKeyList
+      (ExactPrintCompat.mkNamedAnnKey "HsValBinds" $ getLoc lbinds)
+      $ pure itemDocs
+    let previousItems = Nothing : (Just <$> ordered)
+        leadingComments = zipWith
+          (leadingLocalComments localComments)
+          previousItems
+          ordered
+    Just <$> sequence
+      (zipWith prependLocalComments leadingComments
+        (zip (bindOrSigtoSrcSpan <$> ordered) docs)
+      )
 --  x@(HsValBinds (ValBindsOut _binds _lsigs)) ->
   HsValBinds _ (XValBindsLR{}) -> error "brittany internal error: XValBindsLR"
   HsIPBinds _ (IPBinds _ bb) -> Just <$> mapM (layoutIPBind . toL) bb
   EmptyLocalBinds{} -> return $ Nothing
 
+localBindsSpan :: HsLocalBindsLR GhcPs GhcPs -> SrcSpan
+localBindsSpan (HsValBinds (EpAnn anchor _ _) _) = case anchor of
+  EpaSpan span' -> span'
+  _ -> noSrcSpan
+localBindsSpan _ = noSrcSpan
+
+leadingLocalComments
+  :: [SourceComment]
+  -> Maybe BagBindOrSig
+  -> BagBindOrSig
+  -> [SourceComment]
+leadingLocalComments sourceComments previous current = List.sortOn
+    sourceCommentStart
+  $ filter isLeading sourceComments
+ where
+  isLeading sourceComment = case
+      ( srcSpanToRealSpan $ bindOrSigtoSrcSpan current
+      , srcSpanToRealSpan . bindOrSigtoSrcSpan =<< previous
+      ) of
+    (Just currentSpan, previousSpan) ->
+      sourceCommentEnd sourceComment
+        <= (srcSpanStartLine currentSpan, srcSpanStartCol currentSpan)
+        && maybe True
+          (\span' ->
+            (srcSpanEndLine span', srcSpanEndCol span')
+              <= sourceCommentStart sourceComment
+          )
+          previousSpan
+    _ -> False
+
+prependLocalComments
+  :: [SourceComment]
+  -> (SrcSpan, BriDocNumbered)
+  -> ToBriDocM BriDocNumbered
+prependLocalComments [] (_, formatted) = pure formatted
+prependLocalComments sourceComments (itemSpan, formatted) =
+  prependConsumedComments sourceComments $ docLines
+    $ (layoutPatSynComment <$> sourceComments)
+    ++ blankLineBeforeItem
+    ++ [pure formatted]
+ where
+  blankLineBeforeItem = case
+      (List.last sourceComments, srcSpanToRealSpan itemSpan) of
+    (lastComment, Just realItemSpan)
+      | srcSpanStartLine realItemSpan
+          - srcSpanEndLine (sourceCommentSpan lastComment) > 1 -> [docBlankLine]
+    _ -> []
+
 -- TODO: we don't need the `LHsExpr GhcPs` anymore, now that there is
 -- parSpacing stuff.B
 layoutGrhs
-  :: LGRHS GhcPs (LHsExpr GhcPs)
-  -> ToBriDocM ([BriDocNumbered], BriDocNumbered, LHsExpr GhcPs)
-layoutGrhs lgrhs@(L _ (GRHS _ guards body)) = do
-  guardDocs <- sequence (map (layoutStmt . toL) guards)
-  bodyDoc <- docWrapNode (toL lgrhs) $ layoutExpr (toL body)
-  return (guardDocs, bodyDoc, body)
+  :: [SourceComment]
+  -> LGRHS GhcPs (LHsExpr GhcPs)
+  -> ToBriDocM
+       ([BriDocNumbered], BriDocNumbered, LHsExpr GhcPs, [SourceComment])
+layoutGrhs declarationComments lgrhs@(L _ (GRHS _ guards body)) = do
+  guardDocs <- forM guards $ \guard -> do
+    guardDoc <- layoutStmt (toL guard)
+    appendSourceComments (pure guardDoc)
+      $ filter (sourceCommentFollowsNodeSameLine $ toL guard)
+      declarationComments
+  let trailingGuardComments = List.concat
+        [ filter (sourceCommentFollowsNodeSameLine $ toL guard)
+            declarationComments
+        | guard <- guards
+        ]
+      trailingBodyComments = filter
+        (sourceCommentFollowsNodeSameLine $ toL body)
+        declarationComments
+      boundaryComments = trailingGuardComments ++ trailingBodyComments
+      leadingBodyComments = filter
+        (\sourceComment ->
+          sourceCommentStartsWithinNode (toL lgrhs) sourceComment
+            && sourceCommentPrecedesNode (toL body) sourceComment
+            && sourceComment `notElem` boundaryComments
+        )
+        declarationComments
+      handledComments = List.nubBy
+        (\left right -> sourceCommentKey left == sourceCommentKey right)
+        $ leadingBodyComments ++ boundaryComments
+  bodyDoc <- docWrapNode (toL lgrhs)
+    $ appendSourceComments
+      (case leadingBodyComments of
+        [] -> layoutExpr (toL body)
+        _ -> docLines
+          $ [ layoutPatSynComment sourceComment
+            | sourceComment <- leadingBodyComments
+            ]
+          ++ [layoutExpr (toL body)]
+      )
+      trailingBodyComments
+  return (guardDocs, bodyDoc, body, handledComments)
+
+sourceCommentFollowsNodeSameLine
+  :: Located ast -> SourceComment -> Bool
+sourceCommentFollowsNodeSameLine node sourceComment = case
+    srcSpanToRealSpan $ getLoc node of
+  Just nodeSpan ->
+    srcSpanEndLine nodeSpan == srcSpanStartLine (sourceCommentSpan sourceComment)
+      && srcSpanEndCol nodeSpan <= srcSpanStartCol (sourceCommentSpan sourceComment)
+  Nothing -> False
+
+handledClauseComments
+  :: [([BriDocNumbered], BriDocNumbered, LHsExpr GhcPs, [SourceComment])]
+  -> [SourceComment]
+handledClauseComments = List.concatMap (\(_, _, _, comments) -> comments)
+
+prependConsumedComments
+  :: [SourceComment]
+  -> ToBriDocM BriDocNumbered
+  -> ToBriDocM BriDocNumbered
+prependConsumedComments _ formatted = formatted
+
+sourceCommentPrecedesNode :: Located ast -> SourceComment -> Bool
+sourceCommentPrecedesNode node sourceComment = case
+    srcSpanToRealSpan $ getLoc node of
+  Just nodeSpan ->
+      (srcSpanEndLine $ sourceCommentSpan sourceComment, srcSpanEndCol $ sourceCommentSpan sourceComment)
+        <= (srcSpanStartLine nodeSpan, srcSpanStartCol nodeSpan)
+  Nothing -> False
+
+sourceCommentStartsWithinNode :: Located ast -> SourceComment -> Bool
+sourceCommentStartsWithinNode node sourceComment = case
+    srcSpanToRealSpan $ getLoc node of
+  Just nodeSpan ->
+    (srcSpanStartLine nodeSpan, srcSpanStartCol nodeSpan)
+      <= ( srcSpanStartLine $ sourceCommentSpan sourceComment
+         , srcSpanStartCol $ sourceCommentSpan sourceComment
+         )
+  Nothing -> False
+
+sourceCommentWithinNodeSpan :: Located ast -> SourceComment -> Bool
+sourceCommentWithinNodeSpan node sourceComment = case
+    srcSpanToRealSpan $ getLoc node of
+  Just nodeSpan ->
+      (srcSpanStartLine nodeSpan, srcSpanStartCol nodeSpan)
+        <= ( srcSpanStartLine $ sourceCommentSpan sourceComment
+           , srcSpanStartCol $ sourceCommentSpan sourceComment
+           )
+        && ( srcSpanEndLine $ sourceCommentSpan sourceComment
+           , srcSpanEndCol $ sourceCommentSpan sourceComment
+           )
+          <= (srcSpanEndLine nodeSpan, srcSpanEndCol nodeSpan)
+  Nothing -> False
+
+sourceCommentsWithinNode
+  :: Located ast -> ToBriDocM [SourceComment]
+sourceCommentsWithinNode node = do
+  commentPlan <- mAsk
+  pure $ List.sortOn sourceCommentStart
+    $ filter (sourceCommentWithinNodeSpan node)
+    $ Map.elems
+    $ commentPlanSources commentPlan
 
 layoutPatternBind
-  :: Maybe Text
+  :: [SourceComment]
+  -> Maybe Text
   -> BriDocNumbered
   -> LMatch GhcPs (LHsExpr GhcPs)
   -> ToBriDocM BriDocNumbered
-layoutPatternBind funId binderDoc lmatch@(L _ match) = do
+layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
   let pats = unLoc (m_pats match)
   let (GRHSs _ grhssNE whereBinds) = m_grhss match
       grhss = NonEmpty.toList grhssNE
@@ -766,21 +950,20 @@ layoutPatternBind funId binderDoc lmatch@(L _ match) = do
           $ docWrapNodePrior (toL lmatch)
           $ return p
         _ -> return Nothing
-  clauseDocs <- docWrapNodeRest (toL lmatch) $ layoutGrhs `mapM` grhss
-  mWhereDocs <- layoutLocalBinds (L noSrcSpan whereBinds)
+  let matchComments = filter
+        (sourceCommentWithinNodeSpan $ toL lmatch)
+        declarationComments
+  clauseDocs <- docWrapNodeRest (toL lmatch)
+    $ layoutGrhs matchComments `mapM` grhss
+  mWhereDocs <- layoutLocalBinds (L (localBindsSpan whereBinds) whereBinds)
   let mWhereArg = mWhereDocs <&> (,) (mkAnnKey (toL lmatch))
   let alignmentToken = if null pats then Nothing else funId
   hasComments <- case mWhereDocs of
     Nothing -> hasAnyRegularCommentsConnectedNoFollowing (toL lmatch)
     Just _  -> hasAnyCommentsBelow (toL lmatch)
-  layoutPatternBindFinal
-    alignmentToken
-    binderDoc
-    (Just patDoc)
-    mMultilinePatDoc
-    clauseDocs
-    mWhereArg
-    hasComments
+  prependConsumedComments (handledClauseComments clauseDocs)
+    $ layoutPatternBindFinal alignmentToken binderDoc (Just patDoc)
+      mMultilinePatDoc clauseDocs mWhereArg hasComments
 
 fixPatternBindIdentifier :: Match GhcPs (LHsExpr GhcPs) -> Text -> Text
 fixPatternBindIdentifier match idStr = go $ m_ctxt match
@@ -804,7 +987,7 @@ layoutPatternBindFinal
   -> BriDocNumbered
   -> Maybe BriDocNumbered
   -> Maybe BriDocNumbered
-  -> [([BriDocNumbered], BriDocNumbered, LHsExpr GhcPs)]
+  -> [([BriDocNumbered], BriDocNumbered, LHsExpr GhcPs, [SourceComment])]
   -> Maybe (AnnKey, [BriDocNumbered])
      -- ^ AnnKey for the node that contains the AnnWhere position annotation
   -> Bool
@@ -889,8 +1072,16 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseD
     runFilteredAlternative $ do
 
       case clauseDocs of
-        [(guards, body, _bodyRaw)] -> do
+        [(guards, body, _bodyRaw, _)] -> do
           let guardPart = singleLineGuardsDoc guards
+          addAlternativeCond hasComments $ docLines
+            $ [ docSeq (patPartInline ++ [guardPart, pure binderDoc])
+              , docNonBottomSpacing
+                $ docEnsureIndent BrIndentRegular
+                $ docAddBaseY BrIndentRegular
+                $ pure body
+              ]
+            ++ wherePartMultiLine
           forM_ wherePart $ \wherePart' ->
             -- one-line solution
             addAlternativeCond (not hasComments) $ docCols
@@ -917,7 +1108,7 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseD
               ]
             ++ wherePartMultiLine
           -- two-line solution + where in next line(s)
-          addAlternative
+          addAlternativeCond (not hasComments)
             $ docLines
             $ [ docForceSingleline
                 $ docSeq (patPartInline ++ [guardPart, return binderDoc])
@@ -927,7 +1118,7 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseD
             ++ wherePartMultiLine
           -- pattern and exactly one clause in single line, body as par;
           -- where in following lines
-          addAlternative
+          addAlternativeCond (not hasComments)
             $ docLines
             $ [ docCols
                   (ColBindingLine alignmentToken)
@@ -945,7 +1136,7 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseD
              --   ]
             ++ wherePartMultiLine
           -- pattern and exactly one clause in single line, body in new line.
-          addAlternative
+          addAlternativeCond (not hasComments)
             $ docLines
             $ [ docSeq (patPartInline ++ [guardPart, return binderDoc])
               , docNonBottomSpacing
@@ -985,7 +1176,7 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseD
                   , docSetBaseY
                   $ docLines
                   $ clauseDocs
-                  <&> \(guardDocs, bodyDoc, _) -> do
+                  <&> \(guardDocs, bodyDoc, _, _) -> do
                         let guardPart = singleLineGuardsDoc guardDocs
                         -- the docForceSingleline might seems superflous, but it
                         -- helps the alternative resolving impl.
@@ -1004,14 +1195,14 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseD
               ]
             ++ wherePartMultiLine
       -- multiple clauses, each in a separate, single line
-      addAlternative
+      addAlternativeCond (not hasComments)
         $ docLines
         $ [ docAddBaseY BrIndentRegular
             $ patPartParWrap
             $ docLines
             $ map docSetBaseY
             $ clauseDocs
-            <&> \(guardDocs, bodyDoc, _) -> do
+            <&> \(guardDocs, bodyDoc, _, _) -> do
                   let guardPart = singleLineGuardsDoc guardDocs
                   -- the docForceSingleline might seems superflous, but it
                   -- helps the alternative resolving impl.
@@ -1030,14 +1221,14 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseD
         ++ wherePartMultiLine
       -- multiple clauses, each with the guard(s) in a single line, body
       -- as a paragraph
-      addAlternative
+      addAlternativeCond (not hasComments)
         $ docLines
         $ [ docAddBaseY BrIndentRegular
             $ patPartParWrap
             $ docLines
             $ map docSetBaseY
             $ clauseDocs
-            <&> \(guardDocs, bodyDoc, _) ->
+            <&> \(guardDocs, bodyDoc, _, _) ->
                   docSeq
                     $ (case guardDocs of
                         [] -> []
@@ -1072,7 +1263,7 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseD
             $ docLines
             $ map docSetBaseY
             $ clauseDocs
-            >>= \(guardDocs, bodyDoc, _) ->
+            >>= \(guardDocs, bodyDoc, _, _) ->
                   (case guardDocs of
                       [] -> []
                       [g] ->
@@ -1104,7 +1295,7 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseD
             $ docLines
             $ map docSetBaseY
             $ clauseDocs
-            >>= \(guardDocs, bodyDoc, _) ->
+            >>= \(guardDocs, bodyDoc, _, _) ->
                   (case guardDocs of
                       [] -> []
                       [g] -> [docSeq [appSep $ docLit $ Text.pack "|", return g]]
@@ -1126,13 +1317,13 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseD
       case mMultilinePatDoc of
         Nothing -> return ()
         Just patDoc ->
-          addAlternativeCond (length clauseDocs > 1)
+          addAlternativeCond (length clauseDocs > 1 && not hasComments)
             $ docLines
             $ [ return patDoc
               , docEnsureIndent BrIndentRegular
               $ docLines
               $ clauseDocs
-              <&> \(guardDocs, bodyDoc, _) -> do
+              <&> \(guardDocs, bodyDoc, _, _) -> do
                     let guardPart = singleLineGuardsDoc guardDocs
                     docForceSingleline $ docCols
                       ColGuardedBody
@@ -1252,7 +1443,7 @@ layoutPatSynBuilder
   -> LMatch GhcPs (LHsExpr GhcPs)
   -> ToBriDocM (ToBriDocM BriDocNumbered)
 layoutPatSynBuilder binderDoc match = do
-  builderDoc <- docSharedWrapper (layoutPatternBind Nothing binderDoc) match
+  builderDoc <- docSharedWrapper (layoutPatternBind [] Nothing binderDoc) match
   commentPlan <- mAsk
   let matchKeys = foldedAnnKeys match
       leadingComments =

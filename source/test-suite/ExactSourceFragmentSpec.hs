@@ -8,6 +8,7 @@ import qualified GHC.Data.FastString as FastString
 import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.Backend
   ( consumeExactSourceFragment
+  , reserveSourceFragmentComments
   )
 import Language.Haskell.Brittany.Internal.ExactSource
   ( validateOpaqueSourceFragment
@@ -15,6 +16,7 @@ import Language.Haskell.Brittany.Internal.ExactSource
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as EP
 import qualified Language.Haskell.Brittany.Internal.ParseModule as ParseModule
 import Language.Haskell.Brittany.Internal.SourceComment.Types
+import Language.Haskell.Brittany.Internal.Types (BriDoc(..))
 import qualified Language.Haskell.Brittany.Main as Brittany
 import qualified System.Directory as Directory
 import qualified System.FilePath as FilePath
@@ -43,6 +45,43 @@ spec projectRoot = Hspec.describe "exact-source comment ownership" $ do
         outsideKey = SourceCommentKey $ EP.commentIdentifier outsideComment
     Set.size insideKeys `Hspec.shouldBe` 1
     outsideKey `Set.member` insideKeys `Hspec.shouldBe` False
+
+  Hspec.it "reserves comments rendered by nested source fragments" $ do
+    let (fragment, annotations, outsideComment) = fragmentFixture
+        annotationKey = fst $ Map.findMin annotations
+        document = BDSeq
+          [ BDLit $ Text.pack "prefix"
+          , BDExternal annotationKey False $ SourceFragment fragment
+          ]
+        remaining = reserveSourceFragmentComments document annotations
+        comments = concatMap EP.annPriorComments $ Map.elems remaining
+    comments `Hspec.shouldBe` [(outsideComment, EP.DP (1, 0))]
+
+  Hspec.it "keeps annotations when a document has no source fragment" $ do
+    let (_, annotations, _) = fragmentFixture
+    reserveSourceFragmentComments (BDLit $ Text.pack "native") annotations
+      `Hspec.shouldBe` annotations
+
+  Hspec.it "ignores source fragments in inactive alternatives" $ do
+    let (fragment, annotations, _) = fragmentFixture
+        annotationKey = fst $ Map.findMin annotations
+        inactive = BDExternal annotationKey False $ SourceFragment fragment
+        document = BDAlt [BDLit $ Text.pack "selected", inactive]
+    reserveSourceFragmentComments document annotations
+      `Hspec.shouldBe` annotations
+
+  Hspec.it "does not reserve a different equal-text comment" $ do
+    let (fragment, annotations, outsideComment) = fragmentFixture
+        annotationKey = fst $ Map.findMin annotations
+        document = BDExternal annotationKey False $ SourceFragment fragment
+        remaining = reserveSourceFragmentComments document annotations
+        outsideKey = SourceCommentKey $ EP.commentIdentifier outsideComment
+        remainingKeys = Set.fromList
+          [ SourceCommentKey $ EP.commentIdentifier comment
+          | annotation <- Map.elems remaining
+          , (comment, _) <- EP.annPriorComments annotation
+          ]
+    outsideKey `Set.member` remainingKeys `Hspec.shouldBe` True
 
   Hspec.it "rejects a comment key outside the fragment source range" $ do
     let (fragment, annotations, outsideComment) = fragmentFixture

@@ -5,7 +5,8 @@
 module Language.Haskell.Brittany.Internal.Layouters.DataDecl where
 
 import qualified Data.Char as Char
-import GHC (GenLocated(L), Located, unLoc)
+import qualified Data.Map as Map
+import GHC (GenLocated(L), Located, getLoc, unLoc)
 import GHC.Hs
 import GHC.Types.SrcLoc (noSrcSpan)
 import qualified GHC.Types.SrcLoc as SrcLoc
@@ -15,8 +16,10 @@ import Language.Haskell.Brittany.Internal.ExactPrintCompat
   , Annotation(annPriorComments)
   , Comment(commentContents, commentIdentifier)
   , mkAnnKey
+  , realSpanToSrcSpan
   , srcSpanToRealSpan
   )
+import Language.Haskell.Brittany.Internal.ExactSource (sourceCommentFragment)
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.DataDecl.Constructor
@@ -24,6 +27,7 @@ import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import Language.Haskell.Brittany.Internal.Layouters.Type
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
+import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.Types
 
 
@@ -50,7 +54,7 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
               if hasPriorComments
                 then layoutH98Constructors
                   "newtype" createAnnotatedDetailsDoc mCtxt mDerivs
-                  [(lcons, consName, details)]
+                  [(lcons, consName, [], Nothing, details)]
                 else docWrapNode ltycl $ do
                   nameStr <- lrdrNameToTextAnn name
                   consNameStr <- applyNameAdornment consName
@@ -85,13 +89,13 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
 
   -- data MyData = First | Second ..
     DataTypeCons _ constructors@(_ : _ : _) ->
-      case traverse simpleConstructor constructors of
-        Just simpleConstructors ->
+      case traverse h98Constructor constructors of
+        Just h98Constructors ->
           layoutH98Constructors
-            "data" createMultipleDetailsDoc mCtxt mDerivs simpleConstructors
-        Nothing -> case (mCType, mKindSig, traverse simpleGadtConstructor constructors) of
-          (Nothing, Nothing, Just simpleConstructors) ->
-            layoutGadtConstructors mCtxt mDerivs simpleConstructors
+            "data" createMultipleDetailsDoc mCtxt mDerivs h98Constructors
+        Nothing -> case (mCType, traverse simpleGadtConstructor constructors) of
+          (Nothing, Just simpleConstructors) ->
+            layoutGadtConstructors mKindSig mCtxt mDerivs simpleConstructors
           _ -> briDocByExactNoComment DataDeclarationFallback ltycl
     DataTypeCons _ [lcons] -> do
       (hasPriorComments, _) <- constructorCommentFlags (toL lcons)
@@ -104,9 +108,9 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
         (Just constructor, True, True, Nothing, Nothing) ->
           layoutH98Constructors
             "data" createAnnotatedDetailsDoc mCtxt mDerivs [constructor]
-        _ -> (case (mCType, mKindSig, simpleGadtConstructor lcons) of
-          (Nothing, Nothing, Just constructor) ->
-            layoutGadtConstructors mCtxt mDerivs [constructor]
+        _ -> (case (mCType, simpleGadtConstructor lcons) of
+          (Nothing, Just constructor) ->
+            layoutGadtConstructors mKindSig mCtxt mDerivs [constructor]
           _ -> case lcons of {
           (L _ (ConDeclH98 _ext consName _hasExt qvars mRhsContext details _conDoc))
             -> docWrapNode ltycl do
@@ -255,9 +259,15 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
 
   _ -> briDocByExactNoComment DataDeclarationFallback ltycl
  where
+  h98Constructor = \case
+    lcons@(L _ (ConDeclH98 _ constructorName _ qvars context details _)) ->
+      Just (lcons, constructorName, qvars, context, details)
+    _ -> Nothing
+
   simpleConstructor = \case
     lcons@(L _ (ConDeclH98 _ constructorName False [] context details _))
-      | contextIsEmpty context -> Just (lcons, constructorName, details)
+      | contextIsEmpty context ->
+          Just (lcons, constructorName, [], context, details)
     _ -> Nothing
 
   simpleGadtConstructor = \case
@@ -282,21 +292,33 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
       $ unLoc (maybe (L noSrcSpan []) toL context)
     nameStr <- lrdrNameToTextAnn name
     tyVarLine <- return <$> createBndrDoc bndrs
-    constructorDocs <- constructors `forM` \(lcons, constructorName, details) -> do
+    constructorDocs <- constructors `forM`
+      \(lcons, constructorName, qvars, rhsContext, details) -> do
       constructorNameStr <- applyNameAdornment constructorName
         <$> lrdrNameToTextAnn (toL constructorName)
       (hasPriorComments, inlineHaddock) <-
         constructorCommentFlags (toL lcons)
+      let forallParts = case createForallDoc qvars of
+            Nothing -> []
+            Just forallDoc ->
+              [forallDoc, docSeparator, docLitS ".", docSeparator]
+          contextParts = case rhsContext of
+            Nothing -> []
+            Just (L _ contextTypes) -> [createContextDoc contextTypes]
+          detailsDoc = docSeq
+            $ forallParts
+            ++ contextParts
+            ++ [detailsLayout constructorNameStr details]
       constructorDoc <- return <$> case () of
         _ | inlineHaddock -> docWrapNodeRest
               (toL lcons)
-              (detailsLayout constructorNameStr details)
+              detailsDoc
           | hasPriorComments -> docWrapNode
               (toL lcons)
-              (detailsLayout constructorNameStr details)
+              detailsDoc
           | otherwise -> docWrapNode
               (toL lcons)
-              (detailsLayout constructorNameStr details)
+              detailsDoc
       pure (toL lcons, hasPriorComments, inlineHaddock, constructorDoc)
     let header = docNodeAnnKW ltycl (Just AnnData) $ docSeq
           [ appSep $ docLitS keyword
@@ -373,22 +395,34 @@ layoutDataDecl ltycl name (HsQTvs _ bndrs) defn = case defn of
   isSingleLine contents =
     '\n' `notElem` contents && '\r' `notElem` contents
 
-  layoutGadtConstructors context derivings constructors = docWrapNode ltycl $ do
+  layoutGadtConstructors kindSignature context derivings constructors =
+    docWrapNode ltycl $ do
     lhsContextDoc <- docSharedWrapper createContextDoc
       $ unLoc (maybe (L noSrcSpan []) toL context)
     nameStr <- lrdrNameToTextAnn name
     tyVarLine <- return <$> createBndrDoc bndrs
+    kindDoc <- traverse (docSharedWrapper layoutType . toL) kindSignature
     constructorDocs <- constructors `forM`
       \(lcons, constructorName, arguments, resultType) -> do
         constructorNameStr <- applyNameAdornment constructorName
           <$> lrdrNameToTextAnn (toL constructorName)
         return <$> docWrapNode (toL lcons)
-          (createGadtDetailsDoc constructorNameStr arguments resultType)
+          (createGadtDetailsDoc
+            (toL lcons) constructorNameStr arguments resultType)
     let header = docNodeAnnKW ltycl (Just AnnData) $ docSeq
           [ appSep $ docLitS "data"
           , docForceSingleline lhsContextDoc
           , appSep $ docLit nameStr
           , appSep tyVarLine
+          , case kindDoc of
+              Nothing -> docEmpty
+              Just doc -> docSeq
+                [ docSeparator
+                , docLitS "::"
+                , docSeparator
+                , doc
+                ]
+          , docSeparator
           , docLitS "where"
           ]
     createDerivingPar derivings
@@ -454,7 +488,7 @@ createDerivingPar derivs mainDoc = do
         <$> types
 
 derivingClauseDoc :: LHsDerivingClause GhcPs -> ToBriDocM BriDocNumbered
-derivingClauseDoc clause@(L _ (HsDerivingClause _ext mStrategy lTys)) =
+derivingClauseDoc clause@(L _ (HsDerivingClause _ext mStrategy lTys)) = do
   let ts = case lTys of
         L _ (DctSingle _ ty) -> [ty]
         L _ (DctMulti _ tys) -> tys
@@ -463,8 +497,28 @@ derivingClauseDoc clause@(L _ (HsDerivingClause _ext mStrategy lTys)) =
       whenMoreThan1Type val = if tsLength > 1 then docLitS val else docLitS ""
       (lhsStrategy, rhsStrategy) =
         maybe (docEmpty, docEmpty) strategyLeftRight (fmap toL mStrategy)
-  in if null ts then docSeq []
-     else docWrapNodePrior (toL clause) $ docSeq
+  clauseComments <- derivingClauseComments (toL clause)
+  let firstTypeStart = case ts of
+        [] -> Nothing
+        firstType : _ -> fmap sourcePositionStart
+          $ srcSpanToRealSpan $ getLoc $ toL firstType
+      (leadingComments, trailingComments) = case firstTypeStart of
+        Nothing -> (clauseComments, [])
+        Just typeStart -> List.partition
+          ((<= typeStart) . sourcePositionEnd . sourceCommentSpan)
+          clauseComments
+      typeDoc = docSeq
+        [ whenMoreThan1Type "("
+        , docSeq
+          $ List.intersperse docCommaSep
+          $ ((\lty -> case unLoc lty of
+              HsSig _ _ body -> layoutType (toL body)
+              _ -> docLitS "?") <$> ts)
+        , whenMoreThan1Type ")"
+        ]
+  if null ts then docSeq []
+  else if null clauseComments
+    then docWrapNodePrior (toL clause) $ docSeq
        [ docDeriving
        , docWrapNodePrior (toL lTys) $ lhsStrategy
        , docSeparator
@@ -476,6 +530,10 @@ derivingClauseDoc clause@(L _ (HsDerivingClause _ext mStrategy lTys)) =
        , whenMoreThan1Type ")"
        , rhsStrategy
        ]
+    else docWrapNodePrior (toL clause) $ docLines
+      $ [docSeq [docDeriving, lhsStrategy]]
+      ++ (layoutDerivingComment <$> leadingComments ++ trailingComments)
+      ++ [typeDoc, rhsStrategy]
  where
   strategyLeftRight = \case
     (L _ (StockStrategy _)) -> (docLitS " stock", docEmpty)
@@ -492,6 +550,37 @@ derivingClauseDoc clause@(L _ (HsDerivingClause _ext mStrategy lTys)) =
 
   layoutSigType :: LHsSigType GhcPs -> ToBriDocM BriDocNumbered
   layoutSigType (L _ (HsSig _ _ body)) = layoutType (toL body)
+
+derivingClauseComments
+  :: Located (HsDerivingClause GhcPs) -> ToBriDocM [SourceComment]
+derivingClauseComments clause = do
+  commentPlan <- mAsk
+  pure $ case srcSpanToRealSpan $ getLoc clause of
+    Nothing -> []
+    Just clauseSpan -> List.sortOn
+      (sourcePositionStart . sourceCommentSpan)
+      [ sourceComment
+      | (key, placement) <- Map.toList $ commentPlanPlacements commentPlan
+      , placementRole placement == BetweenChildren DerivingClause
+      , Just sourceComment <- [Map.lookup key $ commentPlanSources commentPlan]
+      , sourcePositionStart (sourceCommentSpan sourceComment)
+          >= sourcePositionStart clauseSpan
+      , sourcePositionEnd (sourceCommentSpan sourceComment)
+          <= sourcePositionEnd clauseSpan
+      ]
+
+layoutDerivingComment :: SourceComment -> ToBriDocM BriDocNumbered
+layoutDerivingComment sourceComment = briDocBySourceFragmentNoComment
+  (L (realSpanToSrcSpan $ sourceCommentSpan sourceComment) sourceComment)
+  (sourceCommentFragment sourceComment)
+
+sourcePositionStart :: SrcLoc.RealSrcSpan -> (Int, Int)
+sourcePositionStart span' =
+  (SrcLoc.srcSpanStartLine span', SrcLoc.srcSpanStartCol span')
+
+sourcePositionEnd :: SrcLoc.RealSrcSpan -> (Int, Int)
+sourcePositionEnd span' =
+  (SrcLoc.srcSpanEndLine span', SrcLoc.srcSpanEndCol span')
 
 docDeriving :: ToBriDocM BriDocNumbered
 docDeriving = docLitS "deriving"

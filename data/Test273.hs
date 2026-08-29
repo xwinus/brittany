@@ -1,4 +1,5 @@
-func = do
--- abc
-  -- def
-  return ()
+func =
+  do
+    -- abc
+    -- def
+    return ()

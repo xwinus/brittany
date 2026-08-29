@@ -99,7 +99,7 @@ sourceSpan startLine startColumn endLine endColumn =
 
 commentLines :: String -> [String]
 commentLines =
-  fmap Text.unpack
+  fmap (Text.unpack . Text.strip)
     . filter (Text.isPrefixOf (Text.pack "--") . Text.stripStart)
     . Text.lines
     . Text.pack

@@ -37,19 +37,17 @@ largeConstruct fieldOne fieldTwo =
   LargeRecord
     { fieldOne
     , fieldTwo
-    , fieldThree   = nestedValue
-        argumentOne
-        argumentTwo
-    , -- Keep this comment with field four.
-      fieldFour    = undefined
-    , fieldFive    = undefined
-    , fieldSix     = undefined
-    , fieldSeven   = undefined
-    , fieldEight   = undefined
-    , fieldNine    = undefined
-    , fieldTen     = undefined
-    , fieldEleven  = undefined
-    , fieldTwelve  = undefined
+    , fieldThree    = nestedValue argumentOne argumentTwo
+      -- Keep this comment with field four.
+    , fieldFour     = undefined
+    , fieldFive     = undefined
+    , fieldSix      = undefined
+    , fieldSeven    = undefined
+    , fieldEight    = undefined
+    , fieldNine     = undefined
+    , fieldTen      = undefined
+    , fieldEleven   = undefined
+    , fieldTwelve   = undefined
     , fieldThirteen = undefined
     , fieldFourteen = undefined
     , fieldFifteen  = undefined
@@ -60,9 +58,7 @@ largeUpdate record =
   record
     { fieldOne   = undefined
     , fieldTwo   = undefined
-    , fieldThree = nestedValue
-        argumentOne
-        argumentTwo
-    , -- Keep this update comment with field four.
-      fieldFour  = undefined
+    , fieldThree = nestedValue argumentOne argumentTwo
+      -- Keep this update comment with field four.
+    , fieldFour  = undefined
     }

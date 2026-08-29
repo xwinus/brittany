@@ -1,5 +1,5 @@
 data Example = Example
-  { first :: Int
+  { first  :: Int
     -- field comment
   , second :: Bool
   }

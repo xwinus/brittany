@@ -15,6 +15,7 @@ import qualified DataDeclSingleConstructorSpec
 import qualified ExtractAnnsSpec
 import qualified ExactSourceFragmentSpec
 import qualified FallbackSpec
+import qualified FallbackSweepSpec
 import qualified FixitySignatureSpec
 import qualified InstanceHeadSpec
 import qualified LetStatementBoundarySpec
@@ -102,6 +103,7 @@ main = Hspec.hspec $ do
   ComposableDeclarationSpec.spec projectRoot
   ConstructorFieldModifierSpec.spec projectRoot
   FallbackSpec.spec projectRoot
+  FallbackSweepSpec.spec
   FixitySignatureSpec.spec projectRoot
   InstanceHeadSpec.spec projectRoot
   LetStatementBoundarySpec.spec projectRoot

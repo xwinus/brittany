@@ -2,4 +2,5 @@
 module TemplateHaskellFallback where
 
 quoteExpVersion txt = [|parseVersionUnsafe txt|]
-  where parseVersionUnsafe value = value
+ where
+  parseVersionUnsafe value = value

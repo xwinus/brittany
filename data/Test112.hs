@@ -1,6 +1,7 @@
-foo = if True
-  then
+foo =
+  if True
+    then
       -- iiiiii
-    "a                                                                         "
-  else
-    "b                                                                         "
+      "a                                                                         "
+    else
+      "b                                                                         "

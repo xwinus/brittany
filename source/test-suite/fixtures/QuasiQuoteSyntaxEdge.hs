@@ -7,5 +7,6 @@ content that looks like -- a source comment
 content with { brackets } and punctuation
 |]
 match
-  -- Keep the pattern quasiquote comment.
-  [patternQuote|value|] = True
+-- Keep the pattern quasiquote comment.
+      [patternQuote|value|] =
+  True

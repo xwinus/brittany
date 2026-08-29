@@ -1,4 +1,5 @@
-data Foo = Bar -- a
+data Foo = Bar
+                        -- a
   { foo  :: Baz -- b
   , bars :: Bizzz -- c
   } -- d

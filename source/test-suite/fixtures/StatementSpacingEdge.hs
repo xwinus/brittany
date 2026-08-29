@@ -1,31 +1,34 @@
 {-# LANGUAGE RecursiveDo #-}
 module StatementSpacingEdge where
 
-workflow value = do
-  prepare
-  validate
+workflow value =
+  do
+    prepare
+    validate
 
-  result <- case value of
-    Just item -> do
-      first item
-      second item
+    result <- case value of
+      Just item ->
+        do
+          first item
+          second item
 
-      -- Keep this comment with the final step.
-      finalStep item
+          -- Keep this comment with the final step.
+          finalStep item
 
 
-      cleanup item
-    Nothing -> do
-      fallback
-      finish
-  publish result
+          cleanup item
+      Nothing -> do
+        fallback
+        finish
+    publish result
  where
-  validate = do
-    checkOne
-    checkTwo
+  validate =
+    do
+      checkOne
+      checkTwo
 
-    -- Keep this comment with the third check.
-    checkThree
+      -- Keep this comment with the third check.
+      checkThree
 
 recursiveWorkflow = mdo
   seed <- initialize

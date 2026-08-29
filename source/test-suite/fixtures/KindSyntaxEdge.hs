@@ -10,14 +10,9 @@ type Identity
    . kind
   -> kind
 type Identity value = value
-data Proxy
-  ( value
-      :: -- Keep the declaration binder kind comment.
-         kind
-  ) = Proxy
-type Apply
-  (constructor :: kind -> Type)
-  ( value
-      :: -- Keep the synonym binder kind comment.
-         kind
-  ) = constructor value
+data Proxy (value ::
+-- Keep the declaration binder kind comment.
+                     kind) = Proxy
+type Apply (constructor :: kind -> Type) (value ::
+-- Keep the synonym binder kind comment.
+                                                   kind) = constructor value

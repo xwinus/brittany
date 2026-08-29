@@ -54,8 +54,9 @@ wildcard firstValue argument =
     , ..
     }
 
-commentedRecordWithLongBindingName argument = Settings
-  { -- Keep this comment with the first field.
-    firstValue = transformLongValue argument
-  , secondValue = transformAgain argument
-  }
+commentedRecordWithLongBindingName argument =
+  Settings
+    -- Keep this comment with the first field.
+    { firstValue  = transformLongValue argument
+    , secondValue = transformAgain argument
+    }
