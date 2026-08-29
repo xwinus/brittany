@@ -184,25 +184,30 @@ log the size of the input, but _not_ the full input/output of requests.)
 
 # Feature Requests, Contribution, Documentation
 
-For a long time this project has had a single maintainer, and as a consequence
-there have been some mildly large delays for reacting to feature requests
-and even PRs.
-
-Sorry about that.
-
-The good news is that this project is getting sponsored by PRODA LTD, and two
-previous contributors, Evan Borden and Taylor Fausak, have agreed on helping
-with organisational aspects. Thanks!
-
-Still, this project has a long queue of very sensible feature requests, so it
-may take some time until new ones get our attention. But with the help of
-the co-maintainers, at least the reaction-times on PRs and the frequency
-of releases should improve significantly.
+This fork has one maintainer, so please be patient with issues and pull
+requests. Bug reports are most useful when they come with a small input file
+that reproduces the problem, since those can be turned into a test case
+straight away.
 
 If you are interested in making your own contributions, there is
 a good amount of high-level documentation at
 
 [the documentation index](doc/implementation/index.md)
+
+# Sponsoring
+
+brittany is maintained by one person. Sponsorship pays for the work that keeps
+it current: porting to each new GHC release, keeping the compatibility matrix
+honest, and getting to issues and pull requests in reasonable time.
+
+It changes nothing about the tool. brittany is AGPL-3.0 and stays that way,
+there are no paid tiers, no features held back for sponsors, and nothing in
+brittany's own output will ever ask you for money.
+
+If your team runs brittany in CI, the recurring tiers are the version of this
+that comes out of a tools budget instead of somebody's pocket.
+
+[**Sponsor brittany**](https://github.com/sponsors/xwinus), one-off or monthly.
 
 # License
 
