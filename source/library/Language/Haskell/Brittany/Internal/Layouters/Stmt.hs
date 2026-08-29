@@ -58,7 +58,7 @@ layoutStmt lstmt@(L _ stmt) = do
     LastStmt _ body Nothing _ -> do
       layoutExpr (toL body)
     BindStmt _ lPat expr -> do
-      patDoc <- fmap return $ colsWrapPat =<< layoutPat lPat
+      patDoc <- fmap pure $ patternDocument =<< layoutPattern lPat
       expDoc <- docSharedWrapper layoutExpr (toL expr)
       docAlt
         [ docCols

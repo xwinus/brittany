@@ -31,6 +31,9 @@ source/library/Language/Haskell/Brittany/Internal/Layouters/Import.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Instance.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Module.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Pattern.hs
+source/library/Language/Haskell/Brittany/Internal/Layouters/Pattern/Comments.hs
+source/library/Language/Haskell/Brittany/Internal/Layouters/Pattern/Record.hs
+source/library/Language/Haskell/Brittany/Internal/Layouters/Pattern/Types.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/StandaloneDeriving.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/StandaloneKindSignature.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Stmt.hs
@@ -62,6 +65,7 @@ source/test-suite/CanonicalSemanticModelSpec.hs
 source/test-suite/CommentOwnershipSpec.hs
 source/test-suite/CommentPlanSpec.hs
 source/test-suite/CompactParenthesizedPatternSpec.hs
+source/test-suite/CompositionalPatternSpec.hs
 source/test-suite/CompatibilityMatrix.hs
 source/test-suite/CompatibilitySpec.hs
 source/test-suite/ComposableDeclarationSpec.hs
