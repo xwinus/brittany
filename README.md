@@ -69,9 +69,8 @@ require fixing:
 
 ## Try without Installing
 
-You can [paste haskell code over here](https://hexagoxel.de/brittany/)
-to test how it gets formatted by brittany. (Rg. privacy: the server does
-log the size of the input, but _not_ the full input/output of requests.)
+You can [paste haskell code over here](https://brittany-hs.org/)
+to test how it gets formatted by brittany.
 
 # Other usage notes
 
