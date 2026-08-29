@@ -5,11 +5,9 @@
 {-# LANGUAGE MultilineStrings #-}
 {-# LANGUAGE NumericUnderscores #-}
 module LiteralSyntaxEdge where
-total =
-  ( 1_000
+total = (1_000
     -- Keep the numeric operator boundary comment.
-    + 0b1010_0110
-  )
+               + 0b1010_0110)
 smallWord =
   -- Keep the sized primitive literal comment.
   0xff#Word8

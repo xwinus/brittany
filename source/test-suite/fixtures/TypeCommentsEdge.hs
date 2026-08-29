@@ -1,6 +1,7 @@
 type Pair
-  = ( -- tuple start
+  = (
+   -- tuple start
      Int -- first item
-      , -- tuple separator
-        Bool -- second item
-         ) -- tuple end
+        -- tuple separator
+        , Bool -- second item
+              ) -- tuple end

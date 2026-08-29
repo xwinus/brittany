@@ -8,7 +8,6 @@ import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
 import GHC (GenLocated(L), unLoc)
 import GHC.Hs
-import GHC.Types.SrcLoc (noSrcSpan)
 import Language.Haskell.Brittany.Internal.Config.Types
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrintCompat
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
@@ -47,9 +46,7 @@ layoutStmtList stmts = do
   go _ docs _ = docs
 
   separatorLines (Just previous) (Just current)
-    | not (null $ topLevelFollowingSpans previous)
-      || not (null $ topLevelPriorSpans current) = 1
-    | otherwise = topLevelSeparatorLines previous current
+    = topLevelSeparatorLines previous current
   separatorLines _ _ = 1
 
 layoutStmt :: ToBriDoc' (StmtLR GhcPs GhcPs (LHsExpr GhcPs))
@@ -82,13 +79,13 @@ layoutStmt lstmt@(L _ stmt) = do
     LetStmt _ binds -> do
       let isFree = indentPolicy == IndentPolicyFree
       let indentFourPlus = indentAmount >= 4
-      layoutLocalBinds (L noSrcSpan binds) >>= \case
+      layoutLocalBinds (L (localBindsSpan binds) binds) >>= \case
         Nothing -> docLit $ Text.pack "let"
           -- i just tested the above, and it is indeed allowed. heh.
         Just [] -> docLit $ Text.pack "let" -- this probably never happens
+        -- let bind = expr
         Just [bindDoc] -> docAlt
-          [ -- let bind = expr
-            docCols
+          [ docCols
             ColDoLet
             [ appSep $ docLit $ Text.pack "let"
             , let

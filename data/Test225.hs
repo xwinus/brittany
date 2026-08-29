@@ -1,8 +1,9 @@
-func = do
-  -- complex first step
-  aaa
-  -- complex second step
-  bbb
+func =
+  do
+    -- complex first step
+    aaa
+    -- complex second step
+    bbb
  where
   helper :: Helper
   helper = helpful

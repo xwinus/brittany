@@ -78,6 +78,11 @@ import Language.Haskell.Brittany.Internal.SemanticFingerprint
   , compareSemanticSyntax
   , renderSemanticPath
   )
+import Language.Haskell.Brittany.Internal.SourceComment.Types
+  ( SourceComment(sourceCommentSpan)
+  , CommentPlan(commentPlanSources)
+  , ExactSourceFragment(fragmentCommentKeys)
+  )
 import Language.Haskell.Brittany.Internal.Transformations.Alt
 import Language.Haskell.Brittany.Internal.Transformations.Columns
 import Language.Haskell.Brittany.Internal.Transformations.Floating
@@ -467,11 +472,16 @@ pPrintModuleWithSource originalSource conf inlineConf anns parsedModule =
       in tracer $
         if hasUnknownNode
           then (errs', fallbackOutput)
-          else (errs, Text.Builder.toLazyText out)
+          else (errs, stripTrailingLineWhitespace $ Text.Builder.toLazyText out)
   -- unless () $ do
   --
   --   debugStrings `forM_` \s ->
   --     trace s $ return ()
+
+stripTrailingLineWhitespace :: TextL.Text -> TextL.Text
+stripTrailingLineWhitespace = TextL.intercalate (TextL.singleton '\n')
+  . fmap (TextL.dropWhileEnd (`elem` [' ', '\t']))
+  . TextL.splitOn (TextL.singleton '\n')
 
 -- | Additionally checks that the output parses and preserves source comments
 -- and normalized semantic syntax, appending errors when an invariant fails.
@@ -515,15 +525,27 @@ pPrintModuleAndCheckWithSource originalSource conf inlineConf anns parsedModule 
               (Left planErrors, _) -> fmap (ErrorCommentPlan . show) planErrors
               (_, Left planErrors) -> fmap (ErrorCommentPlan . show) planErrors
               (Right inputPlan, Right outputPlan) ->
-                [ ErrorUnusedComment
+                let inputComments = List.nub
+                      $ collectCommentContents parsedModule
+                    outputComments = List.nub
+                      $ collectCommentContents outputModule
+                    inputFingerprint = commentPlanFingerprint inputPlan
+                    outputFingerprint = commentPlanFingerprint outputPlan
+                in [ ErrorUnusedComment
                     $ "Comment missing from formatted output: " ++ show commentText
-                | commentText <- collectCommentContents parsedModule
-                    List.\\ collectCommentContents outputModule
+                | commentText <- inputComments List.\\ outputComments
                 ]
                   ++ [ ErrorCommentPlan
-                        "Comment ownership, order, or role changed after formatting."
-                     | commentPlanFingerprint inputPlan
-                        /= commentPlanFingerprint outputPlan
+                        $ "Comment order or multiplicity changed after formatting."
+                        ++ "\nInput comments: " ++ show inputComments
+                        ++ "\nOutput comments: " ++ show outputComments
+                     | inputComments /= outputComments
+                     ]
+                  ++ [ ErrorCommentPlan
+                        $ "Comment ownership, order, or role changed after formatting."
+                        ++ "\nInput: " ++ show inputFingerprint
+                        ++ "\nOutput: " ++ show outputFingerprint
+                     | inputFingerprint /= outputFingerprint
                      ]
       errs' = errs ++ checkErrors
   return (errs', output)
@@ -744,7 +766,21 @@ ppModule originalSource lmod@(L _loc _m@(HsModule _ _name _exports imports decls
       Map.union (Map.findWithDefault Map.empty declAnnKey annMap) defaultAnns
     commentPlan <- mAsk
     let exactDeclText = nodeSourceSlice exactSource decl' filteredAnns commentPlan
-    let hasSourceComments = case EP.srcSpanToRealSpan $ getLocA decl' of
+    let declarationSourceComments = case exactDeclText of
+          Just fragment -> Map.elems $ Map.restrictKeys
+            (commentPlanSources commentPlan)
+            (fragmentCommentKeys fragment)
+          Nothing -> case EP.srcSpanToRealSpan $ getLocA decl' of
+            Nothing -> []
+            Just span' -> filter
+              (\sourceComment ->
+                GHC.srcSpanStartLine (sourceCommentSpan sourceComment)
+                  >= GHC.srcSpanStartLine span'
+                  && GHC.srcSpanEndLine (sourceCommentSpan sourceComment)
+                    <= GHC.srcSpanEndLine span'
+              )
+              (Map.elems $ commentPlanSources commentPlan)
+        hasSourceComments = case EP.srcSpanToRealSpan $ getLocA decl' of
           Nothing -> False
           Just span' -> any
             (\(line, _) ->
@@ -772,7 +808,8 @@ ppModule originalSource lmod@(L _loc _m@(HsModule _ _name _exports imports decls
         else do
           (r, errs, debugs) <-
             briDocMToPPMInner
-              $ layoutDeclWithExactText exactDeclText hasSourceComments decl'
+              $ layoutDeclWithExactText
+                exactDeclText hasSourceComments declarationSourceComments decl'
           let errs' = case unLoc decl' of
                 SpliceD _ (SpliceDecl _ splice _) ->
                   let nonFallbacks = filter (\case
@@ -999,7 +1036,7 @@ layoutBriDoc briDoc = do
                                            -- its thing properly.
       , _lstate_indLevels = [0]
       , _lstate_indLevelLinger = 0
-      , _lstate_comments = anns
+      , _lstate_comments = reserveSourceFragmentComments briDoc' anns
       , _lstate_commentCol = Nothing
       , _lstate_addSepSpace = Nothing
       , _lstate_commentNewlines = 0

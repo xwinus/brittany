@@ -30,6 +30,7 @@ import Language.Haskell.Brittany.Internal.CommentPlan (isSourceComment)
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.ExactSource
   ( nodeOpaqueSourceFragment
+  , nodeSourceFragment
   , validateExactSourceFragment
   , validateOpaqueSourceFragment
   )
@@ -144,7 +145,9 @@ briDocByExactInlineOnly
   -> Located ast
   -> ToBriDocM BriDocNumbered
 briDocByExactInlineOnly fallback ast = do
+  OriginalSource source <- mAsk
   anns <- mAsk
+  commentPlan <- mAsk
   traceIfDumpConf
     "ast"
     _dconf_dump_ast_unknown
@@ -163,12 +166,17 @@ briDocByExactInlineOnly fallback ast = do
     errorAction = do
       mTell [ErrorUnknownNode (show fallback) ast]
       docLit $ Text.pack "{- BRITTANY ERROR UNHANDLED SYNTACTICAL CONSTRUCT -}"
-  case (fallbackMode, Text.lines exactPrinted) of
-    (ExactPrintFallbackModeNever, _) -> errorAction
-    (_, [t]) -> exactPrintNode
-      (Text.dropWhile Char.isSpace . Text.dropWhileEnd Char.isSpace $ t)
-    (ExactPrintFallbackModeRisky, _) -> exactPrintNode exactPrinted
-    _ -> errorAction
+  case fallbackMode of
+    ExactPrintFallbackModeNever -> errorAction
+    _ -> case nodeSourceFragment source ast anns commentPlan of
+      Just fragment -> do
+        reportFallback fallback ast
+        briDocBySourceFragmentNoComment ast fragment
+      Nothing -> case (fallbackMode, Text.lines exactPrinted) of
+        (_, [t]) -> exactPrintNode
+          (Text.dropWhile Char.isSpace . Text.dropWhileEnd Char.isSpace $ t)
+        (ExactPrintFallbackModeRisky, _) -> exactPrintNode exactPrinted
+        _ -> errorAction
 
 reportFallback :: FallbackId -> Located ast -> ToBriDocM ()
 reportFallback fallback ast = do
@@ -447,18 +455,27 @@ hasAnnKeyword ast annKeyword = astAnn ast <&> \case
 -- position falls within the given node's span. This finds comments that may
 -- be on parent list-spine nodes (like (:) cons cells) rather than on the
 -- node itself or its children.
-hasAnyCommentsWithinSpan :: Data ast => GHC.Located ast -> ToBriDocM Bool
-hasAnyCommentsWithinSpan ast = case GHC.srcSpanToRealSrcSpan (GHC.getLoc ast) of
-  Nothing -> pure False
+hasAnyCommentsWithinSpan :: GHC.Located ast -> ToBriDocM Bool
+hasAnyCommentsWithinSpan ast = not . null <$> regularCommentsWithinSpan ast
+
+regularCommentsWithinSpan
+  :: GHC.Located ast
+  -> ToBriDocM [(ExactPrintCompat.Comment, ExactPrintCompat.DeltaPos)]
+regularCommentsWithinSpan ast = case
+    GHC.srcSpanToRealSrcSpan (GHC.getLoc ast) of
+  Nothing -> pure []
   Just rss -> do
     allAnns <- (mAsk :: ToBriDocM ExactPrintCompat.Anns)
     let allComments = extractAllComments =<< Map.elems allAnns
         withinSpan (c, _) =
-          case ExactPrintCompat.srcSpanToRealSpan (ExactPrintCompat.commentIdentifier c) of
+          case ExactPrintCompat.srcSpanToRealSpan
+              (ExactPrintCompat.commentIdentifier c) of
             Nothing -> False
-            Just cRss -> GHC.realSrcSpanStart cRss >= GHC.realSrcSpanStart rss
-                      && GHC.realSrcSpanEnd cRss <= GHC.realSrcSpanEnd rss
-    pure $ any withinSpan allComments
+            Just cRss ->
+              GHC.realSrcSpanStart cRss >= GHC.realSrcSpanStart rss
+                && GHC.realSrcSpanEnd cRss <= GHC.realSrcSpanEnd rss
+    pure $ filter (\commentPair ->
+      isRegularComment commentPair && withinSpan commentPair) allComments
 
 astAnn
   :: (Data ast, MonadMultiReader (Map AnnKey Annotation) m)
@@ -920,6 +937,27 @@ instance DocWrapable (ToBriDocM ([BriDocNumbered], BriDocNumbered, a)) where
     (bds, bd, x) <- stuffM
     bd' <- docWrapNodeRest ast (return bd)
     return (bds, bd', x)
+
+instance DocWrapable
+    (ToBriDocM ([BriDocNumbered], BriDocNumbered, a, b)) where
+  docWrapNode ast stuffM = do
+    (bds, bd, x, metadata) <- stuffM
+    if null bds
+      then do
+        bd' <- docWrapNode ast (return bd)
+        return (bds, bd', x, metadata)
+      else do
+        bds' <- docWrapNodePrior ast (return bds)
+        bd' <- docWrapNodeRest ast (return bd)
+        return (bds', bd', x, metadata)
+  docWrapNodePrior ast stuffM = do
+    (bds, bd, x, metadata) <- stuffM
+    bds' <- docWrapNodePrior ast (return bds)
+    return (bds', bd, x, metadata)
+  docWrapNodeRest ast stuffM = do
+    (bds, bd, x, metadata) <- stuffM
+    bd' <- docWrapNodeRest ast (return bd)
+    return (bds, bd', x, metadata)
 
 
 

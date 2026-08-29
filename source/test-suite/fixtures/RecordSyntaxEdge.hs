@@ -14,18 +14,16 @@ data Group = Group
   }
 construct name active =
   Profile
-    { -- Keep the construction field comment.
-      name
+    -- Keep the construction field comment.
+    { name
     , active
     }
 update profile active =
   profile
-    { -- Keep the update field comment.
-      active
+    -- Keep the update field comment.
+    { active
     }
-readName Profile
-  { -- Keep the pattern field comment.
-    name
-  , ..
-  } = name
+readName Profile { name, ..} =
+  -- Keep the pattern field comment.
+  name
 isActive profile = active profile

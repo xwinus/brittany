@@ -4,6 +4,8 @@
 module Language.Haskell.Brittany.Internal.ExpressionComments
   ( commentSensitiveExpressions
   , exactSourceExpressions
+  , isCommentSensitiveExpression
+  , requiresExactSourceExpression
   ) where
 
 import Data.Data (Data)
@@ -22,13 +24,13 @@ import Language.Haskell.Brittany.Internal.Prelude
 -- out idempotently. Their containing declaration must retain its exact source.
 commentSensitiveExpressions
   :: Data ast => ast -> [Located (HsExpr GhcPs)]
-commentSensitiveExpressions = collectExpressions isCommentSensitive
+commentSensitiveExpressions = collectExpressions isCommentSensitiveExpression
 
 -- | Find expression shapes that currently require exact-source rendering even
 -- without comments.
 exactSourceExpressions
   :: Data ast => ast -> [Located (HsExpr GhcPs)]
-exactSourceExpressions = collectExpressions requiresExactSource
+exactSourceExpressions = collectExpressions requiresExactSourceExpression
 
 collectExpressions
   :: Data ast
@@ -46,8 +48,8 @@ collectExpressions predicate = SYB.everything (++) expressionQuery
         [L (getLocA expression) (unLoc expression)]
     | otherwise = []
 
-isCommentSensitive :: HsExpr GhcPs -> Bool
-isCommentSensitive = \case
+isCommentSensitiveExpression :: HsExpr GhcPs -> Bool
+isCommentSensitiveExpression = \case
   HsMultiIf{} -> True
   HsLet{} -> True
   HsPar _ expression -> containsOperatorApplication expression
@@ -57,8 +59,8 @@ isCommentSensitive = \case
   HsProjection{} -> True
   _ -> False
 
-requiresExactSource :: HsExpr GhcPs -> Bool
-requiresExactSource = \case
+requiresExactSourceExpression :: HsExpr GhcPs -> Bool
+requiresExactSourceExpression = \case
   ExplicitSum{} -> True
   HsForAll{} -> True
   HsFunArr{} -> True

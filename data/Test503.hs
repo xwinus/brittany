@@ -1,7 +1,8 @@
 -- brittany { lconfig_columnAlignMode: { tag: ColumnAlignModeDisabled }, lconfig_indentPolicy: IndentPolicyLeft }
-func = do
+func =
   do
+    do
+      return ()
+      -- abc
+    -- def
     return ()
-    -- abc
-  -- def
-  return ()

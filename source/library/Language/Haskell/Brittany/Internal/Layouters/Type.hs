@@ -5,25 +5,42 @@
 
 module Language.Haskell.Brittany.Internal.Layouters.Type where
 
+import qualified Data.Map as Map
+import qualified Data.Maybe
 import qualified Data.Text as Text
 import GHC (GenLocated(L), unLoc)
-import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..))
+import Language.Haskell.Brittany.Internal.ExactPrintCompat
+  ( AnnKeywordId(..)
+  , realSpanToSrcSpan
+  , srcSpanToRealSpan
+  )
 import GHC.Hs
 import GHC.Parser.Annotation (getLocA)
 import qualified GHC.OldList as List
 import GHC.Types.Basic
-import GHC.Types.SrcLoc (SrcSpan)
+import GHC.Types.SrcLoc
+  ( RealSrcSpan
+  , SrcSpan
+  , srcSpanEndCol
+  , srcSpanEndLine
+  , srcSpanStartCol
+  , srcSpanStartLine
+  )
 import GHC.Types.SourceText (SourceText(..))
 import qualified GHC.Data.FastString as FastString
 import GHC.Utils.Outputable (ftext, showSDocUnsafe)
 import Language.Haskell.Brittany.Internal.LayouterBasics
-import Language.Haskell.Brittany.Internal.ExactSource (nodeSourceFragment)
+import Language.Haskell.Brittany.Internal.ExactSource
+  ( nodeSourceFragment
+  , sourceCommentFragment
+  )
 import Language.Haskell.Brittany.Internal.Fallbacks
   ( FallbackId(..)
   , untypedSpliceFamily
   )
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
+import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import qualified Language.Haskell.Brittany.Internal.Layouters.Type.Operator as Operator
@@ -53,6 +70,9 @@ layoutType ltype = layoutType' (toL ltype)
       typeDoc <- docSharedWrapper layoutType (toL typ2)
       tyVarDocs <- layoutTyVarBndrs bndrs
       cntxtDocs <- map toL cntxts `forM` docSharedWrapper layoutType
+      binderComments <- sourceCommentsBetween
+        (Data.Maybe.mapMaybe (fmap typeSourceSpanEnd . srcSpanToRealSpan . getLocA) bndrs)
+        (Data.Maybe.mapMaybe (fmap typeSourceSpanStart . srcSpanToRealSpan . getLocA) cntxts)
       let
         maybeForceML = case typ2 of
           (L _ HsFunTy{}) -> docForceMultiline
@@ -87,40 +107,40 @@ layoutType ltype = layoutType' (toL ltype)
                 list = List.tail cntxtDocs <&> \cntxtDoc -> docCols ColTyOpPrefix [docCommaSep, docAddBaseY (BrIndentSpecial 2) cntxtDoc]
                 in docPar open $ docLines $ list ++ [close]
             ]
-      docAlt
+      let multilineDoc = docPar
+            forallDoc
+            (docLines
+              $ (layoutTypeSourceComment <$> binderComments)
+              ++ [ docCols
+                   ColTyOpPrefix
+                   [ docLit $ Text.pack sep
+                   , docAddBaseY (BrIndentSpecial 3) $ contextDoc
+                   ]
+                 , docCols
+                   ColTyOpPrefix
+                   [ docLit $ Text.pack "=> "
+                   , docAddBaseY (BrIndentSpecial 3) $ maybeForceML $ typeDoc
+                   ]
+                 ]
+            )
+      if null binderComments
+        then docAlt
         -- :: forall a b c . (Foo a b c) => a b -> c
-        [ docSeq
-          [ if null bndrs
-            then docEmpty
-            else
-              let
-                open = docLit $ Text.pack "forall"
-                close = docLit $ Text.pack sep
-              in docSeq ([open, docSeparator] ++ tyVarDocLineList ++ [close])
-          , docForceSingleline contextDoc
-          , docLit $ Text.pack " => "
-          , docForceSingleline typeDoc
-          ]
-        -- :: forall a b c
-        --  . (Foo a b c)
-        -- => a b
-        -- -> c
-        , docPar
-          forallDoc
-          (docLines
-            [ docCols
-              ColTyOpPrefix
-              [  docLit $ Text.pack sep
-              , docAddBaseY (BrIndentSpecial 3) $ contextDoc
-              ]
-            , docCols
-              ColTyOpPrefix
-              [ docLit $ Text.pack "=> "
-              , docAddBaseY (BrIndentSpecial 3) $ maybeForceML $ typeDoc
-              ]
+          [ docSeq
+            [ if null bndrs
+              then docEmpty
+              else
+                let
+                  open = docLit $ Text.pack "forall"
+                  close = docLit $ Text.pack sep
+                in docSeq ([open, docSeparator] ++ tyVarDocLineList ++ [close])
+            , docForceSingleline contextDoc
+            , docLit $ Text.pack " => "
+            , docForceSingleline typeDoc
             ]
-          )
-        ]
+          , multilineDoc
+          ]
+        else multilineDoc
     HsForAllTy _ hsf typ2 -> do
       let bndrs = getBinders hsf
       let sep = case hsf of
@@ -128,12 +148,37 @@ layoutType ltype = layoutType' (toL ltype)
             _               -> " . "
       typeDoc <- layoutType (toL typ2)
       tyVarDocs <- layoutTyVarBndrs bndrs
+      hasForallComments <- hasAnyCommentsWithinSpan ltype'
+      binderComments <- sourceCommentsBetween
+        (Data.Maybe.mapMaybe
+          (fmap typeSourceSpanEnd . srcSpanToRealSpan . getLocA)
+          bndrs
+        )
+        (Data.Maybe.maybeToList
+          (fmap typeSourceSpanStart $ srcSpanToRealSpan $ getLocA typ2)
+        )
       let
         maybeForceML = case typ2 of
           (L _ HsFunTy{}) -> docForceMultiline
           _ -> id
       let tyVarDocLineList = processTyVarBndrsSingleline tyVarDocs
-      docAlt
+          separatorDoc = docLit $ Text.pack $ List.dropWhileEnd (== ' ') sep
+          separatorSpace
+            | hasForallComments && null binderComments = docEmpty
+            | otherwise = docSeparator
+          commentedDoc = docPar
+            (docSeq $ docLit (Text.pack "forall") : tyVarDocLineList)
+            (docLines
+              $ (layoutTypeSourceComment <$> binderComments)
+              ++ [ docCols
+                   ColTyOpPrefix
+                   [ separatorDoc
+                   , docSeq [separatorSpace, maybeForceML $ return typeDoc]
+                   ]
+                 ]
+            )
+      if null binderComments
+        then docAlt
         -- forall x . x  /  forall x -> x
         [ docSeq
           [ if null bndrs
@@ -141,8 +186,9 @@ layoutType ltype = layoutType' (toL ltype)
             else
               let
                 open = docLit $ Text.pack "forall"
-                close = docLit $ Text.pack sep
+                close = separatorDoc
               in docSeq ([open] ++ tyVarDocLineList ++ [close])
+          , separatorSpace
           , docForceSingleline $ return $ typeDoc
           ]
         -- :: forall x
@@ -151,8 +197,8 @@ layoutType ltype = layoutType' (toL ltype)
           (docSeq $ docLit (Text.pack "forall") : tyVarDocLineList)
           (docCols
             ColTyOpPrefix
-            [  docLit $ Text.pack sep
-            , maybeForceML $ return typeDoc
+            [  separatorDoc
+            , docSeq [separatorSpace, maybeForceML $ return typeDoc]
             ]
           )
         -- :: forall
@@ -172,12 +218,13 @@ layoutType ltype = layoutType' (toL ltype)
             )
           ++ [ docCols
                  ColTyOpPrefix
-                 [  docLit $ Text.pack sep
-                 , maybeForceML $ return typeDoc
+                 [  separatorDoc
+                 , docSeq [separatorSpace, maybeForceML $ return typeDoc]
                  ]
              ]
           )
-        ]
+          ]
+        else commentedDoc
     HsQualTy _ lcntxts typ1 -> do
       let lcntxts' = toL lcntxts
           cntxts' = map toL (unLoc lcntxts)
@@ -552,6 +599,44 @@ layoutType ltype = layoutType' (toL ltype)
           ]
         , docPar t (docSeq [docLit $ Text.pack "@", k])
         ]
+
+sourceCommentsBetween
+  :: [(Int, Int)]
+  -> [(Int, Int)]
+  -> ToBriDocM [SourceComment]
+sourceCommentsBetween leftEnds rightStarts = case
+    (leftEnds, rightStarts) of
+  ([], _) -> pure []
+  (_, []) -> pure []
+  _ -> do
+    commentPlan <- mAsk
+    let leftEnd = maximum leftEnds
+        rightStart = minimum rightStarts
+    pure $ List.sortOn typeSourceCommentStart
+      [ sourceComment
+      | sourceComment <- Map.elems $ commentPlanSources commentPlan
+      , typeSourceCommentStart sourceComment >= leftEnd
+      , typeSourceCommentEnd sourceComment <= rightStart
+      ]
+
+layoutTypeSourceComment :: SourceComment -> ToBriDocM BriDocNumbered
+layoutTypeSourceComment sourceComment = briDocBySourceFragmentNoComment
+  (L (realSpanToSrcSpan $ sourceCommentSpan sourceComment) sourceComment)
+  (sourceCommentFragment sourceComment)
+
+typeSourceCommentStart :: SourceComment -> (Int, Int)
+typeSourceCommentStart sourceComment = typeSourceSpanStart
+  $ sourceCommentSpan sourceComment
+
+typeSourceCommentEnd :: SourceComment -> (Int, Int)
+typeSourceCommentEnd sourceComment = typeSourceSpanEnd
+  $ sourceCommentSpan sourceComment
+
+typeSourceSpanStart :: RealSrcSpan -> (Int, Int)
+typeSourceSpanStart span' = (srcSpanStartLine span', srcSpanStartCol span')
+
+typeSourceSpanEnd :: RealSrcSpan -> (Int, Int)
+typeSourceSpanEnd span' = (srcSpanEndLine span', srcSpanEndCol span')
 
 layoutExactSourceType
   :: GenLocated SrcSpan (HsType GhcPs) -> ToBriDocM BriDocNumbered

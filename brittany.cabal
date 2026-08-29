@@ -30,7 +30,9 @@ extra-source-files:
   cabal.project
   data/brittany.yaml
   data/compatibility.yaml
+  data/maintained-source-files.txt
   data/*.hs
+  scripts/fallback-inventory.sh
   source/test-suite/fixtures/*.hs
 
 source-repository head
@@ -193,6 +195,7 @@ test-suite brittany-test-suite
     ExtractAnnsSpec
     ExactSourceFragmentSpec
     FallbackSpec
+    FallbackSweepSpec
     FixitySignatureSpec
     InstanceHeadSpec
     LetStatementBoundarySpec

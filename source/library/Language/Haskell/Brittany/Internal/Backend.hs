@@ -19,6 +19,7 @@ import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Data.Text.Lazy.Builder as Text.Builder
 import qualified GHC.OldList as List
+import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.BackendUtils
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.CommentPlan (lookupCommentRole)
@@ -214,10 +215,6 @@ layoutBriDocM = \case
       Just [] -> moveToExactLocationAction
       Just priors -> do
         -- layoutResetSepSpace
-        -- When baseY > indLevelLinger (e.g. inside BDAddBaseY without
-        -- docSetIndentLevel), prior comment x must compensate for the gap
-        -- since layoutMoveToCommentPos uses indLevelLinger + x.
-        let baseYGap = max 0 (lstate_baseY state - _lstate_indLevelLinger state)
         let forceInline = priorCommentMode == PriorCommentInline
         commentPlan <- mAsk
         indentAmount <-
@@ -234,6 +231,13 @@ layoutBriDocM = \case
                      (comment@(ExactPrintCompat.Comment _ _ commentStr),
                       ExactPrintCompat.DP (y, x))) -> do
                       commentState <- mGet
+                      let previousComment
+                            | commentIndex <= 0 = Nothing
+                            | otherwise = fst <$> Maybe.listToMaybe
+                                (drop (commentIndex - 1) emittedPriors)
+                          sourceDelta = priorCommentLineDelta
+                            previousComment comment
+                          sourceColumn = priorCommentSourceColumn comment
                       let role = lookupCommentRole commentPlan comment
                           recordPostDoc =
                             role == Just (HaddockPostDoc RecordField)
@@ -242,6 +246,7 @@ layoutBriDocM = \case
                           adjustedY
                             | inlineFirst = 0
                             | recordPostDoc = 1
+                            | y > 0 = sourceDelta
                             | otherwise = y
                           adjustedX
                             | inlineFirst = 1
@@ -250,7 +255,12 @@ layoutBriDocM = \case
                                 $ fromMaybe x
                                   (_lstate_commentCol commentState)
                                 - _lstate_indLevelLinger commentState
-                            | y > 0 = x + baseYGap
+                            | y > 0, x == 0 = max 0
+                                $ lstate_baseY commentState
+                                - _lstate_indLevelLinger commentState
+                            | y > 0 = max 0
+                                $ fromMaybe x sourceColumn
+                                - _lstate_indLevelLinger commentState
                             | otherwise = x
                       case commentStr of
                         ('#' : _) ->
@@ -381,10 +391,18 @@ layoutBriDocM = \case
         restState <- mGet
         commentPlan <- mAsk
         let indLinger = _lstate_indLevelLinger restState
-        comments
-          `forM_` \(comment, ExactPrintCompat.DP (y, x)) ->
+            commentList = Foldable.toList comments
+        zip [0 :: Int ..] commentList
+          `forM_` \(commentIndex,
+                     (comment, ExactPrintCompat.DP (y, x))) ->
                     let commentStr = ExactPrintCompat.commentContents comment
                         role = lookupCommentRole commentPlan comment
+                        previousComment
+                          | commentIndex <= 0 = Nothing
+                          | otherwise = fst <$> Maybe.listToMaybe
+                              (drop (commentIndex - 1) commentList)
+                        sourceDelta = restCommentLineDelta
+                          annKey previousComment comment
                     in
                     when (commentStr /= "(" && commentStr /= ")") $ do
                       let signaturePostDoc = role `elem`
@@ -400,6 +418,7 @@ layoutBriDocM = \case
                             | role == Just (HaddockPostDoc RecordField) = 1
                             | y > 0
                             , role == Just (BetweenChildren TypeOperator) = 1
+                            | y > 0 = sourceDelta
                             | otherwise = y
                           adjustedX
                             | y > 0, signaturePostDoc =
@@ -548,6 +567,48 @@ briDocIsMultiLine briDoc = rec briDoc
     BDNonBottomSpacing _ bd -> rec bd
     BDDebug _ bd -> rec bd
 
+priorCommentLineDelta
+  :: Maybe ExactPrintCompat.Comment
+  -> ExactPrintCompat.Comment
+  -> Int
+priorCommentLineDelta Nothing _ = 1
+priorCommentLineDelta (Just previous) current = fromMaybe 1 $ do
+  previousSpan <- ExactPrintCompat.srcSpanToRealSpan
+    $ ExactPrintCompat.commentIdentifier previous
+  currentSpan <- ExactPrintCompat.srcSpanToRealSpan
+    $ ExactPrintCompat.commentIdentifier current
+  guard $ SrcLoc.srcSpanFile previousSpan == SrcLoc.srcSpanFile currentSpan
+  pure $ max 0
+    $ SrcLoc.srcSpanStartLine currentSpan - occupiedSpanEndLine previousSpan
+
+restCommentLineDelta
+  :: ExactPrintCompat.AnnKey
+  -> Maybe ExactPrintCompat.Comment
+  -> ExactPrintCompat.Comment
+  -> Int
+restCommentLineDelta _ (Just previous) current =
+  priorCommentLineDelta (Just previous) current
+restCommentLineDelta owner Nothing current = fromMaybe 1 $ do
+  ownerSpan <- ExactPrintCompat.annKeyRealSpan owner
+  currentSpan <- ExactPrintCompat.srcSpanToRealSpan
+    $ ExactPrintCompat.commentIdentifier current
+  guard $ SrcLoc.srcSpanFile ownerSpan == SrcLoc.srcSpanFile currentSpan
+  pure $ max 0
+    $ SrcLoc.srcSpanStartLine currentSpan - occupiedSpanEndLine ownerSpan
+
+occupiedSpanEndLine :: SrcLoc.RealSrcSpan -> Int
+occupiedSpanEndLine span'
+  | SrcLoc.srcSpanEndCol span' == 1
+  , SrcLoc.srcSpanEndLine span' > SrcLoc.srcSpanStartLine span'
+  = SrcLoc.srcSpanEndLine span' - 1
+  | otherwise = SrcLoc.srcSpanEndLine span'
+
+priorCommentSourceColumn :: ExactPrintCompat.Comment -> Maybe Int
+priorCommentSourceColumn comment = do
+  span' <- ExactPrintCompat.srcSpanToRealSpan
+    $ ExactPrintCompat.commentIdentifier comment
+  pure $ SrcLoc.srcSpanStartCol span' - 1
+
 consumeSourceFragment
   :: Set.Set ExactPrintCompat.AnnKey
   -> Set.Set SourceCommentKey
@@ -584,6 +645,47 @@ consumeExactSourceFragment fragment annotations = do
       (fragmentCommentKeys fragment)
     )
     annotations
+
+sourceFragmentCommentKeys :: BriDoc -> Set.Set SourceCommentKey
+sourceFragmentCommentKeys = \case
+  BDEmpty -> Set.empty
+  BDBlankLine -> Set.empty
+  BDLit _ -> Set.empty
+  BDSeq documents -> nested documents
+  BDCols _ documents -> nested documents
+  BDSeparator -> Set.empty
+  BDAddBaseY _ document -> sourceFragmentCommentKeys document
+  BDBaseYPushCur document -> sourceFragmentCommentKeys document
+  BDBaseYPop document -> sourceFragmentCommentKeys document
+  BDIndentLevelPushCur document -> sourceFragmentCommentKeys document
+  BDIndentLevelPop document -> sourceFragmentCommentKeys document
+  BDPar _ sameLine indented -> nested [sameLine, indented]
+  BDAlt [] -> Set.empty
+  BDAlt (selected : _) -> sourceFragmentCommentKeys selected
+  BDForwardLineMode document -> sourceFragmentCommentKeys document
+  BDExternal _ _ (SourceFragment fragment) -> fragmentCommentKeys fragment
+  BDExternal _ _ ExactPrintSource{} -> Set.empty
+  BDPlain _ _ -> Set.empty
+  BDAnnotationPrior _ _ document -> sourceFragmentCommentKeys document
+  BDAnnotationKW _ _ document -> sourceFragmentCommentKeys document
+  BDAnnotationRest _ document -> sourceFragmentCommentKeys document
+  BDMoveToKWDP _ _ _ document -> sourceFragmentCommentKeys document
+  BDLines documents -> nested documents
+  BDEnsureIndent _ document -> sourceFragmentCommentKeys document
+  BDForceMultiline document -> sourceFragmentCommentKeys document
+  BDForceSingleline document -> sourceFragmentCommentKeys document
+  BDColumnsLimit _ document -> sourceFragmentCommentKeys document
+  BDNonBottomSpacing _ document -> sourceFragmentCommentKeys document
+  BDSetParSpacing document -> sourceFragmentCommentKeys document
+  BDForceParSpacing document -> sourceFragmentCommentKeys document
+  BDDebug _ document -> sourceFragmentCommentKeys document
+ where
+  nested = Set.unions . fmap sourceFragmentCommentKeys
+
+reserveSourceFragmentComments
+  :: BriDoc -> ExactPrintCompat.Anns -> ExactPrintCompat.Anns
+reserveSourceFragmentComments document = Map.mapWithKey
+  $ consumeSourceFragment Set.empty (sourceFragmentCommentKeys document)
 
 -- In theory
 -- =========

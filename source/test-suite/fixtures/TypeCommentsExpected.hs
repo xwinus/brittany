@@ -1,4 +1,4 @@
-answer -- signature name
+answer  -- signature name
   :: -- signature separator
-     Int -- result type
+  Int -- result type
 answer = 42

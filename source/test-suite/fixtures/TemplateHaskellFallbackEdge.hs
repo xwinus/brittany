@@ -6,22 +6,23 @@ data Holder value = Holder
   { held :: value
   }
 
-nested action flag value = do
-  -- Keep this comment before the strict binding.
-  let
-    !untypedQuote =
-      [| -- Keep the untyped bracket comment.
+nested action flag value =
+  do
+    -- Keep this comment before the strict binding.
+    let
+      !untypedQuote =
+        [| -- Keep the untyped bracket comment.
                value
              |]
-  -- Keep this comment after the strict binding.
-  typedQuote <- case flag of
-    True -> pure
-      [|| -- Keep the typed bracket comment.
+    -- Keep this comment after the strict binding.
+    typedQuote <- case flag of
+      True -> pure
+        [|| -- Keep the typed bracket comment.
 
                     value
                   ||]
-    False -> pure [||value||]
-  pure (action, untypedQuote, typedQuote, typedSplice)
+      False -> pure [||value||]
+    pure (action, untypedQuote, typedQuote, typedSplice)
  where
   typedSplice = $$(pure [||value||])
   untypedSplice =
@@ -31,10 +32,12 @@ nested action flag value = do
 
 recordFallback value = Holder { held = $(pure [|value|]) }
 
-strictOnly value = result
+strictOnly value =
+  result
  where
   -- Keep this comment before the named strict binding.
-  !named = value -- Keep this inline strict-binding comment.
-  !_     = named
+  !named = value
+  -- Keep this inline strict-binding comment.
+  !_ = named
   -- Keep this comment after the wildcard strict binding.
   result = named

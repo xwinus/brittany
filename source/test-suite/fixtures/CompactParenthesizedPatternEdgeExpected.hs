@@ -45,7 +45,7 @@ adorned command = case command of
   (Decorated
     !strictValueWithLongName
     ~lazyValueWithLongName
-    alias@(Nested nestedValue)
-    (typedValue :: Int)
-    (extract -> viewedValue)) ->
+    alias@(Nested nestedValue    )
+    (      typedValue :: Int     )
+    (      extract -> viewedValue)) ->
       adornedResult

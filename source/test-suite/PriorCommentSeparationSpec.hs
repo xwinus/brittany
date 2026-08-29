@@ -26,11 +26,11 @@ spec projectRoot = Hspec.describe "prior-comment lexical separation" $ do
   formattingExampleAt 2 projectRoot
     "preserves mixed comment boundaries at two-space indentation"
     "PriorCommentSeparationEdgeInput.hs"
-    "PriorCommentSeparationEdgeExpected.hs"
+    "PriorCommentSeparationEdgeIndent2Expected.hs"
   formattingExampleAt 4 projectRoot
     "preserves nested boundaries at four-space indentation"
     "PriorCommentSeparationEdgeInput.hs"
-    "PriorCommentSeparationEdgeExpected.hs"
+    "PriorCommentSeparationEdgeIndent4Expected.hs"
   parseFailureExample projectRoot
     "retains malformed input after a separated prior comment"
     "PriorCommentSeparationInvalid.hs"

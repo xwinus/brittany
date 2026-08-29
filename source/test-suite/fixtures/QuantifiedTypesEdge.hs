@@ -4,10 +4,10 @@
 {-# LANGUAGE TypeApplications #-}
 module QuantifiedTypesEdge where
 compareAll
-  :: ( forall a
+  :: (  forall a
        -- Keep the quantified constraint binder comment.
-     . Eq a
-    => Eq (container a)
+      . Eq a
+     => Eq (container a)
      )
   => container Int
   -> Bool
@@ -15,8 +15,8 @@ compareAll value = value == value
 applyRanked
   :: ( forall a
        -- Keep the rank-n binder comment.
-     . a
-    -> a
+      . a
+     -> a
      )
   -> (Int, Bool)
 applyRanked function =

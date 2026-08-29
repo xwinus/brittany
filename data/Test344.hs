@@ -1,4 +1,5 @@
-func = abc + def
+func =
+  abc + def
   -- a
   -- b
   -- comment

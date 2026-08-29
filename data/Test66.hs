@@ -3,9 +3,10 @@ data Foo = Bar
   , bars :: Bizzz
   }
   -- a
-  deriving --b
-           ( -- c
-            ToJSON -- d
-                  , -- e
-                    FromJSON --f
-                            ) -- g
+  deriving
+  --b
+  -- c
+  -- d
+  -- e
+  --f
+  (ToJSON, FromJSON) -- g

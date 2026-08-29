@@ -5,12 +5,28 @@ module Language.Haskell.Brittany.Internal.Layouters.Pattern where
 
 import qualified Data.Foldable as Foldable
 import qualified Data.List.NonEmpty as NonEmpty
+import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
+import qualified Data.Set as Set
 import qualified Data.Text as Text
-import GHC (GenLocated(L), ol_val, unLoc)
+import GHC (GenLocated(L), ol_val)
 import GHC.Hs
 import qualified GHC.OldList as List
 import GHC.Types.Basic
+import GHC.Types.SrcLoc
+  ( Located
+  , getLoc
+  , srcSpanEndCol
+  , srcSpanEndLine
+  , srcSpanStartCol
+  , srcSpanStartLine
+  )
+import Language.Haskell.Brittany.Internal.ExactPrintCompat
+  ( realSpanToSrcSpan
+  , srcSpanToRealSpan
+  )
+import Language.Haskell.Brittany.Internal.ExactPrintUtils (foldedAnnKeys)
+import Language.Haskell.Brittany.Internal.ExactSource (sourceCommentFragment)
 import Language.Haskell.Brittany.Internal.Fallbacks
   ( FallbackId(..)
   , untypedSpliceFamily
@@ -19,8 +35,11 @@ import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
 import Language.Haskell.Brittany.Internal.Layouters.Type
+import Language.Haskell.Brittany.Internal.PatternComments
+  ( requiresExactSourcePattern )
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
+import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.Types
 
 
@@ -36,7 +55,13 @@ import Language.Haskell.Brittany.Internal.Types
 -- We will use `case .. of` as the imagined prefix to the examples used in
 -- the different cases below.
 layoutPat :: LPat GhcPs -> ToBriDocM (Seq BriDocNumbered)
-layoutPat lpat@(L _ pat) = docWrapNode (toL lpat) $ case pat of
+layoutPat lpat@(L _ pat) =
+  if requiresExactSourcePattern pat
+    then Seq.singleton <$> briDocByExactInlineOnly PatternFallback (toL lpat)
+    else layoutPatNative lpat
+
+layoutPatNative :: LPat GhcPs -> ToBriDocM (Seq BriDocNumbered)
+layoutPatNative lpat@(L _ pat) = docWrapNode (toL lpat) $ case pat of
   WildPat _ -> fmap Seq.singleton $ docLit $ Text.pack "_"
     -- _ -> expr
   VarPat _ n -> fmap Seq.singleton $ docLit $ lrdrNameToText (toL n)
@@ -204,6 +229,22 @@ layoutPat lpat@(L _ pat) = docWrapNode (toL lpat) $ case pat of
         ]
       return $ Seq.singleton singleDoc
 
+  InvisPat _ tyPat -> do
+      typeDoc <- docSharedWrapper layoutType (toL $ hstp_body tyPat)
+      patternDoc <- docSeq [docLit $ Text.pack "@", typeDoc]
+      trailingComments <- ownedTrailingComments (toL lpat)
+      case trailingComments of
+        [] -> return $ Seq.singleton patternDoc
+        _ -> do
+          commentedPattern <- docSeq
+            $ return patternDoc
+            : List.concat
+              [ [docLit $ Text.pack " ", layoutSourceComment sourceComment]
+              | sourceComment <- trailingComments
+              ]
+          Seq.singleton <$> docLines
+            [return commentedPattern, docBlankLine]
+
   OrPat _ pats -> do
       let patList = NonEmpty.toList pats
       patDocs <- forM patList $ \p -> do
@@ -220,6 +261,39 @@ layoutPat lpat@(L _ pat) = docWrapNode (toL lpat) $ case pat of
       (toL lpat)
 
   _ -> return <$> briDocByExactInlineOnly PatternFallback (toL lpat)
+
+ownedTrailingComments
+  :: Located (Pat GhcPs) -> ToBriDocM [SourceComment]
+ownedTrailingComments node = do
+  commentPlan <- mAsk
+  let ownerKeys = foldedAnnKeys node
+      nodeEnd = do
+        nodeSpan <- srcSpanToRealSpan $ getLoc node
+        pure (srcSpanEndLine nodeSpan, srcSpanEndCol nodeSpan)
+      isTrailing sourceComment = case nodeEnd of
+        Nothing -> False
+        Just endPosition -> patternSourceCommentStart sourceComment >= endPosition
+  pure
+    [ sourceComment
+    | (key, placement) <- List.sortOn
+        (placementRelativeOrder . snd)
+        $ Map.toList $ commentPlanPlacements commentPlan
+    , NodeId ownerKey <- [placementOwner placement]
+    , Set.member ownerKey ownerKeys
+    , Just sourceComment <- [Map.lookup key $ commentPlanSources commentPlan]
+    , isTrailing sourceComment
+    ]
+
+layoutSourceComment :: SourceComment -> ToBriDocM BriDocNumbered
+layoutSourceComment sourceComment = briDocBySourceFragmentNoComment
+  (L (realSpanToSrcSpan $ sourceCommentSpan sourceComment) sourceComment)
+  (sourceCommentFragment sourceComment)
+
+patternSourceCommentStart :: SourceComment -> (Int, Int)
+patternSourceCommentStart sourceComment =
+  ( srcSpanStartLine $ sourceCommentSpan sourceComment
+  , srcSpanStartCol $ sourceCommentSpan sourceComment
+  )
 
 layoutPatMultiline :: LPat GhcPs -> ToBriDocM (Maybe BriDocNumbered)
 layoutPatMultiline lpat@(L _ pat) = case pat of

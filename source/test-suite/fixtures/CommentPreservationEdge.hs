@@ -1,4 +1,5 @@
 value :: Int
 value =
-  let number = 1 -- Keep this trailing comment.
+  let
+    number = 1 -- Keep this trailing comment.
   in  number

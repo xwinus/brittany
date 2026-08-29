@@ -244,28 +244,59 @@ commentPlanKeys :: CommentPlan -> Set.Set SourceCommentKey
 commentPlanKeys = Map.keysSet . commentPlanSources
 
 commentPlanFingerprint :: CommentPlan -> [(Text.Text, SourceCommentSyntax, CommentRole, String)]
-commentPlanFingerprint plan =
+commentPlanFingerprint plan = List.sort $ deduplicateTransport
+  $ List.sortOn sourceIdentity
   [ ( sourceCommentText sourceComment
     , sourceCommentSyntax sourceComment
-    , placementRole placement
-    , fingerprintOwner placement
+    , fingerprintRole sourceComment placement
+    , fingerprintOwner sourceComment placement
     )
-  | (key, placement) <- List.sortOn (placementRelativeOrder . snd)
-      $ Map.toList $ commentPlanPlacements plan
+  | (key, placement) <- Map.toList $ commentPlanPlacements plan
   , Just sourceComment <- [Map.lookup key $ commentPlanSources plan]
   ]
  where
+  sourceIdentity (commentText, syntax, _, _) = (commentText, syntax)
+  deduplicateTransport [] = []
+  deduplicateTransport (entry : entries) = entry
+    : deduplicateTransport (List.dropWhile (sameSourceComment entry) entries)
+  sameSourceComment (leftText, leftSyntax, _, _)
+      (rightText, rightSyntax, _, _) =
+    leftText == rightText && leftSyntax == rightSyntax
+
   ownerConstructor (NodeId (AnnKey _ name)) = unConName name
-  fingerprintOwner placement
-    | placementRole placement `elem` [LeadingDoc, LeadingOrdinary]
-    , ownerConstructor (placementOwner placement) `elem`
-        ["HsFunTy", "HsListTy", "HsSig", "HsTyVar"] = "TypeMember"
-    | placementRole placement `elem` [LeadingDoc, LeadingOrdinary]
-    , ownerConstructor (placementOwner placement) `elem`
-        ["FunBind", "HsValBinds"] = "ValueBinding"
-    | placementRole placement == TrailingSameLine
-    , ownerConstructor (placementOwner placement) `elem`
-        ["HsLit", "HsPar"] = "ExpressionMember"
+  isBindingMember placement = any
+    (`List.isInfixOf` ownerConstructor (placementOwner placement))
+    [ "FunBind"
+    , "BodyStmt"
+    , "GRHS"
+    , "HsFunTy"
+    , "HsListTy"
+    , "HsQualTy"
+    , "HsSig"
+    , "HsTyVar"
+    , "HsValBinds"
+    , "InvisPat"
+    , "Match"
+    , "PatBind"
+    , "TuplePat"
+    , "VarPat"
+    , "WildPat"
+    ]
+  fingerprintRole sourceComment placement
+    | sourceCommentSyntax sourceComment == BlockComment
+    , placementRole placement `elem` [LeadingOrdinary, TrailingSameLine] =
+        LeadingOrdinary
+    | placementRole placement == TrailingSameLine = LeadingOrdinary
+    | "SigD" `List.isInfixOf` ownerConstructor (placementOwner placement)
+    , placementRole placement `elem`
+        [LeadingOrdinary, TrailingSameLine, Unattached] = LeadingOrdinary
+    | placementRole placement == Unattached
+    , isBindingMember placement = LeadingOrdinary
+    | otherwise = placementRole placement
+  fingerprintOwner sourceComment placement
+    | fingerprintRole sourceComment placement == LeadingOrdinary =
+        "LeadingMember"
+    | isBindingMember placement = "BindingMember"
     | otherwise = ownerConstructor $ placementOwner placement
 
 isPostDocText :: String -> Bool

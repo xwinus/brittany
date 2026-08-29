@@ -21,4 +21,4 @@ swap :: (# Int#, Int# #) -> (# Int#, Int# #)
 swap (# left, right #) = (# right, left #)
 select :: (# Int# | Bool #) -> Bool
 select (# | value #) = value
-select (# _ | #) = False
+select (# _ | #)     = False

@@ -272,15 +272,13 @@ spec projectRoot = Hspec.describe "fallback inventory and reporting" $ do
       "SignaturePostDocEdgeInput.hs"
     messages `Hspec.shouldNotSatisfy` any (List.isInfixOf "Fallback")
 
-  Hspec.it "scopes unsupported signature syntax while retaining ambiguous fallback" $ do
+  Hspec.it "scopes unsupported signature syntax inline" $ do
     messages <- runFormatter projectRoot fallbackReportingConfig
       "SignaturePostDocUnsupported.hs"
     messages `Hspec.shouldSatisfy` any (List.isInfixOf "TypeFallback")
     messages `Hspec.shouldSatisfy` any (List.isInfixOf "inline scope")
-    messages `Hspec.shouldSatisfy` any
+    messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "DeclarationFallback")
-    messages `Hspec.shouldSatisfy` any
-      (List.isInfixOf "declaration scope")
     messages `Hspec.shouldNotSatisfy` any
       (List.isInfixOf "WholeModuleFallback")
 

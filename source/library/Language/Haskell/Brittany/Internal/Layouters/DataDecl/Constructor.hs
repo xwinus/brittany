@@ -12,17 +12,26 @@ module Language.Haskell.Brittany.Internal.Layouters.DataDecl.Constructor
 
 import qualified Data.Data
 import Data.Kind (Type)
+import qualified Data.Map as Map
+import qualified Data.Maybe
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
-import GHC (GenLocated(L), Located)
+import GHC (GenLocated(L), Located, getLoc)
 import GHC.Hs
 import qualified GHC.OldList as List
+import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.ExactPrintCompat
+  ( realSpanToSrcSpan
+  , srcSpanToRealSpan
+  )
+import Language.Haskell.Brittany.Internal.ExactSource (sourceCommentFragment)
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import Language.Haskell.Brittany.Internal.Layouters.Type
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
+import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.Types
 
 createDetailsDoc
@@ -314,11 +323,14 @@ createPrefixDoc preference consNameStr arguments = do
       ++ [multiIndented, leftIndented]
 
 createGadtDetailsDoc
-  :: Text
+  :: Located (ConDecl GhcPs)
+  -> Text
   -> [HsConDeclField GhcPs]
   -> LHsType GhcPs
   -> ToBriDocM BriDocNumbered
-createGadtDetailsDoc consNameStr arguments resultType = do
+createGadtDetailsDoc constructor consNameStr arguments resultType = do
+  signatureComments <- gadtSignatureComments
+    constructor arguments resultType
   let argumentDocs = createFieldTypeDoc <$> arguments
       resultDoc = layoutType $ toL resultType
       singleLine = docSeq
@@ -331,15 +343,72 @@ createGadtDetailsDoc consNameStr arguments resultType = do
         $ List.intersperse (docSeq [docSeparator, docLitS "->", docSeparator])
         $ argumentDocs ++ [resultDoc]
         ]
-      signatureLines = case argumentDocs of
+      typeLines = case argumentDocs of
         [] -> [docSeq [docLitS "::", docSeparator, resultDoc]]
         firstArg : restArgs ->
           docSeq [docLitS "::", docSeparator, firstArg]
             : (restArgs ++ [resultDoc] <&> \argumentDoc ->
                 docSeq [docLitS "->", docSeparator, argumentDoc])
+      signatureLines = case signatureComments of
+        [] -> typeLines
+        _ -> docLitS "::"
+          : (layoutGadtSourceComment <$> signatureComments)
+          ++ case argumentDocs of
+            [] -> [resultDoc]
+            firstArg : restArgs -> firstArg
+              : (restArgs ++ [resultDoc] <&> \argumentDoc ->
+                  docSeq [docLitS "->", docSeparator, argumentDoc])
       multiline = docAddBaseY BrIndentRegular
         $ docPar (docLit consNameStr) (docLines signatureLines)
-  docAlt [singleLine, multiline]
+  if null signatureComments
+    then docAlt [singleLine, multiline]
+    else multiline
+
+gadtSignatureComments
+  :: Located (ConDecl GhcPs)
+  -> [HsConDeclField GhcPs]
+  -> LHsType GhcPs
+  -> ToBriDocM [SourceComment]
+gadtSignatureComments constructor arguments resultType = do
+  commentPlan <- mAsk
+  let constructorStart = fmap sourceSpanStart
+        $ srcSpanToRealSpan $ getLoc constructor
+      firstType = case arguments of
+        [] -> resultType
+        firstArgument : _ -> cdf_type firstArgument
+      firstTypeEnd = fmap sourceSpanEnd
+        $ srcSpanToRealSpan $ getLoc $ toL firstType
+  pure $ case (constructorStart, firstTypeEnd) of
+    (Just start, Just end) -> List.sortOn gadtSourceCommentStart
+      [ sourceComment
+      | sourceComment <- Map.elems $ commentPlanSources commentPlan
+      , fst (gadtSourceCommentStart sourceComment) >= fst start
+      , fst (gadtSourceCommentEnd sourceComment) <= fst end
+      ]
+    _ -> []
+
+layoutGadtSourceComment :: SourceComment -> ToBriDocM BriDocNumbered
+layoutGadtSourceComment sourceComment = briDocBySourceFragmentNoComment
+  (L (realSpanToSrcSpan $ sourceCommentSpan sourceComment) sourceComment)
+  (sourceCommentFragment sourceComment)
+
+gadtSourceCommentStart :: SourceComment -> (Int, Int)
+gadtSourceCommentStart sourceComment =
+  ( SrcLoc.srcSpanStartLine $ sourceCommentSpan sourceComment
+  , SrcLoc.srcSpanStartCol $ sourceCommentSpan sourceComment
+  )
+
+gadtSourceCommentEnd :: SourceComment -> (Int, Int)
+gadtSourceCommentEnd sourceComment = sourceSpanEnd
+  $ sourceCommentSpan sourceComment
+
+sourceSpanEnd :: SrcLoc.RealSrcSpan -> (Int, Int)
+sourceSpanEnd span' =
+  (SrcLoc.srcSpanEndLine span', SrcLoc.srcSpanEndCol span')
+
+sourceSpanStart :: SrcLoc.RealSrcSpan -> (Int, Int)
+sourceSpanStart span' =
+  (SrcLoc.srcSpanStartLine span', SrcLoc.srcSpanStartCol span')
 
 createNamesAndTypeDoc
   :: Data.Data.Data ast

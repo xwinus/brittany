@@ -6,6 +6,6 @@ data Label = Label
 label = "fallback"
 construct value =
   Label
-    { -- Keep the field comment without generating a selector.
-      label = value
+    -- Keep the field comment without generating a selector.
+    { label = value
     }

@@ -21,14 +21,21 @@ import Language.Haskell.Brittany.Internal.Prelude
 
 -- | Find type shapes whose inline exact printer is not layout-stable.
 exactSourceTypes :: Data ast => ast -> [Located (HsType GhcPs)]
-exactSourceTypes = SYB.everything (++) typeQuery
+exactSourceTypes = collectTypes requiresExactSource
+
+collectTypes
+  :: Data ast
+  => (HsType GhcPs -> Bool)
+  -> ast
+  -> [Located (HsType GhcPs)]
+collectTypes predicate = SYB.everything (++) typeQuery
  where
   typeQuery :: SYB.GenericQ [Located (HsType GhcPs)]
   typeQuery = const [] `SYB.extQ` collectType
 
   collectType :: LHsType GhcPs -> [Located (HsType GhcPs)]
   collectType type'
-    | requiresExactSource $ unLoc type' =
+    | predicate $ unLoc type' =
         [L (getLocA type') (unLoc type')]
     | otherwise = []
 

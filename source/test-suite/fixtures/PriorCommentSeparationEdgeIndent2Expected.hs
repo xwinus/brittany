@@ -13,7 +13,11 @@ data OneGap = OneGap
 
 data TwoGaps = TwoGaps
 
-blockAdjacent = let { {- Block comment may share its source line. -} value = 1 } in value
+blockAdjacent =
+  let
+    {- Block comment may share its source line. -}
+    value = 1
+  in  value
 
 -- First consecutive comment.
 -- Second consecutive comment.
@@ -26,4 +30,4 @@ nested =
     -- Second nested comment.
 
     value = 1
-  in value
+  in  value

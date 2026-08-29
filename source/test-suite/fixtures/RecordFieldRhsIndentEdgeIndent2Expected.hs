@@ -60,12 +60,12 @@ listed firstValue secondValue =
     }
 
 commented punnedField explicitValue =
-    Settings
-        { -- Keep this comment before the first field.
-          commentedField =
-              -- Keep this comment after the equals sign.
-              commentedValue explicitValue extra
-        , punnedField
-        , explicitField = explicitValue
-        , ..
-        }
+  Settings
+    -- Keep this comment before the first field.
+    { commentedField =
+       -- Keep this comment after the equals sign.
+        commentedValue explicitValue extra
+    , punnedField
+    , explicitField  = explicitValue
+    , ..
+    }
