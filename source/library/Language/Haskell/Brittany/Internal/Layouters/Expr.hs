@@ -5,13 +5,14 @@
 module Language.Haskell.Brittany.Internal.Layouters.Expr where
 
 import qualified Data.Data
+import qualified Data.Map as Map
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import GHC (GenLocated(L), RdrName(..), SrcSpan, unLoc)
 import GHC.Types.Name.Reader (RdrName(Exact))
 import GHC.Types.SrcLoc (Located, getLoc, noSrcSpan)
-import GHC.Parser.Annotation (EpAnn(..), EpaLocation(..), HasLoc)
+import GHC.Parser.Annotation (EpAnn(..), EpaLocation(..), HasLoc(getHasLoc))
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..))
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrintCompat
 import qualified GHC.Data.FastString as FastString
@@ -40,7 +41,12 @@ import Language.Haskell.Brittany.Internal.Layouters.Stmt
 import Language.Haskell.Brittany.Internal.Layouters.Type
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
-import Language.Haskell.Brittany.Internal.SourceComment.Types (SourceComment)
+import Language.Haskell.Brittany.Internal.SourceComment.Types
+  ( CommentLineRelation(..)
+  , CommentPlacement(..)
+  , CommentPlan(..)
+  , SourceComment(..)
+  )
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Utils
 import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
@@ -212,6 +218,36 @@ layoutOperatorApplication expLeft expOp expRight = do
 layoutExpr :: ToBriDoc HsExpr
 layoutExpr lexpr = layoutExpr' (toL lexpr)
 
+commentsAfterLambdaArrow
+  :: EpAnn GrhsAnn
+  -> LHsExpr GhcPs
+  -> ToBriDocM [SourceComment]
+commentsAfterLambdaArrow (EpAnn _ grhsAnnotations _) body = case
+    ga_sep grhsAnnotations of
+  Left _ -> pure []
+  Right arrow -> case
+      ( ExactPrintCompat.srcSpanToRealSpan $ getHasLoc arrow
+      , ExactPrintCompat.srcSpanToRealSpan $ getLoc $ toL body
+      ) of
+    (Just arrowSpan, Just bodySpan) -> do
+      commentPlan <- mAsk
+      pure $ List.sortOn sourceCommentStart
+        $ filter
+          (\sourceComment ->
+            sourceSpanEnd arrowSpan <= sourceCommentStart sourceComment
+              && sourceCommentEnd sourceComment <= sourceSpanStart bodySpan
+          )
+        $ Map.elems
+        $ commentPlanSources commentPlan
+    _ -> pure []
+
+isInlineComment :: CommentPlan -> SourceComment -> Bool
+isInlineComment commentPlan sourceComment = case
+    Map.lookup (sourceCommentKey sourceComment)
+      $ commentPlanPlacements commentPlan of
+  Just placement -> placementLineRelation placement == InlineComment
+  Nothing -> False
+
 layoutExpr' :: ToBriDoc HsExpr
 layoutExpr' lexpr@(L _ expr) =
   if requiresExactSourceExpression expr
@@ -264,7 +300,7 @@ layoutExprNative lexpr@(L _ expr) = do
       , GRHSs _ grhssNE llocals <- m_grhss match
       , [lgrhs] <- NonEmpty.toList grhssNE
       , EmptyLocalBinds{} <- llocals
-      , GRHS _ [] body <- unLoc lgrhs
+      , GRHS grhsAnnotation [] body <- unLoc lgrhs
       -> do
         patDocs <- zip (True : repeat False) pats `forM` \(isFirst, p) ->
           fmap return $ do
@@ -290,12 +326,40 @@ layoutExprNative lexpr@(L _ expr) = do
             colsWrapPat fixed
         bodyDoc <-
           docAddBaseY BrIndentRegular <$> docSharedWrapper layoutExpr' (toL body)
+        arrowComments <- commentsAfterLambdaArrow grhsAnnotation body
+        commentPlan <- mAsk
         let
-          funcPatternPartLine = docCols
-            ColCasePattern
-            (patDocs <&> (\p -> docSeq [docForceSingleline p, docSeparator]))
-        docAlt
-          [ -- single line
+          (inlineArrowComments, ownLineArrowComments) = List.partition
+            (isInlineComment commentPlan)
+            arrowComments
+          funcPatternPartLine =
+            docCols ColCasePattern
+              (patDocs <&> (\p -> docSeq
+                [docForceSingleline p, docSeparator]
+              ))
+          arrowDoc = appendSourceComments
+            (docLit $ Text.pack "->")
+            inlineArrowComments
+          bodyWithComments = case ownLineArrowComments of
+            [] -> docNonBottomSpacing bodyDoc
+            _ -> docLines
+              $ (layoutPatSynComment <$> ownLineArrowComments)
+              ++ [docNonBottomSpacing bodyDoc]
+          commentedArrowLayout = docSetParSpacing
+            $ docAddBaseY BrIndentRegular
+            $ docPar
+              (docSeq
+                [ docLit $ Text.pack "\\"
+                , docWrapNode (toL lmatch) $ appSep $ docForceSingleline
+                  funcPatternPartLine
+                , arrowDoc
+                ]
+              )
+              (docWrapNode (toL lgrhs) bodyWithComments)
+        if not $ null arrowComments
+          then prependConsumedComments arrowComments commentedArrowLayout
+          else docAlt
+            [ -- single line
             docSeq
             [ docLit $ Text.pack "\\"
             , docWrapNode (toL lmatch) $ docForceSingleline funcPatternPartLine
@@ -329,7 +393,7 @@ layoutExprNative lexpr@(L _ expr) = do
               ]
             )
             (docWrapNode (toL lgrhs) $ docNonBottomSpacing bodyDoc)
-          ]
+            ]
     HsLam _ _ _ -> unknownNodeError "HsLam too complex" lexpr
     HsApp _ exp1@(L _ HsApp{}) exp2 -> do
       let
@@ -821,9 +885,13 @@ layoutExprNative lexpr@(L _ expr) = do
           MonadComp -> True
           _ -> False
         -> do
+          let resultStatement = toL $ List.last stmts
+          resultComments <- filter
+            (sourceCommentPrecedesNode resultStatement)
+            <$> sourceCommentsWithinNode lexpr
           stmtDocs <- docSharedWrapper layoutStmt `mapM` (map toL stmts)
           hasComments <- hasAnyCommentsBelow lexpr
-          runFilteredAlternative $ do
+          prependConsumedComments resultComments $ runFilteredAlternative $ do
             addAlternativeCond (not hasComments) $ docSeq
               [ docNodeAnnKW lexpr Nothing $ appSep $ docLit $ Text.pack "["
               , docNodeAnnKW lexpr (Just AnnOpenS)
@@ -839,14 +907,24 @@ layoutExprNative lexpr@(L _ expr) = do
               ]
             addAlternative
               $ let
-                  start = docCols
-                    ColListComp
-                    [ docNodeAnnKW lexpr Nothing $ appSep $ docLit $ Text.pack
-                      "["
-                    , docSetBaseY
-                    $ docNodeAnnKW lexpr (Just AnnOpenS)
+                  resultDoc = docNodeAnnKW lexpr (Just AnnOpenS)
                     $ List.last stmtDocs
-                    ]
+                  start = case resultComments of
+                    [] -> docCols
+                      ColListComp
+                      [ docNodeAnnKW lexpr Nothing
+                        $ appSep
+                        $ docLit
+                        $ Text.pack "["
+                      , docSetBaseY resultDoc
+                      ]
+                    _ -> docLines
+                      $ [docNodeAnnKW lexpr Nothing $ docLit $ Text.pack "["]
+                      ++ [ docEnsureIndent BrIndentRegular
+                            $ layoutPatSynComment sourceComment
+                         | sourceComment <- resultComments
+                         ]
+                      ++ [docEnsureIndent BrIndentRegular resultDoc]
                   (s1 : sM) = List.init stmtDocs
                   line1 =
                     docCols ColListComp [appSep $ docLit $ Text.pack "|", s1]

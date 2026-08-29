@@ -1332,11 +1332,13 @@ extractHsIfAnns lexpr locAnn annsIf condExpr thenExpr elseExpr =
             (\((line, _), _) -> line < fst nodeStart) allComSpans
           -- Comments on nodeStart line but before "then" keyword are condition
           -- trailing comments → followingComments on HsIf, not inner
-          (condTrailingSpans, innerComSpans) = case thenPos of
+          conditionCommentPartition = case thenPos of
             Just tp -> List.partition
               (\((line, _), _) -> line == fst nodeStart && line < fst tp)
               innerComSpans0
             Nothing -> ([], innerComSpans0)
+          condTrailingSpans = fst conditionCommentPartition
+          innerComSpans = snd conditionCommentPartition
           -- Classify inner comments by keyword position
           -- Between "then" and "else" → then-expression prior
           -- After "else" → else-expression prior

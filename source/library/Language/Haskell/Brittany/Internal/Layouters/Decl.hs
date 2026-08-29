@@ -34,7 +34,11 @@ import Language.Haskell.Syntax.BooleanFormula
   ( BooleanFormula(..)
   , LBooleanFormula
   )
-import GHC.Parser.Annotation (EpAnn(..), EpaLocation(..), getLocA)
+import GHC.Parser.Annotation
+  ( EpAnn(..)
+  , EpaLocation(..)
+  , getLocA
+  )
 import GHC.Types.SrcLoc (Located, RealSrcSpan, SrcSpan(..), getLoc, noSrcSpan, srcSpanStartCol, srcSpanStartLine, srcSpanEndCol, srcSpanEndLine, unLoc)
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.CommentPlan
@@ -633,30 +637,114 @@ layoutBindWithComments declarationComments lbind@(L _ bind) = case bind of
   FunBind _ fId (MG _ lmatches@(L _ matches)) -> do
     idStr <- applyNameAdornment fId <$> lrdrNameToTextAnn (toL fId)
     binderDoc <- docLit $ Text.pack "="
+    let previousMatches = Nothing : (Just <$> matches)
     funcPatDocs <-
       docWrapNode (toL lbind)
       $ docWrapAnnKeyList
         (ExactPrintCompat.mkNamedAnnKey "MatchGroup" $ getLoc $ toL lmatches)
-      $ layoutPatternBind declarationComments (Just idStr) binderDoc
-      `mapM` matches
+      $ sequence
+      $ zipWith
+          (layoutFunctionMatch declarationComments (Just idStr) binderDoc)
+          previousMatches
+          matches
     return $ Left $ funcPatDocs
   PatBind _ pat _ (GRHSs _ grhssNE whereBinds) -> do
     let grhss = NonEmpty.toList grhssNE
+    commentPlan <- mAsk
+    nestedComments <- sourceCommentsWithinNode lbind
+    let availableComments = List.nubBy
+          (\left right -> sourceCommentKey left == sourceCommentKey right)
+          $ declarationComments ++ nestedComments
+    let separatorComments = case grhss of
+          [grhs] -> commentsAfterGrhsSeparator
+            commentPlan availableComments grhs
+          _ -> []
+        remainingComments = filter
+          (`notElem` separatorComments)
+          availableComments
     patDocs <- colsWrapPat =<< layoutPat pat
     multilinePatDoc <- layoutPatMultiline pat
-    clauseDocs <- layoutGrhs declarationComments `mapM` grhss
+    clauseDocs <- layoutGrhs remainingComments `mapM` grhss
     mWhereDocs <- layoutLocalBinds (L (localBindsSpan whereBinds) whereBinds)
     let mWhereArg = mWhereDocs <&> (,) (mkAnnKey (toL lbind)) -- TODO: is this the right AnnKey?
-    binderDoc <- docLit $ Text.pack "="
+    rawBinderDoc <- docLit $ Text.pack "="
+    binderDoc <- appendSourceComments (pure rawBinderDoc) separatorComments
     hasComments <- hasAnyCommentsBelow (toL lbind)
     formatted <- docWrapNode (toL lbind) $ layoutPatternBindFinal
       Nothing binderDoc (Just patDocs) multilinePatDoc clauseDocs mWhereArg
-      hasComments
-    Right <$> prependConsumedComments (handledClauseComments clauseDocs)
+      (hasComments || not (null separatorComments))
+    Right <$> prependConsumedComments
+      (separatorComments ++ handledClauseComments clauseDocs)
       (pure formatted)
   PatSynBind _ (PSB _ patID lpat rpat dir) -> do
     fmap Right $ docWrapNode (toL lbind) $ layoutPatSynBind (toL patID) lpat dir rpat
   _ -> Right <$> unknownNodeError "" (toL lbind)
+
+layoutFunctionMatch
+  :: [SourceComment]
+  -> Maybe Text
+  -> BriDocNumbered
+  -> Maybe (LMatch GhcPs (LHsExpr GhcPs))
+  -> LMatch GhcPs (LHsExpr GhcPs)
+  -> ToBriDocM BriDocNumbered
+layoutFunctionMatch declarationComments funId binderDoc previous current = do
+  let boundaryComments = maybe []
+        (\prior -> commentsBetweenMatches declarationComments prior current)
+        previous
+      remainingComments = filter
+        (`notElem` boundaryComments)
+        declarationComments
+  formatted <- layoutPatternBind remainingComments funId binderDoc current
+  case boundaryComments of
+    [] -> pure formatted
+    _ -> prependConsumedComments boundaryComments $ docLines
+      $ (layoutPatSynComment <$> boundaryComments) ++ [pure formatted]
+
+commentsBetweenMatches
+  :: [SourceComment]
+  -> LMatch GhcPs (LHsExpr GhcPs)
+  -> LMatch GhcPs (LHsExpr GhcPs)
+  -> [SourceComment]
+commentsBetweenMatches sourceComments previous current = case
+    ( srcSpanToRealSpan $ getLoc $ toL previous
+    , srcSpanToRealSpan $ getLoc $ toL current
+    ) of
+  (Just previousSpan, Just currentSpan) -> List.sortOn sourceCommentStart
+    $ filter (isBoundaryComment previousSpan currentSpan) sourceComments
+  _ -> []
+ where
+  isBoundaryComment previousSpan currentSpan sourceComment =
+    srcSpanStartLine (sourceCommentSpan sourceComment)
+      > srcSpanEndLine previousSpan
+      && sourceSpanEnd previousSpan <= sourceCommentStart sourceComment
+      && sourceCommentEnd sourceComment <= sourceSpanStart currentSpan
+
+commentsAfterGrhsSeparator
+  :: CommentPlan
+  -> [SourceComment]
+  -> LGRHS GhcPs (LHsExpr GhcPs)
+  -> [SourceComment]
+commentsAfterGrhsSeparator commentPlan sourceComments lgrhs@(L _ (GRHS _ _ body)) =
+  case
+      ( srcSpanToRealSpan $ getLoc $ toL lgrhs
+      , srcSpanToRealSpan $ getLoc $ toL body
+      ) of
+  (Just grhsSpan, Just bodySpan) -> List.sortOn sourceCommentStart
+    $ filter (isInlineBetween grhsSpan bodySpan) sourceComments
+  _ -> []
+ where
+  isInlineBetween grhsSpan bodySpan sourceComment =
+    sourceSpanStart grhsSpan <= sourceCommentStart sourceComment
+      && sourceCommentEnd sourceComment <= sourceSpanStart bodySpan
+      && case Map.lookup (sourceCommentKey sourceComment)
+          $ commentPlanPlacements commentPlan of
+        Just placement ->
+          placementLineRelation placement == InlineComment
+            || srcSpanStartLine grhsSpan
+              == srcSpanStartLine (sourceCommentSpan sourceComment)
+        Nothing -> False
+commentsAfterGrhsSeparator _ _ (L _ (XGRHS _)) = []
+
 layoutIPBind :: ToBriDoc IPBind
 layoutIPBind lipbind@(L _ bind) = case bind of
   IPBind _ lipName expr -> case unLoc lipName of
@@ -895,6 +983,21 @@ layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
   let pats = unLoc (m_pats match)
   let (GRHSs _ grhssNE whereBinds) = m_grhss match
       grhss = NonEmpty.toList grhssNE
+  commentPlan <- mAsk
+  nestedComments <- sourceCommentsWithinNode $ toL lmatch
+  let availableComments = List.nubBy
+        (\left right -> sourceCommentKey left == sourceCommentKey right)
+        $ declarationComments ++ nestedComments
+  let separatorComments = case grhss of
+        [grhs] -> commentsAfterGrhsSeparator
+          commentPlan availableComments grhs
+        _ -> []
+      remainingComments = filter
+        (`notElem` separatorComments)
+        availableComments
+  binderWithComments <- appendSourceComments
+    (pure binderDoc)
+    separatorComments
   patDocs <- pats `forM` \p -> fmap return $ colsWrapPat =<< layoutPat p
   let isInfix = isInfixMatch match
   mIdStr <- case match of
@@ -952,7 +1055,7 @@ layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
         _ -> return Nothing
   let matchComments = filter
         (sourceCommentWithinNodeSpan $ toL lmatch)
-        declarationComments
+        remainingComments
   clauseDocs <- docWrapNodeRest (toL lmatch)
     $ layoutGrhs matchComments `mapM` grhss
   mWhereDocs <- layoutLocalBinds (L (localBindsSpan whereBinds) whereBinds)
@@ -961,9 +1064,11 @@ layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
   hasComments <- case mWhereDocs of
     Nothing -> hasAnyRegularCommentsConnectedNoFollowing (toL lmatch)
     Just _  -> hasAnyCommentsBelow (toL lmatch)
-  prependConsumedComments (handledClauseComments clauseDocs)
-    $ layoutPatternBindFinal alignmentToken binderDoc (Just patDoc)
-      mMultilinePatDoc clauseDocs mWhereArg hasComments
+  prependConsumedComments
+    (separatorComments ++ handledClauseComments clauseDocs)
+    $ layoutPatternBindFinal alignmentToken binderWithComments (Just patDoc)
+      mMultilinePatDoc clauseDocs mWhereArg
+      (hasComments || not (null separatorComments))
 
 fixPatternBindIdentifier :: Match GhcPs (LHsExpr GhcPs) -> Text -> Text
 fixPatternBindIdentifier match idStr = go $ m_ctxt match

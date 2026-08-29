@@ -6,8 +6,10 @@ module Language.Haskell.Brittany.Internal.CommentPlan
   , isSourceComment
   , lookupCommentPlacement
   , lookupCommentRole
+  , isCanonicalInlinePlacement
   , commentPlanKeys
   , commentPlanFingerprint
+  , commentPlanStructuralFingerprint
   ) where
 
 import qualified Data.Char as Char
@@ -31,6 +33,7 @@ data CommentOccurrence = CommentOccurrence
   { occurrenceOwner :: NodeId
   , occurrenceSlot :: CommentSlot
   , occurrenceComment :: Comment
+  , occurrenceDelta :: DeltaPos
   }
 
 normalizeCommentPlan :: Anns -> Either [CommentPlanError] CommentPlan
@@ -63,19 +66,20 @@ normalizeCommentPlan annotations = case
     , length owners > 1
     ]
   placementErrors =
-    [ AmbiguousCommentPlacement key roles
+    [ AmbiguousCommentPlacement key placements
     | (key, groupedOccurrences) <- Map.toAscList grouped
     , let owners = List.nub $ occurrenceOwner <$> groupedOccurrences
-          roles = List.nub $ classifyComment annotations <$> groupedOccurrences
+          placements = List.nub
+            $ classifyPlacement annotations <$> groupedOccurrences
     , length owners == 1
-    , length roles > 1
+    , length placements > 1
     ]
   uniqueOccurrences =
     [ (key, occurrence)
     | (key, groupedOccurrences) <- Map.toAscList grouped
     , occurrence : _ <- [groupedOccurrences]
     , length (List.nub $ occurrenceOwner <$> groupedOccurrences) == 1
-    , length (List.nub $ classifyComment annotations <$> groupedOccurrences) == 1
+    , length (List.nub $ classifyPlacement annotations <$> groupedOccurrences) == 1
     ]
   orderedOccurrences = List.sortOn (commentPosition . occurrenceComment . snd)
     uniqueOccurrences
@@ -89,6 +93,8 @@ normalizeCommentPlan annotations = case
       , CommentPlacement
           (occurrenceOwner occurrence)
           (classifyComment annotations occurrence)
+          (classifyAnchor occurrence)
+          (classifyLineRelation annotations occurrence)
           (Map.findWithDefault 0 key relativeOrders)
       )
     | (key, occurrence) <- uniqueOccurrences
@@ -98,12 +104,51 @@ annotationOccurrences :: (AnnKey, Annotation) -> [CommentOccurrence]
 annotationOccurrences (ownerKey, annotation) =
   fmap (toOccurrence PriorSlot) (annPriorComments annotation)
     ++ fmap (toOccurrence FollowingSlot) (annFollowingComments annotation)
-    ++ [ CommentOccurrence owner InnerSlot comment
-       | (AnnComment comment, _) <- annsDP annotation
+    ++ [ CommentOccurrence owner InnerSlot comment delta
+       | (AnnComment comment, delta) <- annsDP annotation
        ]
  where
   owner = NodeId ownerKey
-  toOccurrence slot (comment, _) = CommentOccurrence owner slot comment
+  toOccurrence slot (comment, delta) =
+    CommentOccurrence owner slot comment delta
+
+classifyAnchor :: CommentOccurrence -> CommentAnchor
+classifyAnchor occurrence = case occurrenceSlot occurrence of
+  PriorSlot -> BeforeNode
+  FollowingSlot -> AfterNode
+  InnerSlot -> WithinNode
+
+classifyPlacement
+  :: Anns
+  -> CommentOccurrence
+  -> (CommentRole, CommentAnchor, CommentLineRelation)
+classifyPlacement annotations occurrence =
+  ( classifyComment annotations occurrence
+  , classifyAnchor occurrence
+  , classifyLineRelation annotations occurrence
+  )
+
+classifyLineRelation :: Anns -> CommentOccurrence -> CommentLineRelation
+classifyLineRelation annotations occurrence
+  | structurallySeparateLine = CommentOwnLine
+  | otherwise = case occurrenceDelta occurrence of
+      DP (0, _) -> InlineComment
+      DP _ -> CommentOwnLine
+ where
+  structurallySeparateLine = case
+      ( annKeyRealSpan ownerKey
+      , srcSpanToRealSpan $ commentIdentifier $ occurrenceComment occurrence
+      ) of
+    (Just ownerSpan, Just commentSpan) -> case occurrenceSlot occurrence of
+      PriorSlot -> classifyComment annotations occurrence
+        `elem` [LeadingDoc, SectionComment, PragmaComment]
+        && SrcLoc.srcSpanEndLine commentSpan
+          < SrcLoc.srcSpanStartLine ownerSpan
+      FollowingSlot -> SrcLoc.srcSpanStartLine commentSpan
+        > SrcLoc.srcSpanEndLine ownerSpan
+      InnerSlot -> False
+    _ -> False
+  NodeId ownerKey = occurrenceOwner occurrence
 
 toSourceComment
   :: (SourceCommentKey, CommentOccurrence)
@@ -266,7 +311,8 @@ commentPlanFingerprint plan = List.sort $ deduplicateTransport
   ownerConstructor (NodeId (AnnKey _ name)) = unConName name
   isBindingMember placement = any
     (`List.isInfixOf` ownerConstructor (placementOwner placement))
-    [ "FunBind"
+    [ "ConPat"
+    , "FunBind"
     , "BodyStmt"
     , "GRHS"
     , "HsFunTy"
@@ -298,6 +344,43 @@ commentPlanFingerprint plan = List.sort $ deduplicateTransport
         "LeadingMember"
     | isBindingMember placement = "BindingMember"
     | otherwise = ownerConstructor $ placementOwner placement
+
+commentPlanStructuralFingerprint
+  :: CommentPlan
+  -> [ ( Text.Text
+       , SourceCommentSyntax
+       , CommentRole
+       , CommentAnchor
+       , CommentLineRelation
+       , String
+       )
+     ]
+commentPlanStructuralFingerprint plan = fmap fingerprint
+  $ List.sortOn (placementRelativeOrder . snd)
+  [ (sourceComment, placement)
+  | (key, placement) <- Map.toList $ commentPlanPlacements plan
+  , Just sourceComment <- [Map.lookup key $ commentPlanSources plan]
+  ]
+ where
+  fingerprint (sourceComment, placement) =
+    ( sourceCommentText sourceComment
+    , sourceCommentSyntax sourceComment
+    , placementRole placement
+    , placementAnchor placement
+    , placementLineRelation placement
+    , ownerConstructor $ placementOwner placement
+    )
+  ownerConstructor (NodeId (AnnKey _ ownerName)) = unConName ownerName
+
+isCanonicalInlinePlacement :: CommentPlacement -> Bool
+isCanonicalInlinePlacement placement =
+  placementAnchor placement == BeforeNode
+    && placementLineRelation placement == InlineComment
+    && ownerConstructor `elem`
+      ["BindStmt", "BodyStmt", "LastStmt", "LetStmt"]
+ where
+  NodeId (AnnKey _ ownerName) = placementOwner placement
+  ownerConstructor = unConName ownerName
 
 isPostDocText :: String -> Bool
 isPostDocText = \case
