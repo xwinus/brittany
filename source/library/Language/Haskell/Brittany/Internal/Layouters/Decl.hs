@@ -612,11 +612,11 @@ layoutGuardLStmt :: ToBriDoc' (Stmt GhcPs (LHsExpr GhcPs))
 layoutGuardLStmt lgstmt@(L _ stmtLR) = docWrapNode (toL lgstmt) $ case stmtLR of
   BodyStmt _ body _ _ -> layoutExpr (toL body)
   BindStmt _ lPat expr -> do
-    patDoc <- docSharedWrapper layoutPat lPat
+    patDoc <- patternDocument =<< layoutPattern lPat
     expDoc <- docSharedWrapper layoutExpr (toL expr)
     docCols
       ColBindStmt
-      [ appSep $ colsWrapPat =<< patDoc
+      [ appSep $ pure patDoc
       , docSeq [appSep $ docLit $ Text.pack "<-", expDoc]
       ]
   _ -> unknownNodeError "" lgstmt -- TODO
@@ -662,8 +662,9 @@ layoutBindWithComments declarationComments lbind@(L _ bind) = case bind of
         remainingComments = filter
           (`notElem` separatorComments)
           availableComments
-    patDocs <- colsWrapPat =<< layoutPat pat
-    multilinePatDoc <- layoutPatMultiline pat
+    patLayout <- layoutPattern pat
+    patDocs <- patternCompactDocument patLayout
+    let multilinePatDoc = patternStructuralDocument patLayout
     clauseDocs <- layoutGrhs remainingComments `mapM` grhss
     mWhereDocs <- layoutLocalBinds (L (localBindsSpan whereBinds) whereBinds)
     let mWhereArg = mWhereDocs <&> (,) (mkAnnKey (toL lbind)) -- TODO: is this the right AnnKey?
@@ -998,13 +999,14 @@ layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
   binderWithComments <- appendSourceComments
     (pure binderDoc)
     separatorComments
-  patDocs <- pats `forM` \p -> fmap return $ colsWrapPat =<< layoutPat p
+  patLayouts <- mapM layoutPattern pats
+  patDocs <- mapM (fmap pure . patternCompactDocument) patLayouts
   let isInfix = isInfixMatch match
   mIdStr <- case match of
     Match _ (FunRhs matchId _ _ _) _ _ -> Just . applyNameAdornment matchId <$> lrdrNameToTextAnn (toL matchId)
     _ -> pure Nothing
   let mIdStr' = fixPatternBindIdentifier match <$> mIdStr
-  multilinePatDocs <- mapM layoutPatMultiline pats
+  let multilinePatDocs = patternStructuralDocument <$> patLayouts
   patDoc <- docWrapNodePrior (toL lmatch) $ case (mIdStr', patDocs) of
     (Just idStr, p1 : p2 : pr) | isInfix -> if null pr
       then docCols
@@ -1455,11 +1457,17 @@ layoutPatSynBind name patSynDetails patDir rpat = do
       ImplicitBidirectional -> docLit $ Text.pack "="
       _ -> docLit $ Text.pack "<-"
     whereDoc = docLit $ Text.pack "where"
-  body <- docSharedWrapper (\pat -> colsWrapPat =<< layoutPat pat) rpat
+  bodyLayout <- layoutPattern rpat
+  body <- docSharedWrapper patternCompactDocument bodyLayout
   hasBodyComments <- hasAnyRegularCommentsConnectedNoFollowing (toL rpat)
-  mMultilineBody <- if hasBodyComments
-    then layoutPatMultiline rpat
-    else pure Nothing
+  let selectedBody = case patternStructuralDocument bodyLayout of
+        Nothing -> body
+        Just structuralBody
+          | hasBodyComments -> pure structuralBody
+          | otherwise -> docAlt
+            [ docForceSingleline body
+            , pure structuralBody
+            ]
   mWhereDocs <- layoutPatSynWhere patDir
   headDoc <-
     fmap pure
@@ -1494,10 +1502,10 @@ layoutPatSynBind name patSynDetails patDir rpat = do
       $ docPar
           headDoc
           (case mWhereDocs of
-            Nothing -> maybe body pure mMultilineBody
+            Nothing -> selectedBody
             Just ds -> docLines
               ( [ docSeq
-                    [ maybe body pure mMultilineBody
+                    [ selectedBody
                     , docSeparator
                     , whereDoc
                     ]

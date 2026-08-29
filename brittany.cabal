@@ -162,6 +162,9 @@ library
     Language.Haskell.Brittany.Internal.Layouters.DataDecl.Boundary
     Language.Haskell.Brittany.Internal.Layouters.DataDecl.Deriving
     Language.Haskell.Brittany.Internal.Layouters.DataDecl.Support
+    Language.Haskell.Brittany.Internal.Layouters.Pattern.Comments
+    Language.Haskell.Brittany.Internal.Layouters.Pattern.Record
+    Language.Haskell.Brittany.Internal.Layouters.Pattern.Types
     Language.Haskell.Brittany.Internal.Layouters.Type.Operator
     Language.Haskell.Brittany.Internal.PatternComments
     Language.Haskell.Brittany.Internal.Preprocessor
@@ -192,6 +195,7 @@ test-suite brittany-test-suite
     CommentPlanSpec
     CommentOwnershipSpec
     CompactParenthesizedPatternSpec
+    CompositionalPatternSpec
     ComposableDeclarationSpec
     ConstructorBoundarySpec
     ConstructorFieldModifierSpec

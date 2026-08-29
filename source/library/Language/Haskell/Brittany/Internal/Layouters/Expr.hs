@@ -6,6 +6,7 @@ module Language.Haskell.Brittany.Internal.Layouters.Expr where
 
 import qualified Data.Data
 import qualified Data.Map as Map
+import qualified Data.Maybe as Maybe
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
@@ -302,8 +303,9 @@ layoutExprNative lexpr@(L _ expr) = do
       , EmptyLocalBinds{} <- llocals
       , GRHS grhsAnnotation [] body <- unLoc lgrhs
       -> do
-        patDocs <- zip (True : repeat False) pats `forM` \(isFirst, p) ->
-          fmap return $ do
+        patternLayouts <- zip (True : repeat False) pats `forM` \(isFirst, p) -> do
+          layout <- layoutPattern p
+          compactDocument <- do
             -- this code could be as simple as `colsWrapPat =<< layoutPat p`
             -- if it was not for the following two cases:
             -- \ !x -> x
@@ -317,13 +319,14 @@ layoutExprNative lexpr@(L _ expr) = do
                 LazyPat{} -> isFirst
                 BangPat{} -> isFirst
                 _ -> False
-            patDocSeq <- layoutPat p
-            fixed <- case Seq.viewl patDocSeq of
+            fixed <- case Seq.viewl $ patternCompactColumns layout of
               p1 Seq.:< pr | shouldPrefixSeparator -> do
                 p1' <- docSeq [docSeparator, pure p1]
                 pure (p1' Seq.<| pr)
-              _ -> pure patDocSeq
+              _ -> pure $ patternCompactColumns layout
             colsWrapPat fixed
+          pure (pure compactDocument, patternStructuralDocument layout)
+        let patDocs = fst <$> patternLayouts
         bodyDoc <-
           docAddBaseY BrIndentRegular <$> docSharedWrapper layoutExpr' (toL body)
         arrowComments <- commentsAfterLambdaArrow grhsAnnotation body
@@ -356,9 +359,44 @@ layoutExprNative lexpr@(L _ expr) = do
                 ]
               )
               (docWrapNode (toL lgrhs) bodyWithComments)
+        structuralLambda <- if not $ any (Maybe.isJust . snd) patternLayouts
+          then pure Nothing
+          else do
+            selectedPatterns <- patternLayouts `forM` \case
+              (compactPattern, Nothing) -> docForceSingleline compactPattern
+              (compactPattern, Just structuralPattern) -> docAlt
+                [ docForceSingleline compactPattern
+                , pure structuralPattern
+                ]
+            case selectedPatterns of
+              [] -> pure Nothing
+              firstPattern : remainingPatterns -> fmap Just
+                $ docSetParSpacing
+                $ docAddBaseY BrIndentRegular
+                $ docLines
+                $ [ docSeq
+                      [ docLit $ Text.pack "\\"
+                      , docSeparator
+                      , pure firstPattern
+                      ]
+                  ]
+                ++ [ docEnsureIndent BrIndentRegular $ pure patternDoc
+                   | patternDoc <- remainingPatterns
+                   ]
+                ++ [ docEnsureIndent BrIndentRegular
+                     $ docSeq
+                       [ appSep arrowDoc
+                       , docWrapNode (toL lgrhs) bodyWithComments
+                       ]
+                   ]
         if not $ null arrowComments
-          then prependConsumedComments arrowComments commentedArrowLayout
-          else docAlt
+          then prependConsumedComments arrowComments $ case structuralLambda of
+            Nothing -> commentedArrowLayout
+            Just multilineLambda -> docAlt
+              [ commentedArrowLayout
+              , pure multilineLambda
+              ]
+          else docAlt $
             [ -- single line
             docSeq
             [ docLit $ Text.pack "\\"
@@ -394,6 +432,7 @@ layoutExprNative lexpr@(L _ expr) = do
             )
             (docWrapNode (toL lgrhs) $ docNonBottomSpacing bodyDoc)
             ]
+            ++ maybe [] (pure . pure) structuralLambda
     HsLam _ _ _ -> unknownNodeError "HsLam too complex" lexpr
     HsApp _ exp1@(L _ HsApp{}) exp2 -> do
       let

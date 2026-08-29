@@ -6,6 +6,7 @@ import qualified CanonicalSemanticModelSpec
 import qualified CommentPlanSpec
 import qualified CommentOwnershipSpec
 import qualified CompactParenthesizedPatternSpec
+import qualified CompositionalPatternSpec
 import qualified ComposableDeclarationSpec
 import qualified ConstructorBoundarySpec
 import qualified ConstructorFieldModifierSpec
@@ -103,6 +104,7 @@ main = Hspec.hspec $ do
   CommentPlanSpec.spec
   CommentOwnershipSpec.spec
   CompactParenthesizedPatternSpec.spec projectRoot
+  CompositionalPatternSpec.spec projectRoot
   ComposableDeclarationSpec.spec projectRoot
   ConstructorBoundarySpec.spec projectRoot
   ConstructorFieldModifierSpec.spec projectRoot

@@ -1,32 +1,27 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
-module Language.Haskell.Brittany.Internal.Layouters.Pattern where
+module Language.Haskell.Brittany.Internal.Layouters.Pattern
+  ( PatternLayout(..)
+  , colsWrapPat
+  , layoutPat
+  , layoutPatMultiline
+  , layoutPatNative
+  , layoutPatStructural
+  , layoutPattern
+  , patternCompactDocument
+  , patternDocument
+  , wrapPatListy
+  , wrapPatPrepend
+  ) where
 
-import qualified Data.Foldable as Foldable
 import qualified Data.List.NonEmpty as NonEmpty
-import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
-import qualified Data.Set as Set
 import qualified Data.Text as Text
 import GHC (GenLocated(L), ol_val)
 import GHC.Hs
 import qualified GHC.OldList as List
 import GHC.Types.Basic
-import GHC.Types.SrcLoc
-  ( Located
-  , getLoc
-  , srcSpanEndCol
-  , srcSpanEndLine
-  , srcSpanStartCol
-  , srcSpanStartLine
-  )
-import Language.Haskell.Brittany.Internal.ExactPrintCompat
-  ( realSpanToSrcSpan
-  , srcSpanToRealSpan
-  )
-import Language.Haskell.Brittany.Internal.ExactPrintUtils (foldedAnnKeys)
-import Language.Haskell.Brittany.Internal.ExactSource (sourceCommentFragment)
 import Language.Haskell.Brittany.Internal.Fallbacks
   ( FallbackId(..)
   , untypedSpliceFamily
@@ -34,15 +29,26 @@ import Language.Haskell.Brittany.Internal.Fallbacks
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
+import Language.Haskell.Brittany.Internal.Layouters.Pattern.Comments
+import Language.Haskell.Brittany.Internal.Layouters.Pattern.Record
+import Language.Haskell.Brittany.Internal.Layouters.Pattern.Types
 import Language.Haskell.Brittany.Internal.Layouters.Type
 import Language.Haskell.Brittany.Internal.PatternComments
   ( requiresExactSourcePattern )
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
-import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.Types
 
 
+
+layoutPattern :: LPat GhcPs -> ToBriDocM PatternLayout
+layoutPattern pattern' = do
+  compactColumns <- layoutPat pattern'
+  structuralDocument <- layoutPatStructural pattern'
+  pure PatternLayout
+    { patternCompactColumns = compactColumns
+    , patternStructuralDocument = structuralDocument
+    }
 
 -- | layouts patterns (inside function bindings, case alternatives, let
 -- bindings or do notation). E.g. for input
@@ -232,14 +238,14 @@ layoutPatNative lpat@(L _ pat) = docWrapNode (toL lpat) $ case pat of
   InvisPat _ tyPat -> do
       typeDoc <- docSharedWrapper layoutType (toL $ hstp_body tyPat)
       patternDoc <- docSeq [docLit $ Text.pack "@", typeDoc]
-      trailingComments <- ownedTrailingComments (toL lpat)
+      trailingComments <- ownedTrailingPatternComments (toL lpat)
       case trailingComments of
         [] -> return $ Seq.singleton patternDoc
         _ -> do
           commentedPattern <- docSeq
             $ return patternDoc
             : List.concat
-              [ [docLit $ Text.pack " ", layoutSourceComment sourceComment]
+              [ [docLit $ Text.pack " ", layoutPatternSourceComment sourceComment]
               | sourceComment <- trailingComments
               ]
           Seq.singleton <$> docLines
@@ -262,67 +268,142 @@ layoutPatNative lpat@(L _ pat) = docWrapNode (toL lpat) $ case pat of
 
   _ -> return <$> briDocByExactInlineOnly PatternFallback (toL lpat)
 
-ownedTrailingComments
-  :: Located (Pat GhcPs) -> ToBriDocM [SourceComment]
-ownedTrailingComments node = do
-  commentPlan <- mAsk
-  let ownerKeys = foldedAnnKeys node
-      nodeEnd = do
-        nodeSpan <- srcSpanToRealSpan $ getLoc node
-        pure (srcSpanEndLine nodeSpan, srcSpanEndCol nodeSpan)
-      isTrailing sourceComment = case nodeEnd of
-        Nothing -> False
-        Just endPosition -> patternSourceCommentStart sourceComment >= endPosition
-  pure
-    [ sourceComment
-    | (key, placement) <- List.sortOn
-        (placementRelativeOrder . snd)
-        $ Map.toList $ commentPlanPlacements commentPlan
-    , NodeId ownerKey <- [placementOwner placement]
-    , Set.member ownerKey ownerKeys
-    , Just sourceComment <- [Map.lookup key $ commentPlanSources commentPlan]
-    , isTrailing sourceComment
-    ]
-
-layoutSourceComment :: SourceComment -> ToBriDocM BriDocNumbered
-layoutSourceComment sourceComment = briDocBySourceFragmentNoComment
-  (L (realSpanToSrcSpan $ sourceCommentSpan sourceComment) sourceComment)
-  (sourceCommentFragment sourceComment)
-
-patternSourceCommentStart :: SourceComment -> (Int, Int)
-patternSourceCommentStart sourceComment =
-  ( srcSpanStartLine $ sourceCommentSpan sourceComment
-  , srcSpanStartCol $ sourceCommentSpan sourceComment
-  )
-
-layoutPatMultiline :: LPat GhcPs -> ToBriDocM (Maybe BriDocNumbered)
-layoutPatMultiline lpat@(L _ pat) = case pat of
+layoutPatStructural :: LPat GhcPs -> ToBriDocM (Maybe BriDocNumbered)
+layoutPatStructural lpat@(L _ pat)
+  | requiresExactSourcePattern pat = pure Nothing
+  | otherwise = case pat of
   ConPat _ lname (PrefixCon args@(_ : _)) -> do
     nameDoc <- applyNameAdornment lname <$> lrdrNameToTextAnn (toL lname)
     argDocs <- args `forM` \arg -> do
-      flatDoc <- colsWrapPat =<< layoutPat arg
-      layoutPatMultiline arg >>= \case
-        Nothing -> return flatDoc
-        Just multilineDoc -> docAlt
-          [ docForceSingleline $ return flatDoc
-          , return multilineDoc
-          ]
+      patternDocument =<< layoutPattern arg
     fmap Just $ docWrapNode (toL lpat)
       $ docAddBaseY BrIndentRegular
       $ docPar
           (docLit nameDoc)
           (docSetIndentLevel $ docLines $ return <$> argDocs)
-  ParPat _ inner -> layoutPatMultiline inner >>= \case
-    Nothing -> return Nothing
-    Just innerDoc -> fmap Just $ docWrapNode (toL lpat)
-      $ docAlt
-        [ docSeq [docParenL, return innerDoc, docParenR]
-        , docDelimitedBlock docParenL (return innerDoc) docParenR
+  ConPat _ lname (InfixCon left right) -> do
+    nameDoc <- applyNameAdornment lname <$> lrdrNameToTextAnn (toL lname)
+    leftDoc <- patternDocument =<< layoutPattern left
+    rightDoc <- patternDocument =<< layoutPattern right
+    fmap Just $ docWrapNode (toL lpat)
+      $ docAddBaseY BrIndentRegular
+      $ docLines
+        [ pure leftDoc
+        , docEnsureIndent BrIndentRegular $ docSeq
+          [ appSep $ docLit nameDoc
+          , pure rightDoc
+          ]
         ]
+  ConPat _ lname (RecCon fields) ->
+    Just <$> layoutRecordPattern layoutPattern lpat lname fields
+  ParPat _ inner -> do
+    innerDoc <- patternDocument =<< layoutPattern inner
+    fmap Just $ docWrapNode (toL lpat)
+      $ docAlt
+        [ docSeq [docParenL, pure innerDoc, docParenR]
+        , docDelimitedBlock docParenL (pure innerDoc) docParenR
+        ]
+  TuplePat _ elements boxity -> case boxity of
+    Boxed -> layoutDelimitedPattern lpat docParenL docParenR elements
+    Unboxed -> layoutDelimitedPattern
+      lpat (docLit $ Text.pack "(#") (docLit $ Text.pack "#)") elements
+  ListPat _ elements -> layoutDelimitedPattern
+    lpat docBracketL docBracketR elements
+  AsPat _ name inner -> layoutPrefixedPattern
+    lpat (docLit $ lrdrNameToText name <> Text.pack "@") inner
+  BangPat _ inner -> layoutPrefixedPattern lpat (docLit $ Text.pack "!") inner
+  LazyPat _ inner -> layoutPrefixedPattern lpat (docLit $ Text.pack "~") inner
+  SigPat _ inner (HsPS _ signatureType) -> do
+    innerDoc <- patternDocument =<< layoutPattern inner
+    typeDoc <- docSharedWrapper layoutType $ toL signatureType
+    fmap Just $ docWrapNode (toL lpat)
+      $ docAddBaseY BrIndentRegular
+      $ docPar
+        (pure innerDoc)
+        (docSeq
+          [ appSep $ docLit $ Text.pack "::"
+          , typeDoc
+          ]
+        )
+  ViewPat _ expression inner -> do
+    expressionDoc <- docSharedWrapper layoutExpr $ toL expression
+    innerDoc <- patternDocument =<< layoutPattern inner
+    fmap Just $ docWrapNode (toL lpat)
+      $ docAddBaseY BrIndentRegular
+      $ docPar
+        (docSeq
+          [ appSep expressionDoc
+          , docLit $ Text.pack "->"
+          ]
+        )
+        (pure innerDoc)
+  OrPat _ patterns -> do
+    patternDocs <- mapM (layoutPattern >=> patternDocument)
+      $ NonEmpty.toList patterns
+    fmap Just $ docWrapNode (toL lpat)
+      $ docSetBaseY
+      $ docLines
+      $ case patternDocs of
+          [] -> []
+          firstPattern : remainingPatterns -> pure firstPattern
+            : [ docSeq
+                [ appSep $ docLit $ Text.pack ";"
+                , pure patternDoc
+                ]
+              | patternDoc <- remainingPatterns
+              ]
   _ -> return Nothing
 
-colsWrapPat :: Seq BriDocNumbered -> ToBriDocM BriDocNumbered
-colsWrapPat = docCols ColPatterns . fmap return . Foldable.toList
+layoutPrefixedPattern
+  :: LPat GhcPs
+  -> ToBriDocM BriDocNumbered
+  -> LPat GhcPs
+  -> ToBriDocM (Maybe BriDocNumbered)
+layoutPrefixedPattern outer prefix inner = do
+  innerLayout <- layoutPattern inner
+  case patternStructuralDocument innerLayout of
+    Nothing -> pure Nothing
+    Just structuralDocument -> fmap Just $ docWrapNode (toL outer)
+      $ docSeq [prefix, pure structuralDocument]
+
+layoutDelimitedPattern
+  :: LPat GhcPs
+  -> ToBriDocM BriDocNumbered
+  -> ToBriDocM BriDocNumbered
+  -> [LPat GhcPs]
+  -> ToBriDocM (Maybe BriDocNumbered)
+layoutDelimitedPattern _ _ _ [] = pure Nothing
+layoutDelimitedPattern outer open close elements = do
+  elementDocs <- mapM (layoutPattern >=> patternDocument) elements
+  fmap Just $ docWrapNode (toL outer)
+    $ docSetBaseY
+    $ docLines
+    $ case elementDocs of
+        [] -> []
+        [onlyPattern] ->
+          [ docSeq
+            [ appSep open
+            , pure onlyPattern
+            , docSeparator
+            , close
+            ]
+          ]
+        firstPattern : remainingPatterns ->
+          [ docSeq [appSep open, pure firstPattern, docCommaSep]
+          ]
+          ++ [ docEnsureIndent BrIndentRegular
+               $ docSeq [pure elementDoc, docCommaSep]
+             | elementDoc <- List.init remainingPatterns
+             ]
+          ++ [ docEnsureIndent BrIndentRegular $ docSeq
+               [ pure $ List.last remainingPatterns
+               , docSeparator
+               , close
+               ]
+             ]
+
+layoutPatMultiline :: LPat GhcPs -> ToBriDocM (Maybe BriDocNumbered)
+layoutPatMultiline = layoutPatStructural
 
 wrapPatPrepend
   :: LPat GhcPs -> ToBriDocM BriDocNumbered -> ToBriDocM (Seq BriDocNumbered)
