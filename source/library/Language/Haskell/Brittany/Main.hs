@@ -111,9 +111,9 @@ helpDoc = PP.vcat $ List.intersperse (PP.text "")
     [ "This program is free software released under the AGPLv3."
     , "For details use the --license flag."
     ]
-  , parDoc "See https://github.com/lspitzner/brittany"
+  , parDoc "See https://github.com/xwinus/brittany"
   , parDoc
-    "Please report bugs at https://github.com/lspitzner/brittany/issues"
+    "Please report bugs at https://github.com/xwinus/brittany/issues"
   ]
 
 licenseDoc :: PP.Doc
