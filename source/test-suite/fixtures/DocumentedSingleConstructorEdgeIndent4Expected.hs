@@ -11,14 +11,13 @@ data Positional
 
 -- | A record declaration.
 data NativeRecord
-    =
-        -- Keep this constructor comment structural.
-        NativeRecord
-            { strictField   :: !Int
-                -- ^ Strict field documentation.
-            , unpackedField :: {-# UNPACK #-} !Int
-                -- ^ Unpacked field documentation.
-            }
+    -- Keep this constructor comment structural.
+    = NativeRecord
+          { strictField   :: !Int
+              -- ^ Strict field documentation.
+          , unpackedField :: {-# UNPACK #-} !Int
+              -- ^ Unpacked field documentation.
+          }
     deriving stock (Eq, Show)
 
 -- | A basic single-constructor GADT remains native.

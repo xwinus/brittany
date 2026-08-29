@@ -432,6 +432,8 @@ layoutBriDocM = \case
                             [ Just $ HaddockPostDoc SignatureArgument
                             , Just $ HaddockPostDoc SignatureResult
                             ]
+                          constructorPostDoc = role
+                            == Just (HaddockPostDoc DataConstructor)
                           commentIndent
                             | y > 0, signaturePostDoc =
                                 lstate_baseY restState
@@ -439,6 +441,7 @@ layoutBriDocM = \case
                           commentLines = Text.lines $ Text.pack commentStr
                           adjustedY
                             | structuralInline = 0
+                            | constructorPostDoc = 1
                             | role == Just (HaddockPostDoc RecordField) = 1
                             | y > 0
                             , role == Just (BetweenChildren TypeOperator) = 1
@@ -446,6 +449,7 @@ layoutBriDocM = \case
                             | otherwise = y
                           adjustedX
                             | structuralInline = 1
+                            | constructorPostDoc = indentAmount
                             | y > 0, signaturePostDoc =
                                 max 0 $ commentIndent - indLinger
                             | y > 0
@@ -470,6 +474,10 @@ layoutBriDocM = \case
                         ")" -> pure ()
                                    --  ^ fixes the formatting of parens
                                    --    on the lhs of type alias defs
+                        _ | constructorPostDoc ->
+                          layoutMoveToAbsoluteCommentPos adjustedY
+                            (lstate_baseY restState + indentAmount)
+                            (length commentLines)
                         _ | role == Just (HaddockPostDoc RecordField) ->
                           layoutMoveToAbsoluteCommentPos adjustedY
                             (lstate_baseY restState + indentAmount)

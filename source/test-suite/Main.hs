@@ -7,6 +7,7 @@ import qualified CommentPlanSpec
 import qualified CommentOwnershipSpec
 import qualified CompactParenthesizedPatternSpec
 import qualified ComposableDeclarationSpec
+import qualified ConstructorBoundarySpec
 import qualified ConstructorFieldModifierSpec
 import Data.Kind (Type)
 import qualified Data.List as List
@@ -103,6 +104,7 @@ main = Hspec.hspec $ do
   CommentOwnershipSpec.spec
   CompactParenthesizedPatternSpec.spec projectRoot
   ComposableDeclarationSpec.spec projectRoot
+  ConstructorBoundarySpec.spec projectRoot
   ConstructorFieldModifierSpec.spec projectRoot
   FallbackSpec.spec projectRoot
   FallbackSweepSpec.spec

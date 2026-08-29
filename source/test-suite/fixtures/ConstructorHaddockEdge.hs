@@ -6,9 +6,8 @@ data Mixed
   = -- | A short constructor.
     Short
   | Plain Int
-  |
-    -- Keep this ordinary constructor comment structural.
-    Ordinary Bool
+  -- Keep this ordinary constructor comment structural.
+  | Ordinary Bool
   | -- | A multiline Haddock comment starts here.
     -- Its continuation remains structural.
     Multiline Char

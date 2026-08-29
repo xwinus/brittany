@@ -202,9 +202,13 @@ classifyComment annotations occurrence
         SrcLoc.srcSpanEndLine ownerSpan == SrcLoc.srcSpanStartLine commentSpan
       _ -> False
   postDocRole = case ownerConstructor of
+    "ConDeclGADT" -> HaddockPostDoc DataConstructor
+    "ConDeclH98" -> HaddockPostDoc DataConstructor
     "HsConDeclRecField" -> HaddockPostDoc RecordField
     "SigD" -> HaddockPostDoc SignatureResult
-    _ | ownerInside "HsConDeclRecField" -> HaddockPostDoc RecordField
+    _ | ownerInside "ConDeclGADT" -> HaddockPostDoc DataConstructor
+      | ownerInside "ConDeclH98" -> HaddockPostDoc DataConstructor
+      | ownerInside "HsConDeclRecField" -> HaddockPostDoc RecordField
       | ownerInside "SigD" -> HaddockPostDoc SignatureArgument
       | ownerInside "TyClD" -> HaddockPostDoc SignatureArgument
       | otherwise -> Unattached
