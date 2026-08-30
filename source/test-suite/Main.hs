@@ -1,5 +1,6 @@
 {-# LANGUAGE StandaloneKindSignatures #-}
 
+import qualified AlignmentPlannerSpec
 import qualified Control.Monad as Monad
 import qualified CompatibilitySpec
 import qualified CanonicalSemanticModelSpec
@@ -92,6 +93,7 @@ main = Hspec.hspec $ do
         Literal actual `Hspec.shouldBe` Literal expected
 
   RegressionSpec.spec projectRoot
+  AlignmentPlannerSpec.spec
   CanonicalSemanticModelSpec.spec
   SemanticFingerprintSpec.spec
   SignaturePostDocSpec.spec projectRoot

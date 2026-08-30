@@ -59,8 +59,10 @@ data CLayoutConfig f = LayoutConfig
   , _lconfig_altChooser :: f (Last AltChooser)
   , _lconfig_columnAlignMode :: f (Last ColumnAlignMode)
   , _lconfig_alignmentLimit :: f (Last Int)
-    -- roughly speaking, this sets an upper bound to the number of spaces
-    -- inserted to create horizontal alignment.
+    -- Roughly speaking, this sets an upper bound to the number of spaces
+    -- inserted to create horizontal alignment. Optional sibling-binding
+    -- groups use half this value as their inclusive per-row padding limit;
+    -- required same-function groups and ColumnAlignModeAlways are unbounded.
     -- More specifically, if 'xs' are the widths of the columns in some
     -- alignment-block, then the block will be aligned with the width
     -- maximum [ x | x <- xs, x < minimum xs + alignmentLimit ].

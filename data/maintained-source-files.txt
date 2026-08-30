@@ -3,6 +3,7 @@ doc-svg-gen/Setup.hs
 source/executable/Main.hs
 source/library/Language/Haskell/Brittany.hs
 source/library/Language/Haskell/Brittany/Internal.hs
+source/library/Language/Haskell/Brittany/Internal/Alignment.hs
 source/library/Language/Haskell/Brittany/Internal/Backend.hs
 source/library/Language/Haskell/Brittany/Internal/BackendUtils.hs
 source/library/Language/Haskell/Brittany/Internal/CommentBoundary.hs
@@ -65,6 +66,7 @@ source/library/Language/Haskell/Brittany/Internal/Types.hs
 source/library/Language/Haskell/Brittany/Internal/Utils.hs
 source/library/Language/Haskell/Brittany/Main.hs
 source/library/Language/Haskell/Brittany/Main/Transform.hs
+source/test-suite/AlignmentPlannerSpec.hs
 source/test-suite/CanonicalSemanticModelSpec.hs
 source/test-suite/CommentBoundaryGraphSpec.hs
 source/test-suite/CommentOwnershipSpec.hs

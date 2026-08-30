@@ -40,6 +40,7 @@ import GHC.Parser.Annotation
   , getLocA
   )
 import GHC.Types.SrcLoc (Located, RealSrcSpan, SrcSpan(..), getLoc, noSrcSpan, srcSpanStartCol, srcSpanStartLine, srcSpanEndCol, srcSpanEndLine, unLoc)
+import Language.Haskell.Brittany.Internal.Alignment
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.CommentPlan
   ( lookupCommentRole )
@@ -672,7 +673,8 @@ layoutBindWithComments declarationComments lbind@(L _ bind) = case bind of
     binderDoc <- appendSourceComments (pure rawBinderDoc) separatorComments
     hasComments <- hasAnyCommentsBelow (toL lbind)
     formatted <- docWrapNode (toL lbind) $ layoutPatternBindFinal
-      Nothing binderDoc (Just patDocs) multilinePatDoc clauseDocs mWhereArg
+      OptionalSiblingAlignment Nothing binderDoc (Just patDocs)
+      multilinePatDoc clauseDocs mWhereArg
       (hasComments || not (null separatorComments))
     Right <$> prependConsumedComments
       (separatorComments ++ handledClauseComments clauseDocs)
@@ -755,6 +757,7 @@ layoutIPBind lipbind@(L _ bind) = case bind of
       exprDoc <- layoutExpr (toL expr)
       hasComments <- hasAnyCommentsBelow (toL lipbind)
       layoutPatternBindFinal
+        OptionalSiblingAlignment
         Nothing
         binderDoc
         (Just ipName)
@@ -1063,13 +1066,16 @@ layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
   mWhereDocs <- layoutLocalBinds (L (localBindsSpan whereBinds) whereBinds)
   let mWhereArg = mWhereDocs <&> (,) (mkAnnKey (toL lmatch))
   let alignmentToken = if null pats then Nothing else funId
+      alignmentScope = case m_ctxt match of
+        FunRhs{} -> OptionalSiblingAlignment
+        _ -> RequiredPatternAlignment
   hasComments <- case mWhereDocs of
     Nothing -> hasAnyRegularCommentsConnectedNoFollowing (toL lmatch)
     Just _  -> hasAnyCommentsBelow (toL lmatch)
   prependConsumedComments
     (separatorComments ++ handledClauseComments clauseDocs)
-    $ layoutPatternBindFinal alignmentToken binderWithComments (Just patDoc)
-      mMultilinePatDoc clauseDocs mWhereArg
+    $ layoutPatternBindFinal alignmentScope alignmentToken binderWithComments
+      (Just patDoc) mMultilinePatDoc clauseDocs mWhereArg
       (hasComments || not (null separatorComments))
 
 fixPatternBindIdentifier :: Match GhcPs (LHsExpr GhcPs) -> Text -> Text
@@ -1089,8 +1095,13 @@ fixPatternBindIdentifier match idStr = go $ m_ctxt match
     (TransStmtCtxt ctx1) -> goInner ctx1
     _ -> idStr
 
+data BindingAlignmentScope
+  = RequiredPatternAlignment
+  | OptionalSiblingAlignment
+
 layoutPatternBindFinal
-  :: Maybe Text
+  :: BindingAlignmentScope
+  -> Maybe Text
   -> BriDocNumbered
   -> Maybe BriDocNumbered
   -> Maybe BriDocNumbered
@@ -1099,8 +1110,13 @@ layoutPatternBindFinal
      -- ^ AnnKey for the node that contains the AnnWhere position annotation
   -> Bool
   -> ToBriDocM BriDocNumbered
-layoutPatternBindFinal alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseDocs mWhereDocs hasComments
+layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseDocs mWhereDocs hasComments
   = do
+    let alignmentCandidates = case alignmentScope of
+          RequiredPatternAlignment -> [RequiredAlignment $ Right ()]
+          OptionalSiblingAlignment ->
+            [RequiredAlignment $ Left token | token <- maybeToList alignmentToken]
+              ++ [OptionalAlignment $ Right ()]
     let
       patPartInline = case mPatDoc of
         Nothing -> []
@@ -1192,7 +1208,7 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseD
           forM_ wherePart $ \wherePart' ->
             -- one-line solution
             addAlternativeCond (not hasComments) $ docCols
-              (ColBindingLine alignmentToken)
+              (ColBindingLine alignmentCandidates)
               [ docSeq (patPartInline ++ [guardPart])
               , docSeq
                 [ appSep $ return binderDoc
@@ -1204,7 +1220,7 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseD
           addAlternativeCond (Data.Maybe.isJust mWhereDocs)
             $ docLines
             $ [ docCols
-                  (ColBindingLine alignmentToken)
+                  (ColBindingLine alignmentCandidates)
                   [ docSeq (patPartInline ++ [guardPart])
                   , docSeq
                     [ appSep $ return binderDoc
@@ -1228,7 +1244,7 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseD
           addAlternativeCond (not hasComments)
             $ docLines
             $ [ docCols
-                  (ColBindingLine alignmentToken)
+                  (ColBindingLine alignmentCandidates)
                   [ docSeq (patPartInline ++ [guardPart])
                   , docSeq
                     [ appSep $ return binderDoc
