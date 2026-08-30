@@ -28,6 +28,7 @@ import GHC.Types.Basic
 import GHC.Types.Name
 import GHC.Types.Name.Occurrence (occNameString)
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.Delimiter.Types
 import Language.Haskell.Brittany.Internal.Fallbacks
   ( FallbackId(..)
   , OpaqueFamily(..)
@@ -542,25 +543,30 @@ layoutExprNative lexpr@(L _ expr) = do
       opDoc <- docSharedWrapper layoutExpr' (toL op)
       docSeq [docLit $ Text.pack "-", opDoc]
     HsPar _ innerExp -> do
-      innerExpDoc <- docSharedWrapper (docWrapNode lexpr . layoutExpr') (toL innerExp)
-      runFilteredAlternative $ do
-        addAlternative $ docSeq
-          [ docLit $ Text.pack "("
-          , docForceSingleline innerExpDoc
-          , docLit $ Text.pack ")"
-          ]
-        addAlternativeCond (isBlockLikeExpression $ unLoc innerExp)
-          $ docDelimitedBlock DelimiterAttached docParenL innerExpDoc docParenR
-        addAlternativeCond (not $ isBlockLikeExpression $ unLoc innerExp)
-          $ docSetBaseY
-          $ docLines
-          [ docCols
-            ColOpPrefix
-            [ docLit $ Text.pack "("
-            , docAddBaseY (BrIndentSpecial 2) innerExpDoc
-            ]
-          , docLit $ Text.pack ")"
-          ]
+      innerExpDoc <- docSharedWrapper layoutExpr' (toL innerExp)
+      let attached
+            | isBlockLikeExpression $ unLoc innerExp = docPar
+                (docSeq [docParenL, docSetIndentLevel innerExpDoc])
+                docParenR
+            | otherwise = docSetBaseY $ docLines
+                [ docCols ColOpPrefix
+                  [ docParenL
+                  , docAddBaseY (BrIndentSpecial 2) innerExpDoc
+                  ]
+                , docParenR
+                ]
+      docDelimitedAlternatives
+        ParenthesesDelimiter
+        (Text.pack "(")
+        (Text.pack ")")
+        (Just $ ExactPrintCompat.mkAnnKey lexpr)
+        [Just $ ExactPrintCompat.mkAnnKey $ toL innerExp]
+        []
+        [ ( DelimiterCompact
+          , docSeq [docParenL, docForceSingleline innerExpDoc, docParenR]
+          )
+        , (DelimiterAttached, attached)
+        ]
     SectionL _ left op -> do -- (left op) or (left `op`) for alphanumeric
       leftDoc <- docSharedWrapper layoutExpr' (toL left)
       opDoc <- docSharedWrapper layoutExpr' (toL op)
@@ -591,44 +597,69 @@ layoutExprNative lexpr@(L _ expr) = do
         (openLit, closeLit) = case boxity of
           Boxed -> (docLit $ Text.pack "(", docLit $ Text.pack ")")
           Unboxed -> (docParenHashLSep, docParenHashRSep)
+        (kind, openToken, closeToken) = case boxity of
+          Boxed -> (ParenthesesDelimiter, Text.pack "(", Text.pack ")")
+          Unboxed ->
+            (UnboxedParenthesesDelimiter, Text.pack "(#", Text.pack "#)")
+        children = args <&> \case
+          Present _ expression -> Just $ ExactPrintCompat.mkAnnKey $ toL expression
+          Missing _ -> Nothing
+        separators = replicate (max 0 $ length argDocs - 1) $ Text.pack ","
+        delimited = docDelimitedAlternatives
+          kind
+          openToken
+          closeToken
+          (Just $ ExactPrintCompat.mkAnnKey lexpr)
+          children
+          separators
       case splitFirstLast argDocs of
-        FirstLastEmpty ->
-          docSeq [openLit, docNodeAnnKW lexpr (Just AnnOpenP) closeLit]
-        FirstLastSingleton e -> docAlt
-          [ docCols
+        FirstLastEmpty -> delimited
+          [(DelimiterCompact, docSeq
+            [openLit, docNodeAnnKW lexpr (Just AnnOpenP) closeLit]
+          )]
+        FirstLastSingleton e -> delimited
+          [ ( DelimiterCompact
+            , docCols
             ColTuple
             [ openLit
             , docNodeAnnKW lexpr (Just AnnOpenP) $ docForceSingleline e
             , closeLit
             ]
-          , docSetBaseY $ docLines
+            )
+          , ( DelimiterAttached
+            , docSetBaseY $ docLines
             [ docSeq
               [ openLit
               , docNodeAnnKW lexpr (Just AnnOpenP) $ docForceSingleline e
               ]
             , closeLit
             ]
+            )
           ]
-        FirstLast e1 ems eN -> runFilteredAlternative $ do
-          addAlternativeCond (not hasComments)
-            $ docCols ColTuple
-            $ [docSeq [openLit, docForceSingleline e1]]
-            ++ (ems <&> \e -> docSeq [docCommaSep, docForceSingleline e])
-            ++ [ docSeq
-                   [ docCommaSep
-                   , docNodeAnnKW lexpr (Just AnnOpenP) (docForceSingleline eN)
-                   , closeLit
-                   ]
-               ]
-          addAlternative
-            $ let
+        FirstLast e1 ems eN ->
+          let
+            compact = docCols ColTuple
+              $ [docSeq [openLit, docForceSingleline e1]]
+              ++ (ems <&> \e -> docSeq [docCommaSep, docForceSingleline e])
+              ++ [ docSeq
+                     [ docCommaSep
+                     , docNodeAnnKW lexpr (Just AnnOpenP)
+                       $ docForceSingleline eN
+                     , closeLit
+                     ]
+                 ]
+            attached =
+              let
                 start = docCols ColTuples [appSep openLit, e1]
                 linesM = ems <&> \d -> docCols ColTuples [docCommaSep, d]
-                lineN = docCols
-                  ColTuples
+                lineN = docCols ColTuples
                   [docCommaSep, docNodeAnnKW lexpr (Just AnnOpenP) eN]
-                end = closeLit
-              in docSetBaseY $ docLines $ [start] ++ linesM ++ [lineN, end]
+              in docSetBaseY
+                $ docLines $ [start] ++ linesM ++ [lineN, closeLit]
+          in if hasComments
+            then delimited [(DelimiterAttached, attached)]
+            else docAlt
+              [compact, delimited [(DelimiterAttached, attached)]]
     HsCase _ cExp (MG _ lmatches@(L _ [])) -> do
       cExpDoc <- docSharedWrapper layoutExpr' (toL cExp)
       docWrapAnnKey (matchGroupKey lmatches) $ docAlt
@@ -931,64 +962,88 @@ layoutExprNative lexpr@(L _ expr) = do
             <$> sourceCommentsWithinNode lexpr
           stmtDocs <- docSharedWrapper layoutStmt `mapM` (map toL stmts)
           hasComments <- hasAnyCommentsBelow lexpr
-          prependConsumedComments resultComments $ runFilteredAlternative $ do
-            addAlternativeCond (not hasComments) $ docSeq
-              [ docNodeAnnKW lexpr Nothing $ appSep $ docLit $ Text.pack "["
-              , docNodeAnnKW lexpr (Just AnnOpenS)
-              $ appSep
-              $ docForceSingleline
-              $ List.last stmtDocs
-              , appSep $ docLit $ Text.pack "|"
-              , docSeq
-              $ List.intersperse docCommaSep
-              $ docForceSingleline
-              <$> List.init stmtDocs
-              , docLit $ Text.pack " ]"
-              ]
-            addAlternative
-              $ let
-                  resultDoc = docNodeAnnKW lexpr (Just AnnOpenS)
-                    $ List.last stmtDocs
-                  start = case resultComments of
-                    [] -> docCols
-                      ColListComp
+          let resultDoc = docNodeAnnKW lexpr (Just AnnOpenS)
+                $ List.last stmtDocs
+              presentationDocs = resultDoc : List.init stmtDocs
+              presentationNodes = resultStatement : fmap toL (List.init stmts)
+              separators = take (max 0 $ length presentationDocs - 1)
+                $ Text.pack "|" : repeat (Text.pack ",")
+              compact = docSeq
+                [ docNodeAnnKW lexpr Nothing $ appSep $ docLit $ Text.pack "["
+                , appSep $ docForceSingleline resultDoc
+                , appSep $ docLit $ Text.pack "|"
+                , docSeq
+                $ List.intersperse docCommaSep
+                $ docForceSingleline
+                <$> List.init stmtDocs
+                , docLit $ Text.pack " ]"
+                ]
+              start = case resultComments of
+                [] -> docCols ColListComp
+                  [ docNodeAnnKW lexpr Nothing $ appSep $ docLit $ Text.pack "["
+                  , docSetBaseY resultDoc
+                  ]
+                firstComment : remainingComments -> docLines
+                  $ [ docSeq
                       [ docNodeAnnKW lexpr Nothing
                         $ appSep
                         $ docLit
                         $ Text.pack "["
-                      , docSetBaseY resultDoc
+                      , layoutPatSynComment firstComment
                       ]
-                    _ -> docLines
-                      $ [docNodeAnnKW lexpr Nothing $ docLit $ Text.pack "["]
-                      ++ [ docEnsureIndent BrIndentRegular
-                            $ layoutPatSynComment sourceComment
-                         | sourceComment <- resultComments
-                         ]
-                      ++ [docEnsureIndent BrIndentRegular resultDoc]
-                  (s1 : sM) = List.init stmtDocs
-                  line1 =
-                    docCols ColListComp [appSep $ docLit $ Text.pack "|", s1]
-                  lineM = sM <&> \d -> docCols ColListComp [docCommaSep, d]
-                  end = docLit $ Text.pack "]"
-                in docSetBaseY $ docLines $ [start, line1] ++ lineM ++ [end]
+                    ]
+                  ++ [ docEnsureIndent BrIndentRegular
+                        $ layoutPatSynComment sourceComment
+                     | sourceComment <- remainingComments
+                     ]
+                  ++ [docEnsureIndent BrIndentRegular resultDoc]
+              (s1 : sM) = List.init stmtDocs
+              line1 = docCols ColListComp
+                [appSep $ docLit $ Text.pack "|", s1]
+              lineM = sM <&> \d -> docCols ColListComp [docCommaSep, d]
+              attached = docSetBaseY
+                $ docLines $ [start, line1] ++ lineM ++ [docLit $ Text.pack "]"]
+              alternatives =
+                [(DelimiterCompact, compact) | not hasComments]
+                  ++ [(DelimiterAttached, attached)]
+          prependConsumedComments resultComments $ docDelimitedAlternatives
+            SquareBracketsDelimiter
+            (Text.pack "[")
+            (Text.pack "]")
+            (Just $ ExactPrintCompat.mkAnnKey lexpr)
+            (Just . ExactPrintCompat.mkAnnKey <$> presentationNodes)
+            separators
+            alternatives
       _ -> do
         -- TODO
         unknownNodeError "HsDo{} unknown stmtCtx" lexpr
     ExplicitList _ elems@(_ : _) -> do
       elemDocs <- elems `forM` (docSharedWrapper layoutExpr' . toL)
       hasComments <- hasAnyCommentsBelow lexpr
+      let children = Just . ExactPrintCompat.mkAnnKey . toL <$> elems
+          separators = replicate (max 0 $ length elems - 1) $ Text.pack ","
+          delimited = docDelimitedAlternatives
+            SquareBracketsDelimiter
+            (Text.pack "[")
+            (Text.pack "]")
+            (Just $ ExactPrintCompat.mkAnnKey lexpr)
+            children
+            separators
       case splitFirstLast elemDocs of
         FirstLastEmpty -> docSeq
           [ docLit $ Text.pack "["
           , docNodeAnnKW lexpr (Just AnnOpenS) $ docLit $ Text.pack "]"
           ]
-        FirstLastSingleton e -> docAlt
-          [ docSeq
+        FirstLastSingleton e -> delimited
+          [ ( DelimiterCompact
+            , docSeq
             [ docLit $ Text.pack "["
             , docNodeAnnKW lexpr (Just AnnOpenS) $ docForceSingleline e
             , docLit $ Text.pack "]"
             ]
-          , docSetBaseY $ docLines
+            )
+          , ( DelimiterAttached
+            , docSetBaseY $ docLines
             [ docSeq
               [ docLit $ Text.pack "["
               , docSeparator
@@ -996,27 +1051,40 @@ layoutExprNative lexpr@(L _ expr) = do
               ]
             , docLit $ Text.pack "]"
             ]
+            )
           ]
-        FirstLast e1 ems eN -> runFilteredAlternative $ do
-          addAlternativeCond (not hasComments)
-            $ docSeq
-            $ [docLit $ Text.pack "["]
-            ++ List.intersperse
-                 docCommaSep
-                 (docForceSingleline
-                 <$> (e1 : ems ++ [docNodeAnnKW lexpr (Just AnnOpenS) eN])
-                 )
-            ++ [docLit $ Text.pack "]"]
-          addAlternative
-            $ let
-                start = docCols ColList [appSep $ docLit $ Text.pack "[", e1]
-                linesM = ems <&> \d -> docCols ColList [docCommaSep, d]
-                lineN = docCols
-                  ColList
-                  [docCommaSep, docNodeAnnKW lexpr (Just AnnOpenS) eN]
-                end = docLit $ Text.pack "]"
-              in docSetBaseY $ docLines $ [start] ++ linesM ++ [lineN] ++ [end]
-    ExplicitList _ [] -> docLit $ Text.pack "[]"
+        FirstLast e1 ems eN -> delimited
+          $ [ ( DelimiterCompact
+              , docSeq
+              $ [docLit $ Text.pack "["]
+              ++ List.intersperse
+                   docCommaSep
+                   (docForceSingleline
+                   <$> (e1 : ems ++ [docNodeAnnKW lexpr (Just AnnOpenS) eN])
+                   )
+              ++ [docLit $ Text.pack "]"]
+              )
+            | not hasComments
+            ]
+          ++ [ ( DelimiterAttached
+               , let
+                   start = docCols ColList [appSep $ docLit $ Text.pack "[", e1]
+                   linesM = ems <&> \d -> docCols ColList [docCommaSep, d]
+                   lineN = docCols
+                     ColList
+                     [docCommaSep, docNodeAnnKW lexpr (Just AnnOpenS) eN]
+                 in docSetBaseY
+                   $ docLines $ [start] ++ linesM ++ [lineN, docLit $ Text.pack "]"]
+               )
+             ]
+    ExplicitList _ [] -> docDelimitedAlternatives
+      SquareBracketsDelimiter
+      (Text.pack "[")
+      (Text.pack "]")
+      (Just $ ExactPrintCompat.mkAnnKey lexpr)
+      []
+      []
+      [(DelimiterCompact, docLit $ Text.pack "[]")]
     RecordCon _ lname fields -> case fields of
       HsRecFields _ fs Nothing -> do
         let nameDoc = docWrapNode (toL lname) $ docLit $ lrdrNameToText (toL lname)
@@ -1074,44 +1142,67 @@ layoutExprNative lexpr@(L _ expr) = do
     ArithSeq _ Nothing info -> case info of
       From e1 -> do
         e1Doc <- docSharedWrapper layoutExpr' (toL e1)
-        docSeq
-          [ docLit $ Text.pack "["
-          , appSep $ docForceSingleline e1Doc
-          , docLit $ Text.pack "..]"
-          ]
+        docDelimitedAlternatives
+          SquareBracketsDelimiter (Text.pack "[") (Text.pack "]")
+          (Just $ ExactPrintCompat.mkAnnKey lexpr)
+          [Just $ ExactPrintCompat.mkAnnKey $ toL e1, Nothing]
+          [Text.pack ".."]
+          [(DelimiterCompact, docSeq
+            [ docLit $ Text.pack "["
+            , appSep $ docForceSingleline e1Doc
+            , docLit $ Text.pack "..]"
+            ])]
       FromThen e1 e2 -> do
         e1Doc <- docSharedWrapper layoutExpr' (toL e1)
         e2Doc <- docSharedWrapper layoutExpr' (toL e2)
-        docSeq
-          [ docLit $ Text.pack "["
-          , docForceSingleline e1Doc
-          , appSep $ docLit $ Text.pack ","
-          , appSep $ docForceSingleline e2Doc
-          , docLit $ Text.pack "..]"
+        docDelimitedAlternatives
+          SquareBracketsDelimiter (Text.pack "[") (Text.pack "]")
+          (Just $ ExactPrintCompat.mkAnnKey lexpr)
+          [ Just $ ExactPrintCompat.mkAnnKey $ toL e1
+          , Just $ ExactPrintCompat.mkAnnKey $ toL e2
+          , Nothing
           ]
+          (Text.pack <$> [",", ".."])
+          [(DelimiterCompact, docSeq
+            [ docLit $ Text.pack "["
+            , docForceSingleline e1Doc
+            , appSep $ docLit $ Text.pack ","
+            , appSep $ docForceSingleline e2Doc
+            , docLit $ Text.pack "..]"
+            ])]
       FromTo e1 eN -> do
         e1Doc <- docSharedWrapper layoutExpr' (toL e1)
         eNDoc <- docSharedWrapper layoutExpr' (toL eN)
-        docSeq
-          [ docLit $ Text.pack "["
-          , appSep $ docForceSingleline e1Doc
-          , appSep $ docLit $ Text.pack ".."
-          , docForceSingleline eNDoc
-          , docLit $ Text.pack "]"
-          ]
+        docDelimitedAlternatives
+          SquareBracketsDelimiter (Text.pack "[") (Text.pack "]")
+          (Just $ ExactPrintCompat.mkAnnKey lexpr)
+          (Just . ExactPrintCompat.mkAnnKey . toL <$> [e1, eN])
+          [Text.pack ".."]
+          [(DelimiterCompact, docSeq
+            [ docLit $ Text.pack "["
+            , appSep $ docForceSingleline e1Doc
+            , appSep $ docLit $ Text.pack ".."
+            , docForceSingleline eNDoc
+            , docLit $ Text.pack "]"
+            ])]
       FromThenTo e1 e2 eN -> do
         e1Doc <- docSharedWrapper layoutExpr' (toL e1)
         e2Doc <- docSharedWrapper layoutExpr' (toL e2)
         eNDoc <- docSharedWrapper layoutExpr' (toL eN)
-        docSeq
-          [ docLit $ Text.pack "["
-          , docForceSingleline e1Doc
-          , appSep $ docLit $ Text.pack ","
-          , appSep $ docForceSingleline e2Doc
-          , appSep $ docLit $ Text.pack ".."
-          , docForceSingleline eNDoc
-          , docLit $ Text.pack "]"
-          ]
+        docDelimitedAlternatives
+          SquareBracketsDelimiter (Text.pack "[") (Text.pack "]")
+          (Just $ ExactPrintCompat.mkAnnKey lexpr)
+          (Just . ExactPrintCompat.mkAnnKey . toL <$> [e1, e2, eN])
+          (Text.pack <$> [",", ".."])
+          [(DelimiterCompact, docSeq
+            [ docLit $ Text.pack "["
+            , docForceSingleline e1Doc
+            , appSep $ docLit $ Text.pack ","
+            , appSep $ docForceSingleline e2Doc
+            , appSep $ docLit $ Text.pack ".."
+            , docForceSingleline eNDoc
+            , docLit $ Text.pack "]"
+            ])]
     ArithSeq{} -> briDocByExactInlineOnly ExpressionFallback lexpr
     HsTypedBracket{} -> layoutOpaqueExpression TemplateHaskellQuote lexpr
     HsUntypedBracket{} -> layoutOpaqueExpression TemplateHaskellQuote lexpr
@@ -1159,18 +1250,44 @@ recordExpression
        )
      ]
   -> ToBriDocM BriDocNumbered
-recordExpression False _ lexpr nameDoc [] = docSeq
+recordExpression dotdot indentPolicy lexpr nameDoc fields =
+  docDelimitedAlternatives
+    CurlyBracesDelimiter
+    (Text.pack "{")
+    (Text.pack "}")
+    (Just $ ExactPrintCompat.mkAnnKey lexpr)
+    children
+    (replicate (max 0 $ length children - 1) $ Text.pack ",")
+    [(DelimiterAttached, recordExpressionDocument
+      dotdot indentPolicy lexpr nameDoc fields)]
+ where
+  fieldKeys = [Just $ ExactPrintCompat.mkAnnKey field | (field, _, _) <- fields]
+  children = fieldKeys ++ [Nothing | dotdot]
+
+recordExpressionDocument
+  :: (Data.Data.Data lExpr, Data.Data.Data name)
+  => Bool
+  -> IndentPolicy
+  -> GenLocated SrcSpan lExpr
+  -> ToBriDocM BriDocNumbered
+  -> [ ( GenLocated SrcSpan name
+       , Text
+       , Maybe (Located (HsExpr GhcPs), ToBriDocM BriDocNumbered)
+       )
+     ]
+  -> ToBriDocM BriDocNumbered
+recordExpressionDocument False _ lexpr nameDoc [] = docSeq
   [ docNodeAnnKW lexpr (Just AnnOpenC)
     $ docSeq [nameDoc, docLit $ Text.pack "{"]
   , docLit $ Text.pack "}"
   ]
-recordExpression True _ lexpr nameDoc [] = docSeq -- this case might still be incomplete, and is probably not used
+recordExpressionDocument True _ lexpr nameDoc [] = docSeq -- this case might still be incomplete, and is probably not used
          -- atm anyway.
   [ docNodeAnnKW lexpr (Just AnnOpenC)
     $ docSeq [nameDoc, docLit $ Text.pack "{"]
   , docLit $ Text.pack " .. }"
   ]
-recordExpression dotdot indentPolicy lexpr nameDoc rFs@(rF1 : rFr) = do
+recordExpressionDocument dotdot indentPolicy lexpr nameDoc rFs@(rF1 : rFr) = do
   layoutColumns <- mAsk <&> _conf_layout .> _lconfig_cols .> confUnpack
   sourceComments <- sourceCommentsWithinNode lexpr
   let (rF1f, rF1n, rF1e) = rF1

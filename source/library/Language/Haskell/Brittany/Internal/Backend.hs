@@ -26,6 +26,7 @@ import Language.Haskell.Brittany.Internal.CommentPlan
   ( isCanonicalInlinePlacement
   , lookupCommentPlacement
   )
+import Language.Haskell.Brittany.Internal.Delimiter
 import Language.Haskell.Brittany.Internal.ExactSource
   ( validateExactSourceFragment
   )
@@ -141,6 +142,10 @@ layoutBriDocM = \case
     indentF $ do
       layoutWriteNewlineBlock
       layoutBriDocM indented
+  BDDelimited group -> case prepareSelectedDelimiter group of
+    Left invariantError ->
+      mTell [ErrorDelimiterInvariant $ show invariantError]
+    Right (_, document) -> layoutBriDocM document
   BDLines lines -> alignColsLines lines
   BDAlt [] -> error "empty BDAlt"
   BDAlt (alt : _) -> layoutBriDocM alt
@@ -539,6 +544,8 @@ briDocLineLength briDoc = flip StateS.evalState False $ rec briDoc
     BDIndentLevelPushCur bd -> rec bd
     BDIndentLevelPop bd -> rec bd
     BDPar _ line _ -> rec line
+    BDDelimited group -> either (const $ return 0) rec
+      $ delimiterDocument group
     BDAlt{} -> error "briDocLineLength BDAlt"
     BDForceMultiline bd -> rec bd
     BDForceSingleline bd -> rec bd
@@ -577,6 +584,7 @@ briDocIsMultiLine briDoc = rec briDoc
     BDIndentLevelPushCur bd -> rec bd
     BDIndentLevelPop bd -> rec bd
     BDPar{} -> True
+    BDDelimited group -> either (const True) rec $ delimiterDocument group
     BDAlt{} -> error "briDocIsMultiLine BDAlt"
     BDForceMultiline _ -> True
     BDForceSingleline bd -> rec bd
@@ -700,6 +708,8 @@ sourceFragmentCommentKeys = \case
   BDIndentLevelPushCur document -> sourceFragmentCommentKeys document
   BDIndentLevelPop document -> sourceFragmentCommentKeys document
   BDPar _ sameLine indented -> nested [sameLine, indented]
+  BDDelimited group -> either (const Set.empty) sourceFragmentCommentKeys
+    $ delimiterDocument group
   BDAlt [] -> Set.empty
   BDAlt (selected : _) -> sourceFragmentCommentKeys selected
   BDForwardLineMode document -> sourceFragmentCommentKeys document
@@ -916,6 +926,8 @@ alignColsLines bridocs = do -- colInfos `forM_` \colInfo -> do
         (BDCols ColTuple _) -> False
         (BDCols ColTuples _) -> False
         (BDCols ColOpPrefix _) -> False
+        (BDDelimited group) -> either (const True) shouldBreakAfter
+          $ delimiterDocument group
         _ -> True
 
       mergeInfoBriDoc
@@ -955,6 +967,12 @@ alignColsLines bridocs = do -- colInfos `forM_` \colInfo -> do
                   }
               return $ ColInfo infoInd colSig (zip curLengths infos)
             | otherwise -> briDocToColInfo lastFlag brdc
+          delimited@(BDDelimited group) -> case delimiterDocument group of
+            Right document -> mergeInfoBriDoc
+              lastFlag
+              (ColInfo infoInd infoSig subLengthsInfos)
+              document
+            Left{} -> return $ ColInfoNo delimited
           brdc -> return $ ColInfoNo brdc
 
       colSigsMerge :: ColSig -> ColSig -> Bool
@@ -971,6 +989,9 @@ briDocToColInfo lastFlag = \case
     let lengthInfos = zip (briDocLineLength <$> list) subInfos
     let trueSpacings = getTrueSpacings lengthInfos
     return $ (Seq.singleton trueSpacings, ColInfo ind sig lengthInfos)
+  delimited@(BDDelimited group) -> case delimiterDocument group of
+    Right document -> briDocToColInfo lastFlag document
+    Left{} -> return $ ColInfoNo delimited
   bd -> return $ ColInfoNo bd
 
 getTrueSpacings :: [(Int, ColInfo)] -> [ColumnSpacing]

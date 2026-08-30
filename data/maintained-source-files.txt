@@ -6,12 +6,15 @@ source/library/Language/Haskell/Brittany/Internal.hs
 source/library/Language/Haskell/Brittany/Internal/Backend.hs
 source/library/Language/Haskell/Brittany/Internal/BackendUtils.hs
 source/library/Language/Haskell/Brittany/Internal/CommentBoundary.hs
+source/library/Language/Haskell/Brittany/Internal/CommentBoundary/Delimiter.hs
 source/library/Language/Haskell/Brittany/Internal/CommentPlan.hs
 source/library/Language/Haskell/Brittany/Internal/CommentUtils.hs
 source/library/Language/Haskell/Brittany/Internal/Config.hs
 source/library/Language/Haskell/Brittany/Internal/Config/Types.hs
 source/library/Language/Haskell/Brittany/Internal/Config/Types/Instances.hs
 source/library/Language/Haskell/Brittany/Internal/ConstructorComments.hs
+source/library/Language/Haskell/Brittany/Internal/Delimiter.hs
+source/library/Language/Haskell/Brittany/Internal/Delimiter/Types.hs
 source/library/Language/Haskell/Brittany/Internal/ExactPrintCompat.hs
 source/library/Language/Haskell/Brittany/Internal/ExactPrintUtils.hs
 source/library/Language/Haskell/Brittany/Internal/ExactSource.hs

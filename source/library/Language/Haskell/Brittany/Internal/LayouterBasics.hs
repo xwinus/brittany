@@ -26,6 +26,7 @@ import GHC.Types.Name.Reader (RdrName(..))
 import qualified GHC.Types.SrcLoc as GHC
 import GHC.Parser.Annotation (EpAnn(..), NameAnn(..), NameAdornment(..), getLocA)
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.Delimiter.Types
 import Language.Haskell.Brittany.Internal.CommentPlan (isSourceComment)
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.ExactSource
@@ -748,25 +749,49 @@ docParenL = docLit $ Text.pack "("
 docParenR :: ToBriDocM BriDocNumbered
 docParenR = docLit $ Text.pack ")"
 
-data DelimiterLayout
-  = DelimiterAttached
-  | DelimiterVertical
-
 docDelimitedBlock
   :: DelimiterLayout
   -> ToBriDocM BriDocNumbered
   -> ToBriDocM BriDocNumbered
   -> ToBriDocM BriDocNumbered
   -> ToBriDocM BriDocNumbered
-docDelimitedBlock layout open child close = case layout of
-  DelimiterAttached -> docPar
-    (docSeq [open, docSetIndentLevel child])
-    close
-  DelimiterVertical -> docLines
-    [ open
-    , docEnsureIndent BrIndentRegular $ docSetIndentLevel child
-    , close
-    ]
+docDelimitedBlock layout open child close = docDelimitedAlternatives
+  ParenthesesDelimiter
+  (Text.pack "(")
+  (Text.pack ")")
+  Nothing
+  [Nothing]
+  []
+  [(layout, alternative)]
+ where
+  alternative = case layout of
+    DelimiterCompact -> docSeq [open, child, close]
+    DelimiterAttached -> docPar
+      (docSeq [open, docSetIndentLevel child])
+      close
+    DelimiterVertical -> docLines
+      [ open
+      , docEnsureIndent BrIndentRegular $ docSetIndentLevel child
+      , close
+      ]
+
+docDelimitedAlternatives
+  :: DelimiterKind
+  -> Text
+  -> Text
+  -> Maybe AnnKey
+  -> [Maybe AnnKey]
+  -> [Text]
+  -> [(DelimiterLayout, ToBriDocM BriDocNumbered)]
+  -> ToBriDocM BriDocNumbered
+docDelimitedAlternatives kind open close owner children separators alternatives = do
+  renderedAlternatives <- alternatives `forM` \(layout, document) ->
+    DelimitedAlternative layout <$> document
+  allocateNode $ BDFDelimited $ DelimitedGroup
+    { delimitedSpec = mkDelimiterSpec
+        kind open close owner children separators
+    , delimitedAlternatives = renderedAlternatives
+    }
 
 docParenHashLSep :: ToBriDocM BriDocNumbered
 docParenHashLSep = docSeq [docLit $ Text.pack "(#", docSeparator]

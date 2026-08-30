@@ -19,6 +19,8 @@ import GHC.Types.SrcLoc (SrcSpan)
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..))
 import GHC.Hs
 import qualified GHC.OldList as List
+import Language.Haskell.Brittany.Internal.Delimiter.Types
+import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrintCompat
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.Types
@@ -207,23 +209,37 @@ layoutLLIEs
 layoutLLIEs enableSingleline shouldSort llies = do
   ieDs <- layoutAnnAndSepLLIEs shouldSort llies
   hasComments <- hasAnyCommentsBelow llies
-  runFilteredAlternative $ case ieDs of
-    [] -> do
-      addAlternativeCond (not hasComments) $ docLit $ Text.pack "()"
-      addAlternativeCond hasComments $ docPar
-        (docSeq [docParenLSep, docWrapNodeRest llies docEmpty])
-        docParenR
-    (ieDsH : ieDsT) -> do
-      addAlternativeCond (not hasComments && enableSingleline)
-        $ docSeq
-        $ [docLit (Text.pack "(")]
-        ++ (docForceSingleline <$> ieDs)
-        ++ [docParenR]
-      addAlternative
-        $ docPar (docSetBaseY $ docSeq [docParenLSep, ieDsH])
-        $ docLines
-        $ ieDsT
-        ++ [docParenR]
+  docDelimitedAlternatives
+    ParenthesesDelimiter
+    (Text.pack "(")
+    (Text.pack ")")
+    (Just $ ExactPrintCompat.mkAnnKey llies)
+    (Just . ExactPrintCompat.mkAnnKey . toL <$> unLoc llies)
+    (replicate (max 0 $ length ieDs - 1) $ Text.pack ",")
+    $ case ieDs of
+      [] ->
+        [ (DelimiterCompact, docLit $ Text.pack "()") | not hasComments ]
+        ++ [ ( DelimiterAttached
+             , docPar
+               (docSeq [docParenLSep, docWrapNodeRest llies docEmpty])
+               docParenR
+             )
+           | hasComments
+           ]
+      ieDsH : ieDsT ->
+        [ ( DelimiterCompact
+          , docSeq
+            $ [docLit $ Text.pack "("]
+            ++ (docForceSingleline <$> ieDs)
+            ++ [docParenR]
+          )
+        | not hasComments && enableSingleline
+        ]
+        ++ [ ( DelimiterAttached
+             , docPar (docSetBaseY $ docSeq [docParenLSep, ieDsH])
+               $ docLines $ ieDsT ++ [docParenR]
+             )
+           ]
 
 -- | Returns a "fingerprint string", not a full text representation, nor even
 -- a source code representation of this syntax node.

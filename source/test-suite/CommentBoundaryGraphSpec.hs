@@ -16,6 +16,9 @@ import qualified Language.Haskell.Brittany.Internal.ParseModule
                                                          as ParseModule
 import           Language.Haskell.Brittany.Internal.SourceComment.Types
                                                           ( CanonicalComment(..)
+                                                          , CommentBoundaryGap(..)
+                                                          , CommentBoundaryId(..)
+                                                          , CommentBoundaryPath(..)
                                                           )
 import qualified Test.Hspec                              as Hspec
 
@@ -38,6 +41,30 @@ spec = Hspec.describe "canonical comment boundary graph" $ do
     firstPass
       `Hspec.shouldContain` "  | Final String\n    -- ^ final constructor"
     assertThreePasses "TerminalPostDoc.hs" terminalPostDocSource firstPass
+
+  Hspec.it "keeps delimiter edge comments on explicit boundary gaps" $ do
+    firstPass <- formatChecked delimiterBoundarySource
+    graph <- parsedGraph "DelimiterBoundary.hs" firstPass
+    let delimiterGaps =
+          [ gap
+          | comment <- graph
+          , canonicalCommentText comment `elem`
+              (Text.pack <$> ["-- after open", "-- before close"])
+          , CommentBoundaryId (DelimiterBoundaryPath _) gap <-
+              [canonicalCommentBoundary comment]
+          ]
+    delimiterGaps `Hspec.shouldBe` [AfterOpenBoundary, BeforeCloseBoundary]
+    assertThreePasses "DelimiterBoundary.hs" delimiterBoundarySource firstPass
+
+  Hspec.it "does not attach a trailing comment to the preceding delimiter" $ do
+    graph <- parsedGraph "TrailingDelimiterComment.hs" trailingCommentSource
+    let trailingBoundaries =
+          [ canonicalCommentBoundary comment
+          | comment <- graph
+          , canonicalCommentText comment == Text.pack "-- trailing"
+          ]
+    trailingBoundaries
+      `Hspec.shouldBe` [CommentBoundaryId (DeclarationBoundaryPath 0) WithinBoundary]
 
   Hspec.it "rejects malformed input without inventing a boundary" $ do
     parsePrintModule staticDefaultConfig (Text.pack malformedSource) >>= \case
@@ -125,6 +152,27 @@ terminalPostDocSource = unlines
   , "    -- ^ final constructor"
   , ""
   , "following = 1"
+  ]
+
+delimiterBoundarySource :: String
+delimiterBoundarySource = unlines
+  [ "module DelimiterBoundary where"
+  , ""
+  , "values ="
+  , "  [ -- after open"
+  , "    first"
+  , "  , second"
+  , "    -- before close"
+  , "  ]"
+  ]
+
+trailingCommentSource :: String
+trailingCommentSource = unlines
+  [ "module TrailingDelimiterComment where"
+  , ""
+  , "render values = case values of"
+  , "  [] -> output (pack \"\") -- trailing"
+  , "  _ -> output values"
   ]
 
 malformedSource :: String

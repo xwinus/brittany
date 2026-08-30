@@ -114,11 +114,14 @@ library
     Language.Haskell.Brittany.Internal
     Language.Haskell.Brittany.Internal.Backend
     Language.Haskell.Brittany.Internal.BackendUtils
-    Language.Haskell.Brittany.Internal.CommentPlan
     Language.Haskell.Brittany.Internal.CommentBoundary
+    Language.Haskell.Brittany.Internal.CommentBoundary.Delimiter
+    Language.Haskell.Brittany.Internal.CommentPlan
     Language.Haskell.Brittany.Internal.Config
     Language.Haskell.Brittany.Internal.Config.Types
     Language.Haskell.Brittany.Internal.Config.Types.Instances
+    Language.Haskell.Brittany.Internal.Delimiter
+    Language.Haskell.Brittany.Internal.Delimiter.Types
     Language.Haskell.Brittany.Internal.ExactPrintCompat
     Language.Haskell.Brittany.Internal.ExactPrintUtils
     Language.Haskell.Brittany.Internal.ExactSource

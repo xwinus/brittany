@@ -360,6 +360,7 @@ parsePrintModule configWithDebugs inputText = runExceptT $ do
         customErrOrder ErrorUnknownNode{} = 3
         customErrOrder ErrorMacroConfig{} = 5
         customErrOrder ErrorCommentPlan{} = 6
+        customErrOrder ErrorDelimiterInvariant{} = 9
       let
         isWarningOrError ExactSourceFallback{} = False
         isWarningOrError SupportedOpaqueSyntax{} = False
@@ -632,6 +633,7 @@ parsePrintModuleTests conf filename input = do
               ErrorInput str -> str
               ErrorUnusedComment str -> str
               ErrorCommentPlan str -> str
+              ErrorDelimiterInvariant str -> str
               LayoutWarning str -> str
               ExactSourceFallback notice -> renderRenderNotice notice
               SupportedOpaqueSyntax notice -> renderRenderNotice notice

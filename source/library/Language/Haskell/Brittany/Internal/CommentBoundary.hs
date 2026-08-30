@@ -34,6 +34,9 @@ import qualified GHC.Types.SrcLoc                        as SrcLoc
 import           Language.Haskell.Brittany.Internal.ConstructorComments
                                                           ( normalizeConstructorComments
                                                           )
+import           Language.Haskell.Brittany.Internal.CommentBoundary.Delimiter
+                                                          ( delimiterBoundary
+                                                          )
 import           Language.Haskell.Brittany.Internal.ExactPrintCompat
 import           Language.Haskell.Brittany.Internal.Prelude
 import           Language.Haskell.Brittany.Internal.SourceComment.Types
@@ -246,7 +249,8 @@ acceptsPostDoc boundary =
 boundaryFor :: HsModule GhcPs -> SourceComment -> CommentBoundaryId
 boundaryFor module' sourceComment =
   fromMaybe moduleBoundary
-    $   constructorBoundary declarations commentSpan
+    $   delimiterBoundary module' commentSpan
+    <|> constructorBoundary declarations commentSpan
     <|> declarationBoundary declarations commentSpan
     <|> importBoundary (hsmodImports module') commentSpan
  where
