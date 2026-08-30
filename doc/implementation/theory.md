@@ -325,3 +325,13 @@ and does layouting affect alignment? The answer is clear in this case: No.
 First we make layouting-choices, then, independently, we add alignment but only
 in those cases where it does not cause overflows.
 
+Binding equations distinguish required and optional alignment candidates.
+Clauses belonging to the same function form indivisible required units;
+adjacent sibling functions can then be combined through optional candidates.
+The backend scores the complete run and partitions optional groups whose
+incremental padding exceeds half of the configured alignment limit. This keeps
+nearby equations aligned without allowing one unusually wide left-hand side to
+create a large whitespace gap. The `Always` mode intentionally bypasses this
+bound. Column-simplification debug output includes the selected groups and
+their costs, plus rejected candidates and whether the padding bound or a
+lower-cost complete partition caused the rejection.

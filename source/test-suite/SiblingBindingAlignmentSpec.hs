@@ -4,6 +4,7 @@ module SiblingBindingAlignmentSpec
   ( spec
   ) where
 
+import Control.Monad (forM_)
 import Data.Functor.Identity (Identity(..))
 import qualified Data.List as List
 import Data.Semigroup (Last(..))
@@ -17,6 +18,7 @@ import Language.Haskell.Brittany
   , parsePrintModule
   , staticDefaultConfig
   )
+import Language.Haskell.Brittany.Internal.Alignment (alignmentPaddingLimit)
 import Language.Haskell.Brittany.Internal.Config.Types (ColumnAlignMode(..))
 import qualified Language.Haskell.Brittany.Internal.ParseModule as ParseModule
 import Language.Haskell.Brittany.Internal.SemanticFingerprint
@@ -38,6 +40,37 @@ spec projectRoot = Hspec.describe "sibling binding alignment" $ do
       (configWithAlignMode ColumnAlignModeDisabled)
       primaryInput
       primaryDisabledExpected
+  Hspec.it "bounds padding after a wide pattern sibling" $ do
+    assertFormatting defaultConfig paddingInput paddingExpected
+  Hspec.it "bounds padding after a multiline sibling" $ do
+    assertFormatting defaultConfig headerInput headerExpected
+  Hspec.it "partitions compatible groups around one width outlier" $ do
+    assertFormatting defaultConfig outlierInput outlierExpected
+  Hspec.it "bounds sparse padding across a representative binding corpus" $ do
+    let config = configWithWidthAndIndent 72 4
+    formatted <- formatSource config distributionInput
+    assertEquivalent "CorpusInput.hs" distributionInput "CorpusOutput.hs" formatted
+    formatSource config formatted `Hspec.shouldReturn` formatted
+    formatted `Hspec.shouldContain` "-- Keep this boundary comment."
+    let paddingRuns = internalSpaceRuns =<< lines formatted
+        largeRuns = filter (>= 12) paddingRuns
+    maximum (0 : paddingRuns)
+      `Hspec.shouldSatisfy` (<= alignmentPaddingLimit 30)
+    length largeRuns * 4 `Hspec.shouldSatisfy` (<= length paddingRuns)
+  Hspec.it "bounds optional padding in every width-aware alignment mode" $ do
+    let boundedModes =
+          [ ColumnAlignModeUnanimously
+          , ColumnAlignModeMajority 0.7
+          , ColumnAlignModeAnimouslyScale 0
+          , ColumnAlignModeAnimously
+          ]
+    boundedModes `forM_` \mode ->
+      assertFormatting (configWithAlignMode mode) paddingInput paddingExpected
+  Hspec.it "retains unbounded optional alignment in always mode" $ do
+    assertFormatting
+      (configWithAlignMode ColumnAlignModeAlways)
+      paddingInput
+      paddingAlwaysExpected
   parseFailureExample
     projectRoot
     "leaves malformed sibling bindings byte-identical"
@@ -102,6 +135,16 @@ configWithAlignMode mode =
     { _conf_layout =
         (_conf_layout defaultConfig)
           { _lconfig_columnAlignMode = Identity $ Last mode
+          }
+    }
+
+configWithWidthAndIndent :: Int -> Int -> Config
+configWithWidthAndIndent width indent =
+  defaultConfig
+    { _conf_layout =
+        (_conf_layout defaultConfig)
+          { _lconfig_cols = Identity $ Last width
+          , _lconfig_indentAmount = Identity $ Last indent
           }
     }
 
@@ -193,6 +236,134 @@ edgeExpected = renderLines
   , "      same []       x = 3"
   , "      same (x : xs) y = 4"
   , "  in  noArg"
+  ]
+
+paddingInput :: String
+paddingInput = renderLines
+  [ "{-# LANGUAGE LambdaCase #-}"
+  , "{-# LANGUAGE TupleSections #-}"
+  , "{-# LANGUAGE TypeApplications #-}"
+  , "{-# LANGUAGE ViewPatterns #-}"
+  , "module AlignmentPadding where"
+  , ""
+  , "example ="
+  , "  let loadTemplate (ft, ref, T.strip -> c) = (ft, ) <$> parseTemplate @a ref c"
+  , "      getFileType = \\case"
+  , "        InlineRef _ -> pure Nothing"
+  , "  in getFileType"
+  ]
+
+paddingExpected :: String
+paddingExpected = renderLines
+  [ "{-# LANGUAGE LambdaCase #-}"
+  , "{-# LANGUAGE TupleSections #-}"
+  , "{-# LANGUAGE TypeApplications #-}"
+  , "{-# LANGUAGE ViewPatterns #-}"
+  , "module AlignmentPadding where"
+  , ""
+  , "example ="
+  , "  let loadTemplate (ft, ref, T.strip -> c) = (ft, ) <$> parseTemplate @a ref c"
+  , "      getFileType = \\case"
+  , "        InlineRef _ -> pure Nothing"
+  , "  in  getFileType"
+  ]
+
+paddingAlwaysExpected :: String
+paddingAlwaysExpected = renderLines
+  [ "{-# LANGUAGE LambdaCase #-}"
+  , "{-# LANGUAGE TupleSections #-}"
+  , "{-# LANGUAGE TypeApplications #-}"
+  , "{-# LANGUAGE ViewPatterns #-}"
+  , "module AlignmentPadding where"
+  , ""
+  , "example ="
+  , "  let loadTemplate (ft, ref, T.strip -> c) = (ft, ) <$> parseTemplate @a ref c"
+  , "      getFileType                          = \\case"
+  , "        InlineRef _ -> pure Nothing"
+  , "  in  getFileType"
+  ]
+
+headerInput :: String
+headerInput = renderLines
+  [ "module MixedBindingPadding where"
+  , ""
+  , "example ="
+  , "  let lHeaderConfig pb pa ="
+  , "        HeaderConfig"
+  , "          { top = extraordinarilyLongTopConfigurationValue pb"
+  , "          , bottom = extraordinarilyLongBottomConfigurationValue pa"
+  , "          }"
+  , "      bHeaderConfig = bHeaderConfigM 0 0 0 0"
+  , "      bHeaderConfigM mtc mtf mbc mbf pb pa ="
+  , "        HeaderConfig { top = pb, bottom = pa }"
+  , "  in bHeaderConfig"
+  ]
+
+headerExpected :: String
+headerExpected = renderLines
+  [ "module MixedBindingPadding where"
+  , ""
+  , "example ="
+  , "  let lHeaderConfig pb pa ="
+  , "        HeaderConfig"
+  , "          { top    = extraordinarilyLongTopConfigurationValue pb"
+  , "          , bottom = extraordinarilyLongBottomConfigurationValue pa"
+  , "          }"
+  , "      bHeaderConfig = bHeaderConfigM 0 0 0 0"
+  , "      bHeaderConfigM mtc mtf mbc mbf pb pa ="
+  , "        HeaderConfig { top = pb, bottom = pa }"
+  , "  in  bHeaderConfig"
+  ]
+
+outlierInput :: String
+outlierInput = renderLines
+  [ "module BindingOutlier where"
+  , ""
+  , "example ="
+  , "  let short x = x"
+  , "      mediumName y = y"
+  , "      extraordinarilyLongSiblingBindingName first second third = first"
+  , "      rightSide z = z"
+  , "      somewhatLongerName w = w"
+  , "  in short 0"
+  ]
+
+outlierExpected :: String
+outlierExpected = renderLines
+  [ "module BindingOutlier where"
+  , ""
+  , "example ="
+  , "  let short x      = x"
+  , "      mediumName y = y"
+  , "      extraordinarilyLongSiblingBindingName first second third = first"
+  , "      rightSide z          = z"
+  , "      somewhatLongerName w = w"
+  , "  in  short 0"
+  ]
+
+distributionInput :: String
+distributionInput = renderLines
+  [ "module BindingPaddingDistribution where"
+  , ""
+  , "example input ="
+  , "  let short x = x"
+  , "      modestBinding y"
+  , "        | y > 0 = y"
+  , "        | otherwise = 0"
+  , "      extraordinarilyLongSiblingBindingName alpha beta gamma = alpha"
+  , "      -- Keep this boundary comment."
+  , "      right z = z"
+  , "      somewhatLongerRight w ="
+  , "        w + 1"
+  , "      finalName value = value"
+  , "  in short input + right input + finalName input"
+  ]
+
+internalSpaceRuns :: String -> [Int]
+internalSpaceRuns line =
+  [ length spaces
+  | spaces@(' ' : _) <- List.group $ dropWhile (== ' ') line
+  , length spaces > 1
   ]
 
 renderLines :: [String] -> String

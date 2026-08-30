@@ -111,6 +111,7 @@ library
   hs-source-dirs: source/library
   exposed-modules:
     Language.Haskell.Brittany
+    Language.Haskell.Brittany.Internal.Alignment
     Language.Haskell.Brittany.Internal
     Language.Haskell.Brittany.Internal.Backend
     Language.Haskell.Brittany.Internal.BackendUtils
@@ -192,6 +193,7 @@ test-suite brittany-test-suite
   hs-source-dirs: source/test-suite
   main-is: Main.hs
   other-modules:
+    AlignmentPlannerSpec
     TransactionalInplaceSpec
     CanonicalSemanticModelSpec
     CompatibilityMatrix

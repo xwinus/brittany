@@ -839,7 +839,8 @@ layoutExprNative lexpr@(L _ expr) = do
         $ docSetParSpacing
         $ docAddBaseY BrIndentRegular
         $ docPar (docLit $ Text.pack "if")
-        $ layoutPatternBindFinal Nothing binderDoc Nothing Nothing
+        $ layoutPatternBindFinal RequiredPatternAlignment Nothing binderDoc
+          Nothing Nothing
           (NonEmpty.toList clauseDocs) Nothing hasComments
     HsLet _ binds exp1 -> do
       expDoc1 <- docSharedWrapper layoutExpr' (toL exp1)

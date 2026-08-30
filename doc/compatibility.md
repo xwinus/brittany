@@ -154,3 +154,11 @@ of whether their left-hand sides take arguments. Binding-name tokens still
 scope nested pattern-column alignment to consecutive clauses of the same
 function, while the configured alignment mode, width limits, multiline breaks,
 guards, and pattern bindings retain their existing behavior.
+
+Issue #118 bounds that sibling alignment in width-aware modes. Consecutive
+clauses of one function remain a required alignment unit, while alignment
+between sibling functions is optional and is partitioned when its maximum
+incremental padding exceeds half of `lconfig_alignmentLimit`. The boundary is
+inclusive and the complete adjacent run is scored before partitioning, so one
+width outlier does not disable useful alignment on either side. `Always` keeps
+the legacy unbounded behavior and `Disabled` remains fully unaligned.

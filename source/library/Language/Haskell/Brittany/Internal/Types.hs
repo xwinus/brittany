@@ -19,6 +19,7 @@ import qualified Data.Kind as Kind
 import qualified Data.Strict.Maybe as Strict
 import qualified Data.Text.Lazy.Builder as Text.Builder
 import GHC (GenLocated, Located, SrcSpan)
+import Language.Haskell.Brittany.Internal.Alignment (AlignmentCandidate)
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.Delimiter.Types
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKey, AnnKeywordId, Anns)
@@ -27,7 +28,6 @@ import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.SourceComment.Types
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrint.Types
 import qualified Safe
-
 
 data PerItemConfig = PerItemConfig
   { _icd_perBinding :: Map String (CConfig Maybe)
@@ -190,7 +190,7 @@ data ColSig
     -- Has variable number of columns depending on the number of patterns.
   | ColPatterns
   | ColCasePattern
-  | ColBindingLine (Maybe Text)
+  | ColBindingLine [AlignmentCandidate (Either Text ())]
     -- e.g. "func pat pat = expr"
     --       1111111111111222222
     -- or   "pat | stmt -> expr"
