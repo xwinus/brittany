@@ -17,6 +17,7 @@ import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
 import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.Delimiter.Types
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.SourceComment.Types
@@ -182,65 +183,22 @@ transformAlts =
                                       -- possibility, but i will prefer a
                                       -- fail-early approach; BDEmpty does not
                                       -- make sense semantically for Alt[].
-      BDFAlt alts -> do
-        altChooser <- mAsk <&> _conf_layout .> _lconfig_altChooser .> confUnpack
-        case altChooser of
-          AltChooserSimpleQuick -> do
-            rec $ head alts
-          AltChooserShallowBest -> do
-            spacings <- alts `forM` getSpacing
-            acp <- mGet
-            let
-              lineCheck LineModeInvalid = False
-              lineCheck (LineModeValid (VerticalSpacing _ p _)) =
-                case _acp_forceMLFlag acp of
-                  AltLineModeStateNone -> True
-                  AltLineModeStateForceSL{} -> p == VerticalSpacingParNone
-                  AltLineModeStateForceML{} -> p /= VerticalSpacingParNone
-                  AltLineModeStateContradiction -> False
-              -- TODO: use COMPLETE pragma instead?
-              lineCheck _ = error "ghc exhaustive check is insufficient"
-            lconf <- _conf_layout <$> mAsk
-            let
-              options = -- trace ("considering options:" ++ show (length alts, acp)) $
-                (zip spacings alts
-                <&> \(vs, bd) -> -- trace ("spacing=" ++ show vs ++ ",hasSpace=" ++ show (hasSpace lconf acp vs) ++ ",lineCheck=" ++ show (lineCheck vs))
-                                 (hasSpace1For lconf acp bd vs && lineCheck vs, bd)
-                )
-            rec
-              $ fromMaybe (-- trace ("choosing last") $
-                           List.last alts)
-              $ Data.List.Extra.firstJust
-                  (\(_i :: Int, (b, x)) ->
-                    [ -- traceShow ("choosing option " ++ show i) $
-                      x
-                    | b
-                    ]
-                  )
-              $ zip [1 ..] options
-          AltChooserBoundedSearch limit -> do
-            spacings <- alts `forM` getSpacings limit
-            acp <- mGet
-            let
-              lineCheck (VerticalSpacing _ p _) = case _acp_forceMLFlag acp of
-                AltLineModeStateNone -> True
-                AltLineModeStateForceSL{} -> p == VerticalSpacingParNone
-                AltLineModeStateForceML{} -> p /= VerticalSpacingParNone
-                AltLineModeStateContradiction -> False
-            lconf <- _conf_layout <$> mAsk
-            let
-              options = -- trace ("considering options:" ++ show (length alts, acp)) $
-                (zip spacings alts
-                <&> \(vs, bd) -> -- trace ("spacing=" ++ show vs ++ ",hasSpace=" ++ show (hasSpace lconf acp vs) ++ ",lineCheck=" ++ show (lineCheck vs))
-                      (any (hasSpace2For lconf acp bd) vs && any lineCheck vs, bd)
-                )
-            let
-              checkedOptions :: [Maybe (Int, BriDocNumbered)] =
-                zip [1 ..] options <&> (\(i, (b, x)) -> [ (i, x) | b ])
-            rec
-              $ fromMaybe (-- trace ("choosing last") $
-                           List.last alts)
-              $ Data.List.Extra.firstJust (fmap snd) checkedOptions
+      BDFAlt alts -> chooseAlternative alts >>= rec
+      BDFDelimited group -> case validateDelimitedGroup group of
+        Left{} -> return $ reWrap $ BDFDelimited group
+        Right{} -> do
+          let alternatives = delimitedAlternatives group
+              documents = delimitedAlternativeDocument <$> alternatives
+          chosen <- chooseAlternative documents
+          chosen' <- rec chosen
+          let selected = fromMaybe (List.last alternatives)
+                $ List.find
+                  ((== fst chosen) . fst . delimitedAlternativeDocument)
+                  alternatives
+          return $ reWrap $ BDFDelimited $ group
+            { delimitedAlternatives =
+                [selected { delimitedAlternativeDocument = chosen' }]
+            }
       BDFForceMultiline bd -> do
         acp <- mGet
         x <- do
@@ -324,6 +282,55 @@ transformAlts =
           ++ "): acp="
           ++ show acp
         reWrap . BDFDebug s <$> rec bd
+  chooseAlternative alts = do
+    altChooser <- mAsk <&> _conf_layout .> _lconfig_altChooser .> confUnpack
+    case altChooser of
+      AltChooserSimpleQuick -> return $ head alts
+      AltChooserShallowBest -> do
+        spacings <- alts `forM` getSpacing
+        acp <- mGet
+        let
+          lineCheck LineModeInvalid = False
+          lineCheck (LineModeValid (VerticalSpacing _ p _)) =
+            case _acp_forceMLFlag acp of
+              AltLineModeStateNone -> True
+              AltLineModeStateForceSL{} -> p == VerticalSpacingParNone
+              AltLineModeStateForceML{} -> p /= VerticalSpacingParNone
+              AltLineModeStateContradiction -> False
+          lineCheck _ = error "ghc exhaustive check is insufficient"
+        lconf <- _conf_layout <$> mAsk
+        let options = zip spacings alts <&> \(vs, bd) ->
+              (hasSpace1For lconf acp bd vs && lineCheck vs, bd)
+        return
+          $ fromMaybe (List.last alts)
+          $ Data.List.Extra.firstJust
+              (\(_i :: Int, (valid, alternative)) ->
+                [alternative | valid]
+              )
+          $ zip [1 ..] options
+      AltChooserBoundedSearch limit -> do
+        spacings <- alts `forM` getSpacings limit
+        acp <- mGet
+        let lineCheck (VerticalSpacing _ paragraph _) =
+              case _acp_forceMLFlag acp of
+                AltLineModeStateNone -> True
+                AltLineModeStateForceSL{} ->
+                  paragraph == VerticalSpacingParNone
+                AltLineModeStateForceML{} ->
+                  paragraph /= VerticalSpacingParNone
+                AltLineModeStateContradiction -> False
+        lconf <- _conf_layout <$> mAsk
+        let options = zip spacings alts <&> \(spacing, document) ->
+              ( any (hasSpace2For lconf acp document) spacing
+                  && any lineCheck spacing
+              , document
+              )
+            checkedOptions :: [Maybe BriDocNumbered]
+            checkedOptions = options <&> \(valid, document) ->
+              [document | valid]
+        return
+          $ fromMaybe (List.last alts)
+          $ Data.List.Extra.firstJust id checkedOptions
   processSpacingSimple
     :: ( MonadMultiReader Config m
        , MonadMultiState AltCurPos m
@@ -481,6 +488,9 @@ getSpacing !bridoc = rec bridoc
       BDFPar{} -> error "BDPar with indent in getSpacing"
       BDFAlt [] -> error "empty BDAlt"
       BDFAlt (alt : _) -> rec alt
+      BDFDelimited group -> case delimitedAlternatives group of
+        [] -> error "empty BDFDelimited"
+        alternative : _ -> rec $ delimitedAlternativeDocument alternative
       BDFForceMultiline bd -> do
         mVs <- rec bd
         return $ mVs >>= _vs_paragraph .> \case
@@ -783,6 +793,10 @@ getSpacings limit bridoc = preFilterLimit <$> rec bridoc
       -- BDAlt (alt:_) -> rec alt
       BDFAlt alts -> do
         r <- rec `mapM` alts
+        return $ filterAndLimit =<< r
+      BDFDelimited group -> do
+        r <- rec `mapM`
+          (delimitedAlternativeDocument <$> delimitedAlternatives group)
         return $ filterAndLimit =<< r
       BDFForceMultiline bd -> do
         mVs <- filterAndLimit <$> rec bd

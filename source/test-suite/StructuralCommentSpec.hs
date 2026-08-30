@@ -49,8 +49,8 @@ spec = Hspec.describe "structurally anchored comments" $ do
 
   Hspec.it "anchors comments before list-comprehension results before the bar" $ do
     firstPass <- formatChecked listComprehensionSource
-    commentLines firstPass `Hspec.shouldBe` [Text.pack "-- result note"]
-    firstPass `Hspec.shouldContain` "-- result note\n    value\n  |"
+    commentLines firstPass `Hspec.shouldBe` [Text.pack "[ -- result note"]
+    firstPass `Hspec.shouldContain` "[ -- result note\n    value\n  |"
     assertStable "ListComprehensionComments.hs" listComprehensionSource firstPass
 
   Hspec.it "preserves consecutive, block, Haddock, and nested comments" $ do

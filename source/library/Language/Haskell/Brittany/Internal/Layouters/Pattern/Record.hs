@@ -8,6 +8,9 @@ import qualified Data.Text                               as Text
 import           GHC                                      ( GenLocated(L) )
 import           GHC.Hs
 import           GHC.Types.SrcLoc                         ( Located )
+import           Language.Haskell.Brittany.Internal.Delimiter.Types
+import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat
+                                                         as ExactPrintCompat
 import           Language.Haskell.Brittany.Internal.LayouterBasics
 import           Language.Haskell.Brittany.Internal.Layouters.IE
                                                           ( toL )
@@ -73,11 +76,26 @@ layoutRecordPattern layoutChild outer name (HsRecFields _ fields dotdot) = do
                )
             ++ [docLit $ Text.pack "}"]
       rows = (layoutPatternSourceComment <$> leadingComments) ++ recordRows
+      children =
+        [ Just $ ExactPrintCompat.mkAnnKey field
+        | (field, _, _) <- fieldDocs
+        ]
+        ++ [Nothing | dotdotEnabled]
   docWrapNode (toL outer)
-    $ docAddBaseY BrIndentRegular
-    $ docPar (pure nameDoc)
-    $ docSetIndentLevel
-    $ docLines rows
+    $ docDelimitedAlternatives
+      CurlyBracesDelimiter
+      (Text.pack "{")
+      (Text.pack "}")
+      (Just $ ExactPrintCompat.mkAnnKey $ toL outer)
+      children
+      (replicate (max 0 $ length children - 1) $ Text.pack ",")
+      [ ( DelimiterAttached
+        , docAddBaseY BrIndentRegular
+          $ docPar (pure nameDoc)
+          $ docSetIndentLevel
+          $ docLines rows
+        )
+      ]
 
 recordFieldRow
   :: ToBriDocM BriDocNumbered

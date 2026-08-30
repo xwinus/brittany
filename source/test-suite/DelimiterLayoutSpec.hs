@@ -1,6 +1,12 @@
 module DelimiterLayoutSpec (spec) where
 
 import qualified Data.Text                               as Text
+import           Language.Haskell.Brittany.Internal.Delimiter
+                                                          ( prepareSelectedDelimiter
+                                                          )
+import           Language.Haskell.Brittany.Internal.Delimiter.Types
+import           Language.Haskell.Brittany.Internal.ExactPrintCompat
+                                                          ( AnnKey )
 import           Language.Haskell.Brittany.Internal.Transformations.Columns
                                                           ( transformSimplifyColumns
                                                           )
@@ -29,6 +35,30 @@ spec = Hspec.describe "delimiter-aware BriDoc composition" $ do
 
   Hspec.it "leaves a compact delimiter group unchanged" $ do
     transformed compactGroup == compactGroup `Hspec.shouldBe` True
+
+  Hspec.it "preserves first-class delimiter metadata through transforms" $ do
+    case transformed firstClassCompactGroup of
+      BDDelimited group -> delimitedSpec group `Hspec.shouldBe` squareSpec [] []
+      _ -> Hspec.expectationFailure "delimiter wrapper was removed"
+
+  Hspec.it "accepts an explicitly vertical standalone opener" $ do
+    case prepareSelectedDelimiter
+      (selectedGroup DelimiterVertical verticalGroup) of
+      Right (layout, document) -> do
+        layout `Hspec.shouldBe` DelimiterVertical
+        document == verticalGroup `Hspec.shouldBe` True
+      Left delimiterError -> Hspec.expectationFailure $ show delimiterError
+
+  Hspec.it "rejects an accidental standalone attached opener" $ do
+    case prepareSelectedDelimiter
+      (selectedGroup DelimiterAttached verticalGroup) of
+      Left delimiterError -> delimiterError `Hspec.shouldBe`
+        AccidentalStandaloneDelimiter DelimiterAttached (Text.pack "[")
+      Right{} -> Hspec.expectationFailure "attached standalone opener accepted"
+
+  Hspec.it "rejects incomplete separator evidence" $ do
+    validateDelimitedGroup invalidSeparatorGroup
+      `Hspec.shouldBe` Left (InvalidDelimiterSeparatorCount 1 0)
 
 transformed :: BriDoc -> BriDoc
 transformed =
@@ -72,3 +102,39 @@ verticalBlock = BDLines
 compactGroup :: BriDoc
 compactGroup =
   BDSeq [BDLit $ Text.pack "(", BDLit $ Text.pack "body", BDLit $ Text.pack ")"]
+
+firstClassCompactGroup :: BriDoc
+firstClassCompactGroup = BDDelimited
+  $ selectedGroup DelimiterCompact
+  $ BDSeq
+    [ BDLit $ Text.pack "["
+    , BDLit $ Text.pack "body"
+    , BDLit $ Text.pack "]"
+    ]
+
+verticalGroup :: BriDoc
+verticalGroup = BDLines
+  [ BDLit $ Text.pack "["
+  , BDEnsureIndent BrIndentRegular $ BDLit $ Text.pack "body"
+  , BDLit $ Text.pack "]"
+  ]
+
+selectedGroup :: DelimiterLayout -> BriDoc -> DelimitedGroup BriDoc
+selectedGroup layout document = DelimitedGroup
+  { delimitedSpec = squareSpec [] []
+  , delimitedAlternatives = [DelimitedAlternative layout document]
+  }
+
+invalidSeparatorGroup :: DelimitedGroup BriDoc
+invalidSeparatorGroup = DelimitedGroup
+  { delimitedSpec = squareSpec [Nothing, Nothing] []
+  , delimitedAlternatives =
+      [DelimitedAlternative DelimiterCompact compactGroup]
+  }
+
+squareSpec :: [Maybe AnnKey] -> [Text.Text] -> DelimiterSpec
+squareSpec = mkDelimiterSpec
+  SquareBracketsDelimiter
+  (Text.pack "[")
+  (Text.pack "]")
+  Nothing

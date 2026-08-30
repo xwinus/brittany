@@ -294,6 +294,11 @@ reportErrors putErrorLn config moduleConf errorsAndWarnings = do
         planErrors `forM_` \case
           ErrorCommentPlan message -> putErrorLn $ "  " ++ message
           _ -> error "cannot happen (TM)"
+      delimiterErrors@(ErrorDelimiterInvariant{} : _) -> do
+        putErrorLn "Error: delimiter layout invariant failed."
+        delimiterErrors `forM_` \case
+          ErrorDelimiterInvariant message -> putErrorLn $ "  " ++ message
+          _ -> error "cannot happen (TM)"
       (ErrorMacroConfig configError input : _) -> do
         putErrorLn "Error: parse error in inline configuration:"
         putErrorLn configError
@@ -355,6 +360,7 @@ errorOrder = \case
   ErrorUnknownNode{} -> -2
   ErrorMacroConfig{} -> 5
   ErrorCommentPlan{} -> 6
+  ErrorDelimiterInvariant{} -> 9
 
 addTraceSep :: DebugConfig -> value -> value
 addTraceSep config =

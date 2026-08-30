@@ -5,6 +5,7 @@ module Language.Haskell.Brittany.Internal.Transformations.Floating where
 
 import qualified Data.Generics.Uniplate.Direct as Uniplate
 import qualified GHC.OldList as List
+import Language.Haskell.Brittany.Internal.Delimiter.Types (mapDelimitedGroup)
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
@@ -144,6 +145,8 @@ transformSimplifyFloating = stepBO .> stepFull
       Just $ BDIndentLevelPushCur (BDAddBaseY ind x)
     BDAddBaseY ind (BDEnsureIndent ind2 x) ->
       Just $ BDEnsureIndent (mergeIndents ind ind2) x
+    BDAddBaseY ind (BDDelimited group) ->
+      Just $ BDDelimited $ mapDelimitedGroup (BDAddBaseY ind) group
     _ -> Nothing
   stepBO :: BriDoc -> BriDoc
   stepBO = -- traceFunctionWith "stepBO" (show . briDocToDocWithAnns) (show . briDocToDocWithAnns) $
@@ -177,6 +180,8 @@ transformSimplifyFloating = stepBO .> stepFull
     BDAddBaseY ind (BDBaseYPushCur x) ->
       Just $ BDBaseYPushCur (BDAddBaseY ind x)
     BDAddBaseY ind (BDBaseYPop x) -> Just $ BDBaseYPop (BDAddBaseY ind x)
+    BDAddBaseY ind (BDDelimited group) ->
+      Just $ BDDelimited $ mapDelimitedGroup (BDAddBaseY ind) group
     -- prior floating in
     BDAnnotationPrior priorMode annKey1 (BDPar ind line indented) ->
       Just $ BDPar ind

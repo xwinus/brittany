@@ -145,6 +145,7 @@ transformSimplifyColumns = Uniplate.rewrite $ \case
   BDIndentLevelPushCur{} -> Nothing
   BDIndentLevelPop{} -> Nothing
   BDPar{} -> Nothing
+  BDDelimited{} -> Nothing
   BDAlt{} -> Nothing
   BDForceMultiline{} -> Nothing
   BDForceSingleline{} -> Nothing

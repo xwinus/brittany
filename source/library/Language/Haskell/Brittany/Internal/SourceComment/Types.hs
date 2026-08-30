@@ -48,12 +48,15 @@ data CommentBoundaryPath
   | ImportBoundaryPath String Int
   | DeclarationBoundaryPath Int
   | ConstructorBoundaryPath Int Int
+  | DelimiterBoundaryPath Int
   deriving (Data.Data.Data, Eq, Ord, Show)
 
 data CommentBoundaryGap
   = BeforeBoundary
+  | AfterOpenBoundary
   | WithinBoundary
   | BetweenBoundary
+  | BeforeCloseBoundary
   | AfterLastBoundary
   deriving (Data.Data.Data, Eq, Ord, Show)
 

@@ -22,10 +22,12 @@ import GHC (GenLocated(L), ol_val)
 import GHC.Hs
 import qualified GHC.OldList as List
 import GHC.Types.Basic
+import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrintCompat
 import Language.Haskell.Brittany.Internal.Fallbacks
   ( FallbackId(..)
   , untypedSpliceFamily
   )
+import Language.Haskell.Brittany.Internal.Delimiter.Types
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
@@ -299,16 +301,30 @@ layoutPatStructural lpat@(L _ pat)
   ParPat _ inner -> do
     innerDoc <- patternDocument =<< layoutPattern inner
     fmap Just $ docWrapNode (toL lpat)
-      $ docAlt
-        [ docSeq [docParenL, pure innerDoc, docParenR]
-        , docDelimitedBlock DelimiterAttached docParenL (pure innerDoc) docParenR
+      $ docDelimitedAlternatives
+        ParenthesesDelimiter
+        (Text.pack "(")
+        (Text.pack ")")
+        (Just $ ExactPrintCompat.mkAnnKey $ toL lpat)
+        [Just $ ExactPrintCompat.mkAnnKey $ toL inner]
+        []
+        [ (DelimiterCompact, docSeq [docParenL, pure innerDoc, docParenR])
+        , ( DelimiterAttached
+          , docPar
+              (docSeq [docParenL, docSetIndentLevel $ pure innerDoc])
+              docParenR
+          )
         ]
   TuplePat _ elements boxity -> case boxity of
-    Boxed -> layoutDelimitedPattern lpat docParenL docParenR elements
+    Boxed -> layoutDelimitedPattern
+      lpat ParenthesesDelimiter (Text.pack "(") (Text.pack ")")
+      docParenL docParenR elements
     Unboxed -> layoutDelimitedPattern
-      lpat (docLit $ Text.pack "(#") (docLit $ Text.pack "#)") elements
+      lpat UnboxedParenthesesDelimiter (Text.pack "(#") (Text.pack "#)")
+      (docLit $ Text.pack "(#") (docLit $ Text.pack "#)") elements
   ListPat _ elements -> layoutDelimitedPattern
-    lpat docBracketL docBracketR elements
+    lpat SquareBracketsDelimiter (Text.pack "[") (Text.pack "]")
+    docBracketL docBracketR elements
   AsPat _ name inner -> layoutPrefixedPattern
     lpat (docLit $ lrdrNameToText name <> Text.pack "@") inner
   BangPat _ inner -> layoutPrefixedPattern lpat (docLit $ Text.pack "!") inner
@@ -368,39 +384,52 @@ layoutPrefixedPattern outer prefix inner = do
 
 layoutDelimitedPattern
   :: LPat GhcPs
+  -> DelimiterKind
+  -> Text
+  -> Text
   -> ToBriDocM BriDocNumbered
   -> ToBriDocM BriDocNumbered
   -> [LPat GhcPs]
   -> ToBriDocM (Maybe BriDocNumbered)
-layoutDelimitedPattern _ _ _ [] = pure Nothing
-layoutDelimitedPattern outer open close elements = do
+layoutDelimitedPattern _ _ _ _ _ _ [] = pure Nothing
+layoutDelimitedPattern outer kind openToken closeToken open close elements = do
   elementDocs <- mapM (layoutPattern >=> patternDocument) elements
   fmap Just $ docWrapNode (toL outer)
-    $ docSetBaseY
-    $ docLines
+    $ docDelimitedAlternatives
+      kind
+      openToken
+      closeToken
+      (Just $ ExactPrintCompat.mkAnnKey $ toL outer)
+      (Just . ExactPrintCompat.mkAnnKey . toL <$> elements)
+      (replicate (max 0 $ length elements - 1) $ Text.pack ",")
     $ case elementDocs of
         [] -> []
         [onlyPattern] ->
-          [ docSeq
-            [ appSep open
-            , pure onlyPattern
-            , docSeparator
-            , close
-            ]
+          [ ( DelimiterCompact
+            , docSeq
+              [ appSep open
+              , pure onlyPattern
+              , docSeparator
+              , close
+              ]
+            )
           ]
         firstPattern : remainingPatterns ->
-          [ docSeq [appSep open, pure firstPattern, docCommaSep]
+          [ ( DelimiterAttached
+            , docSetBaseY $ docLines
+              $ [docSeq [appSep open, pure firstPattern, docCommaSep]]
+              ++ [ docEnsureIndent BrIndentRegular
+                   $ docSeq [pure elementDoc, docCommaSep]
+                 | elementDoc <- List.init remainingPatterns
+                 ]
+              ++ [ docEnsureIndent BrIndentRegular $ docSeq
+                   [ pure $ List.last remainingPatterns
+                   , docSeparator
+                   , close
+                   ]
+                 ]
+            )
           ]
-          ++ [ docEnsureIndent BrIndentRegular
-               $ docSeq [pure elementDoc, docCommaSep]
-             | elementDoc <- List.init remainingPatterns
-             ]
-          ++ [ docEnsureIndent BrIndentRegular $ docSeq
-               [ pure $ List.last remainingPatterns
-               , docSeparator
-               , close
-               ]
-             ]
 
 layoutPatMultiline :: LPat GhcPs -> ToBriDocM (Maybe BriDocNumbered)
 layoutPatMultiline = layoutPatStructural

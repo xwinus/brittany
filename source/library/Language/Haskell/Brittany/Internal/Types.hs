@@ -20,6 +20,7 @@ import qualified Data.Strict.Maybe as Strict
 import qualified Data.Text.Lazy.Builder as Text.Builder
 import GHC (GenLocated, Located, SrcSpan)
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.Delimiter.Types
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKey, AnnKeywordId, Anns)
 import Language.Haskell.Brittany.Internal.Fallbacks (RenderNotice)
 import Language.Haskell.Brittany.Internal.Prelude
@@ -143,6 +144,8 @@ data BrittanyError
     -- ^ internal error: some comment went missing
   | ErrorCommentPlan String
     -- ^ comment ownership could not be normalized before layout
+  | ErrorDelimiterInvariant String
+    -- ^ a first-class delimiter group became structurally invalid
   | ErrorMacroConfig String String
     -- ^ in-source config string parsing error; first argument is the parser
     --   output and second the corresponding, ill-formed input.
@@ -267,6 +270,7 @@ data BriDoc
     , _bdpar_restOfLine :: BriDoc -- should not contain other BDPars
     , _bdpar_indented :: BriDoc
     }
+  | BDDelimited (DelimitedGroup BriDoc)
   -- | BDAddIndent BrIndent (BriDocF f)
   -- | BDNewline
   | BDAlt [BriDoc]
@@ -315,6 +319,7 @@ data BriDocF f
     , _bdfpar_restOfLine :: f (BriDocF f) -- should not contain other BDPars
     , _bdfpar_indented :: f (BriDocF f)
     }
+  | BDFDelimited (DelimitedGroup (f (BriDocF f)))
   -- | BDAddIndent BrIndent (BriDocF f)
   -- | BDNewline
   | BDFAlt [f (BriDocF f)]
@@ -357,6 +362,9 @@ instance Uniplate.Uniplate BriDoc where
   uniplate (BDIndentLevelPushCur bd) = plate BDIndentLevelPushCur |* bd
   uniplate (BDIndentLevelPop     bd) = plate BDIndentLevelPop |* bd
   uniplate (BDPar ind line indented) = plate BDPar |- ind |* line |* indented
+  uniplate (BDDelimited group) =
+    plate (BDDelimited . (`replaceDelimitedDocuments` group))
+      ||* (delimitedAlternativeDocument <$> delimitedAlternatives group)
   uniplate (BDAlt             alts ) = plate BDAlt ||* alts
   uniplate (BDForwardLineMode bd   ) = plate BDForwardLineMode |* bd
   uniplate x@BDExternal{}            = plate x
@@ -396,6 +404,7 @@ unwrapBriDocNumbered tpl = case snd tpl of
   BDFIndentLevelPushCur bd     -> BDIndentLevelPushCur $ rec bd
   BDFIndentLevelPop     bd     -> BDIndentLevelPop $ rec bd
   BDFPar ind line indented     -> BDPar ind (rec line) (rec indented)
+  BDFDelimited group           -> BDDelimited $ mapDelimitedGroup rec group
   BDFAlt             alts      -> BDAlt $ rec <$> alts -- not that this will happen
   BDFForwardLineMode bd        -> BDForwardLineMode $ rec bd
   BDFExternal k c source       -> BDExternal k c source
@@ -435,6 +444,10 @@ briDocSeqSpine = \case
   BDIndentLevelPushCur bd        -> briDocSeqSpine bd
   BDIndentLevelPop     bd        -> briDocSeqSpine bd
   BDPar _ind line indented -> briDocSeqSpine line `seq` briDocSeqSpine indented
+  BDDelimited group -> foldl'
+    (\() alternative -> briDocSeqSpine $ delimitedAlternativeDocument alternative)
+    ()
+    (delimitedAlternatives group)
   BDAlt             alts         -> foldl' (\() -> briDocSeqSpine) () alts
   BDForwardLineMode bd           -> briDocSeqSpine bd
   BDExternal{}                   -> ()
