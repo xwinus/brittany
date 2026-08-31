@@ -11,6 +11,7 @@ module Language.Haskell.Brittany.Internal.Layouters.Pattern.Types
 import qualified Data.Foldable                            as Foldable
 import           Data.Kind                                ( Type )
 import qualified Data.Sequence                            as Seq
+import           Language.Haskell.Brittany.Internal.Delimiter.Types
 import           Language.Haskell.Brittany.Internal.LayouterBasics
 import           Language.Haskell.Brittany.Internal.Prelude
 import           Language.Haskell.Brittany.Internal.Types
@@ -22,7 +23,11 @@ data PatternLayout = PatternLayout
   }
 
 colsWrapPat :: Seq.Seq BriDocNumbered -> ToBriDocM BriDocNumbered
-colsWrapPat = docCols ColPatterns . fmap pure . Foldable.toList
+colsWrapPat documents = case Foldable.toList documents of
+  [document@(_, BDFDelimited group)]
+    | delimiterSequenceProfile (delimitedSequence group)
+        == PatternInlineDelimiter -> pure document
+  flattened -> docCols ColPatterns $ pure <$> flattened
 
 patternCompactDocument :: PatternLayout -> ToBriDocM BriDocNumbered
 patternCompactDocument = colsWrapPat . patternCompactColumns

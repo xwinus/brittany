@@ -20,9 +20,9 @@ nestedPatterns
   (OuterPattern
     (NestedPattern firstValue secondValue)
     (tupleFirst, tupleSecond)
-    [listFirst , listSecond ]
+    [listFirst, listSecond]
     !strictValue
-    (typedValue :: Int     )
+    (typedValue :: Int)
     (extract -> viewedValue)) =
     combineNestedValues firstValue
                         secondValue
@@ -45,7 +45,7 @@ adorned command = case command of
   (Decorated
     !strictValueWithLongName
     ~lazyValueWithLongName
-    alias@(Nested nestedValue    )
-    (      typedValue :: Int     )
-    (      extract -> viewedValue)) ->
+    alias@(Nested nestedValue)
+    (typedValue :: Int)
+    (extract -> viewedValue)) ->
       adornedResult

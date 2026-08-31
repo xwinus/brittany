@@ -1,5 +1,5 @@
 func
   :: (  lkasdlkjalsdjlakjsdlkjasldkjalskdjlkajsd
-     -> lkasdlkjalsdjlakjsdlkjasldkjalskdjlkajsd
-     )
+  -> lkasdlkjalsdjlakjsdlkjasldkjalskdjlkajsd
+  )
   -> lakjsdlkjasldkj

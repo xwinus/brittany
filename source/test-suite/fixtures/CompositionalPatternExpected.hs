@@ -49,8 +49,7 @@ caseHandler request = case request of
 guardHandler request
   | Request
     { requestIdentifier = guardedIdentifierWithLongName
-    , requestMetadata   =
-      Metadata { metadataOwner = guardedOwnerWithLongName, ..}
+    , requestMetadata = Metadata { metadataOwner = guardedOwnerWithLongName, ..}
     , ..
     } <- request
   = combine guardedIdentifierWithLongName guardedOwnerWithLongName

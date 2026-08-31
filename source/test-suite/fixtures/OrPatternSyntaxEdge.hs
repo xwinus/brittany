@@ -7,5 +7,5 @@ pattern Present value <-
     value
 classify (Nothing
   -- Keep the or-pattern separator comment.
-   ; Just 0               ) = "empty"
+   ; Just 0)                = "empty"
 classify (Just value) = show value

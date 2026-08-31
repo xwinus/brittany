@@ -13,9 +13,10 @@ import GHC.Types.SourceText (SourceText(..), StringLiteral(..))
 import GHC.Unit.Types (IsBootInterface(..))
 import Language.Haskell.Syntax.ImpExp (ImportListInterpretation(EverythingBut))
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.Delimiter.Types (DelimiterIndent(..))
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.LayouterBasics
-import Language.Haskell.Brittany.Internal.Layouters.IE (layoutLLIEs, layoutAnnAndSepLLIEs, toL, SortItemsFlag(ShouldSortItems))
+import Language.Haskell.Brittany.Internal.Layouters.IE (layoutLLIEs, layoutLLIEsWithIndent, toL, SortItemsFlag(ShouldSortItems))
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.SourceComment.Types
@@ -100,7 +101,6 @@ layoutImportNormally importD = case importD of
         if compact then id else docEnsureIndent (BrIndentSpecial qLength)
       modNameD = indentName $ appSep $ docLit modNameT
       hidDocCol = if hiding then importCol - hidingParenCost else importCol - 2
-      hidDocColDiff = importCol - 2 - hidDocCol
       hidDoc =
         if hiding then appSep $ docLit $ Text.pack "hiding" else docEmpty
       importHead = docSeq [importQualifiers, modNameD]
@@ -108,7 +108,6 @@ layoutImportNormally importD = case importD of
         Nothing -> docEmpty
         Just (_, llies) -> do
           let llies' = toL llies
-          hasComments <- hasAnyCommentsBelow llies'
           if compact
             then docAlt
               [ docSeq
@@ -121,50 +120,15 @@ layoutImportNormally importD = case importD of
                     else id
                 in makeParIfHiding (layoutLLIEs True ShouldSortItems llies')
               ]
-            else do
-              ieDs <- layoutAnnAndSepLLIEs ShouldSortItems llies'
-              docWrapNodeRest llies'
-                $ docEnsureIndent (BrIndentSpecial hidDocCol)
-                $ case ieDs of
-                  -- ..[hiding].( )
-                    [] -> if hasComments
-                      then docPar
-                        (docSeq
-                          [hidDoc, docParenLSep, docWrapNode llies' docEmpty]
-                        )
-                        (docEnsureIndent
-                          (BrIndentSpecial hidDocColDiff)
-                          docParenR
-                        )
-                      else docSeq
-                        [hidDoc, docParenLSep, docSeparator, docParenR]
-                    -- ..[hiding].( b )
-                    [ieD] -> runFilteredAlternative $ do
-                      addAlternativeCond (not hasComments)
-                        $ docSeq
-                            [ hidDoc
-                            , docParenLSep
-                            , docForceSingleline ieD
-                            , docSeparator
-                            , docParenR
-                            ]
-                      addAlternative $ docPar
-                        (docSeq [hidDoc, docParenLSep, docNonBottomSpacing ieD])
-                        (docEnsureIndent
-                          (BrIndentSpecial hidDocColDiff)
-                          docParenR
-                        )
-                    -- ..[hiding].( b
-                    --            , b'
-                    --            )
-                    (ieD : ieDs') -> docPar
-                      (docSeq [hidDoc, docSetBaseY $ docSeq [docParenLSep, ieD]]
-                      )
-                      (docEnsureIndent (BrIndentSpecial hidDocColDiff)
-                      $ docLines
-                      $ ieDs'
-                      ++ [docParenR]
-                      )
+            else docWrapNodeRest llies'
+              $ docEnsureIndent (BrIndentSpecial hidDocCol)
+              $ if hiding
+                then docSeq
+                  [ hidDoc
+                  , layoutLLIEsWithIndent (DelimiterIndentFixed 7)
+                    False ShouldSortItems llies'
+                  ]
+                else layoutLLIEs False ShouldSortItems llies'
       makeAsDoc asT =
         docSeq [appSep $ docLit $ Text.pack "as", appSep $ docLit asT]
     if compact

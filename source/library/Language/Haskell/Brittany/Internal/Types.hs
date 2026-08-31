@@ -361,7 +361,7 @@ instance Uniplate.Uniplate BriDoc where
   uniplate (BDPar ind line indented) = plate BDPar |- ind |* line |* indented
   uniplate (BDDelimited group) =
     plate (BDDelimited . (`replaceDelimitedDocuments` group))
-      ||* (delimitedAlternativeDocument <$> delimitedAlternatives group)
+      ||* activeDelimitedDocuments group
   uniplate (BDAlt             alts ) = plate BDAlt ||* alts
   uniplate (BDForwardLineMode bd   ) = plate BDForwardLineMode |* bd
   uniplate x@BDExternal{}            = plate x
@@ -444,9 +444,9 @@ briDocSeqSpine = \case
   BDIndentLevelPop     bd        -> briDocSeqSpine bd
   BDPar _ind line indented -> briDocSeqSpine line `seq` briDocSeqSpine indented
   BDDelimited group -> foldl'
-    (\() alternative -> briDocSeqSpine $ delimitedAlternativeDocument alternative)
+    (\() document -> briDocSeqSpine document)
     ()
-    (delimitedAlternatives group)
+    (activeDelimitedDocuments group)
   BDAlt             alts         -> foldl' (\() -> briDocSeqSpine) () alts
   BDForwardLineMode bd           -> briDocSeqSpine bd
   BDExternal{}                   -> ()

@@ -749,49 +749,36 @@ docParenL = docLit $ Text.pack "("
 docParenR :: ToBriDocM BriDocNumbered
 docParenR = docLit $ Text.pack ")"
 
-docDelimitedBlock
-  :: DelimiterLayout
-  -> ToBriDocM BriDocNumbered
-  -> ToBriDocM BriDocNumbered
-  -> ToBriDocM BriDocNumbered
-  -> ToBriDocM BriDocNumbered
-docDelimitedBlock layout open child close = docDelimitedAlternatives
-  ParenthesesDelimiter
-  (Text.pack "(")
-  (Text.pack ")")
-  Nothing
-  [Nothing]
-  []
-  [(layout, alternative)]
- where
-  alternative = case layout of
-    DelimiterCompact -> docSeq [open, child, close]
-    DelimiterAttached -> docPar
-      (docSeq [open, docSetIndentLevel child])
-      close
-    DelimiterVertical -> docLines
-      [ open
-      , docEnsureIndent BrIndentRegular $ docSetIndentLevel child
-      , close
-      ]
-
-docDelimitedAlternatives
+docDelimitedSequence
   :: DelimiterKind
   -> Text
   -> Text
   -> Maybe AnnKey
-  -> [Maybe AnnKey]
-  -> [Text]
-  -> [(DelimiterLayout, ToBriDocM BriDocNumbered)]
+  -> [(Maybe AnnKey, DelimiterChildKind, ToBriDocM BriDocNumbered)]
+  -> [(DelimiterSeparatorKind, Text, DelimiterAttachment)]
+  -> DelimiterIndent
+  -> DelimiterRenderProfile
+  -> [DelimiterLayout]
   -> ToBriDocM BriDocNumbered
-docDelimitedAlternatives kind open close owner children separators alternatives = do
-  renderedAlternatives <- alternatives `forM` \(layout, document) ->
-    DelimitedAlternative layout <$> document
-  allocateNode $ BDFDelimited $ DelimitedGroup
-    { delimitedSpec = mkDelimiterSpec
-        kind open close owner children separators
-    , delimitedAlternatives = renderedAlternatives
-    }
+docDelimitedSequence kind open close owner childBuilders separators indent profile
+    layouts = do
+  groupNodeId <- allocNodeIndex
+  children <- childBuilders `forM` \(childOwner, childKind, childBuilder) -> do
+    childDocument <- childBuilder
+    pure (childOwner, childKind, childDocument)
+  pure
+    ( groupNodeId
+    , BDFDelimited $ mkDelimitedGroup groupNodeId kind open close owner children
+        separators indent profile layouts
+    )
+
+docRestrictDelimitedLayout
+  :: DelimiterLayout
+  -> BriDocNumbered
+  -> ToBriDocM BriDocNumbered
+docRestrictDelimitedLayout layout (_, BDFDelimited group) =
+  allocateNode $ BDFDelimited group { delimitedAllowedLayouts = [layout] }
+docRestrictDelimitedLayout _ document = pure document
 
 docParenHashLSep :: ToBriDocM BriDocNumbered
 docParenHashLSep = docSeq [docLit $ Text.pack "(#", docSeparator]

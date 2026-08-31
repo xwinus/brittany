@@ -123,7 +123,11 @@ library
     Language.Haskell.Brittany.Internal.Config.Types
     Language.Haskell.Brittany.Internal.Config.Types.Instances
     Language.Haskell.Brittany.Internal.Delimiter
+    Language.Haskell.Brittany.Internal.Delimiter.Comments
+    Language.Haskell.Brittany.Internal.Delimiter.Render
+    Language.Haskell.Brittany.Internal.Delimiter.Render.Utils
     Language.Haskell.Brittany.Internal.Delimiter.Types
+    Language.Haskell.Brittany.Internal.Delimiter.Validation
     Language.Haskell.Brittany.Internal.ExactPrintCompat
     Language.Haskell.Brittany.Internal.ExactPrintUtils
     Language.Haskell.Brittany.Internal.ExactSource
