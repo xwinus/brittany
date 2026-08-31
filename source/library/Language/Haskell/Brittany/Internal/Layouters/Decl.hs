@@ -1113,9 +1113,9 @@ layoutPatternBindFinal
 layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseDocs mWhereDocs hasComments
   = do
     let alignmentCandidates = case alignmentScope of
-          RequiredPatternAlignment -> [RequiredAlignment $ Right ()]
+          RequiredPatternAlignment -> [StructuralAffinity $ Right ()]
           OptionalSiblingAlignment ->
-            [RequiredAlignment $ Left token | token <- maybeToList alignmentToken]
+            [StructuralAffinity $ Left token | token <- maybeToList alignmentToken]
               ++ [OptionalAlignment $ Right ()]
     let
       patPartInline = case mPatDoc of

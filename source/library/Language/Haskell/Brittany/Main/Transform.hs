@@ -299,6 +299,11 @@ reportErrors putErrorLn config moduleConf errorsAndWarnings = do
         delimiterErrors `forM_` \case
           ErrorDelimiterInvariant message -> putErrorLn $ "  " ++ message
           _ -> error "cannot happen (TM)"
+      alignmentErrors@(ErrorAlignmentPlan{} : _) -> do
+        putErrorLn "Error: column alignment planning failed."
+        alignmentErrors `forM_` \case
+          ErrorAlignmentPlan message -> putErrorLn $ "  " ++ message
+          _ -> error "cannot happen (TM)"
       (ErrorMacroConfig configError input : _) -> do
         putErrorLn "Error: parse error in inline configuration:"
         putErrorLn configError
@@ -361,6 +366,7 @@ errorOrder = \case
   ErrorMacroConfig{} -> 5
   ErrorCommentPlan{} -> 6
   ErrorDelimiterInvariant{} -> 9
+  ErrorAlignmentPlan{} -> 10
 
 addTraceSep :: DebugConfig -> value -> value
 addTraceSep config =

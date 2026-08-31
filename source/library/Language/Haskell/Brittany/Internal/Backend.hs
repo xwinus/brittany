@@ -22,6 +22,7 @@ import qualified GHC.OldList as List
 import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.Alignment
 import Language.Haskell.Brittany.Internal.BackendUtils
+import Language.Haskell.Brittany.Internal.ColumnAlignment
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.Delimiter
 import Language.Haskell.Brittany.Internal.ExactSource
@@ -269,6 +270,11 @@ renderPlannedComment planned = do
         && (plannedCommentLineDelta planned > 0
           || plannedCommentIndentPolicy planned /= TokenRelativeIndent
         )
+      sourceColumnAtNestedBase = ownLine
+        && placementAnchor placement == BeforeNode
+        && plannedCommentIndentPolicy planned == SourceColumnIndent
+        && plannedCommentColumnDelta planned < lstate_baseY state
+        && _lstate_indLevelLinger state == lstate_baseY state
       lineDelta
         | ownLine, placementAnchor placement == BeforeNode = case
             _lstate_curYOrAddNewline state of
@@ -360,6 +366,9 @@ renderPlannedComment planned = do
                 lineDelta (lstate_baseY state) lineCount
           | placementRole placement == HaddockPostDoc SignatureResult ->
               layoutMoveToAbsoluteCommentPos lineDelta indentAmount lineCount
+          | sourceColumnAtNestedBase ->
+              layoutMoveToAbsoluteCommentPos
+                lineDelta (lstate_baseY state) lineCount
           | otherwise -> layoutMoveToCommentPos lineDelta
               (plannedCommentColumnDelta planned - _lstate_indLevelLinger state)
               lineCount
@@ -379,7 +388,12 @@ renderPlannedComment planned = do
                     ) $ case ExactPrintCompat.annKeyRealSpan owner of
                       Nothing -> pure ()
                       Just ownerSpan -> mModify $ \current -> current
-                        { _lstate_addSepSpace = Just $ max 0
+                        { _lstate_addSepSpace = Just
+                            $ max
+                              (if sourceColumnAtNestedBase
+                                then lstate_baseY state
+                                else 0
+                              )
                             $ SrcLoc.srcSpanStartCol ownerSpan - 1
                         }
                   when
@@ -705,16 +719,18 @@ alignColsLines bridocs = do -- colInfos `forM_` \colInfo -> do
       (_lstate_addSepSpace state)
   colMax <- mAsk <&> _conf_layout .> _lconfig_cols .> confUnpack
   alignMax <- mAsk <&> _conf_layout .> _lconfig_alignmentLimit .> confUnpack
-  alignMode <-
-    mAsk <&> _conf_layout .> _lconfig_columnAlignMode .> confUnpack
   dumpAlignmentPlan <-
     mAsk <&> _conf_debug .> _dconf_dump_bridoc_simpl_columns .> confUnpack
   alignBreak <-
     mAsk <&> _conf_layout .> _lconfig_alignmentBreakOnMultiline .> confUnpack
   case () of
     _ -> do
+      case alignmentResult of
+        Left plannerError -> mTell
+          [ErrorAlignmentPlan $ show plannerError]
+        Right{} -> pure ()
       when dumpAlignmentPlan $ alignmentPlans `forM_` \plan ->
-        tellDebugMessShow ("binding-alignment-plan", plan)
+        tellDebugMessShow ("column-alignment-plan", plan)
       -- tellDebugMess ("processedMap: " ++ show processedMap)
       sequence_
         $ List.intersperse layoutWriteEnsureNewlineBlock
@@ -723,12 +739,14 @@ alignColsLines bridocs = do -- colInfos `forM_` \colInfo -> do
      where
       (colInfos, finalState) =
         StateS.runState (mergeBriDocs bridocs) (ColBuildState IntMapS.empty 0)
-      alignmentPlans
-        | boundsOptionalBindingAlignment alignMode =
-            bindingAlignmentPlans alignMax bridocs
-        | otherwise = []
+      alignmentResult = columnAlignmentPlans
+        alignMax (max 0 $ colMax - curX) bridocs
+      alignmentPlans = either (const []) id alignmentResult
       alignmentBreaks = Set.fromList
-        $ alignmentPlanBreaks =<< alignmentPlans
+        [ (rowIdentity, columnAlignmentPlanPath plan)
+        | plan <- alignmentPlans
+        , rowIdentity <- alignmentPlanBreaks $ columnAlignmentPlanResult plan
+        ]
       -- maxZipper :: [Int] -> [Int] -> [Int]
       -- maxZipper [] ys = ys
       -- maxZipper xs [] = xs
@@ -737,8 +755,9 @@ alignColsLines bridocs = do -- colInfos `forM_` \colInfo -> do
       colAggregation [] = 0 -- this probably cannot happen the way we call
                             -- this function, because _cbs_map only ever
                             -- contains nonempty Seqs.
-      colAggregation xs = maximum [ x | x <- xs, x <= minimum xs + alignMax' ]
-        where alignMax' = max 0 alignMax
+      colAggregation xs
+        | maximum xs - minimum xs <= alignmentPaddingLimit alignMax = maximum xs
+        | otherwise = minimum xs
 
       processedMap :: ColMap2
       processedMap = fix $ \result ->
@@ -773,84 +792,71 @@ alignColsLines bridocs = do -- colInfos `forM_` \colInfo -> do
         :: Int -> ColInfo -> [BriDoc] -> StateS.State ColBuildState [ColInfo]
       mergeBriDocsW _ _ [] = return []
       mergeBriDocsW rowIndex lastInfo (bd : bdr) = do
-        let plannedLastInfo = if Set.member rowIndex alignmentBreaks
+        let plannedLastInfo = if Set.member (rowIndex, []) alignmentBreaks
               then ColInfoStart
               else lastInfo
-        info <- mergeInfoBriDoc True plannedLastInfo bd
+        info <- mergeInfoBriDoc True rowIndex [] plannedLastInfo bd
         infor <- mergeBriDocsW
           (rowIndex + 1)
           (if shouldBreakAfter bd then ColInfoStart else info)
           bdr
         return $ info : infor
 
-      -- even with alignBreak config flag, we don't stop aligning for certain
-      -- ColSigs - the ones with "False" below. The main reason is that
-      -- there are uses of BDCols where they provide the alignment of several
-      -- consecutive full larger code segments, for example ColOpPrefix.
-      -- Motivating example is
-      -- > foo
-      -- >   $  [ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      -- >      , bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-      -- >      ]
-      -- >   ++ [ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccc ]
-      -- If we break the alignment here, then all three lines for the first
-      -- list move left by one, which is horrible. We really don't want to
-      -- break whole-block alignments.
-      -- For list, listcomp, tuple and tuples the reasoning is much simpler:
-      -- alignment should not have much effect anyways, so i simply make the
-      -- choice here that enabling alignment is the safer route for preventing
-      -- potential glitches, and it should never have a negative effect.
-      -- For RecUpdate the argument is much less clear - it is mostly a
-      -- personal preference to not break alignment for those, even if
-      -- multiline. Really, this should be configurable.. (TODO)
       shouldBreakAfter :: BriDoc -> Bool
       shouldBreakAfter bd = alignBreak && briDocIsMultiLine bd && case bd of
-        (BDCols ColTyOpPrefix _) -> False
-        (BDCols ColPatternsFuncPrefix _) -> True
-        (BDCols ColPatternsFuncInfix _) -> True
-        (BDCols ColPatterns _) -> True
-        (BDCols ColCasePattern _) -> True
-        (BDCols ColBindingLine{} _) -> True
-        (BDCols ColGuard _) -> True
-        (BDCols ColGuardedBody _) -> True
-        (BDCols ColBindStmt _) -> True
-        (BDCols ColDoLet _) -> True
-        (BDCols ColRec _) -> False
-        (BDCols ColRecUpdate _) -> False
-        (BDCols ColRecDecl _) -> False
-        (BDCols ColListComp _) -> False
-        (BDCols ColList _) -> False
-        (BDCols ColApp{} _) -> True
-        (BDCols ColTuple _) -> False
-        (BDCols ColTuples _) -> False
-        (BDCols ColOpPrefix _) -> False
-        (BDDelimited group) -> either (const True) shouldBreakAfter
+        BDCols ColTyOpPrefix _ -> False
+        BDCols ColPatternsFuncPrefix _ -> True
+        BDCols ColPatternsFuncInfix _ -> True
+        BDCols ColPatterns _ -> True
+        BDCols ColCasePattern _ -> True
+        BDCols ColBindingLine{} _ -> True
+        BDCols ColGuard _ -> True
+        BDCols ColGuardedBody _ -> True
+        BDCols ColBindStmt _ -> True
+        BDCols ColDoLet _ -> True
+        BDCols ColRec _ -> False
+        BDCols ColRecUpdate _ -> False
+        BDCols ColRecDecl _ -> False
+        BDCols ColListComp _ -> False
+        BDCols ColList _ -> False
+        BDCols ColApp{} _ -> True
+        BDCols ColTuple _ -> False
+        BDCols ColTuples _ -> False
+        BDCols ColOpPrefix _ -> False
+        BDDelimited group -> either (const True) shouldBreakAfter
           $ delimiterDocument group
         _ -> True
 
       mergeInfoBriDoc
         :: Bool
+        -> Int
+        -> ColumnPath
         -> ColInfo
         -> BriDoc
         -> StateS.StateT ColBuildState Identity ColInfo
-      mergeInfoBriDoc lastFlag ColInfoStart = briDocToColInfo lastFlag
-      mergeInfoBriDoc lastFlag ColInfoNo{} = briDocToColInfo lastFlag
-      mergeInfoBriDoc lastFlag (ColInfo infoInd infoSig subLengthsInfos) =
-        \case
+      mergeInfoBriDoc lastFlag rowIndex path _ brdc
+        | Set.member (rowIndex, path) alignmentBreaks =
+            briDocToColInfo lastFlag brdc
+      mergeInfoBriDoc lastFlag _ _ ColInfoStart brdc =
+        briDocToColInfo lastFlag brdc
+      mergeInfoBriDoc lastFlag _ _ ColInfoNo{} brdc =
+        briDocToColInfo lastFlag brdc
+      mergeInfoBriDoc lastFlag rowIndex path
+          (ColInfo infoInd infoSig subLengthsInfos) currentDocument =
+        case currentDocument of
           brdc@(BDCols colSig subDocs)
-            | Just alignmentStrength <- colSigsMerge infoSig colSig
+            | Just resetSubColumns <- colSigsMerge infoSig colSig
             , length subLengthsInfos == length subDocs -> do
               let
                 isLastList = if lastFlag
                   then (== length subDocs) <$> [1 ..]
                   else repeat False
-                -- Binding names delimit nested pattern columns, not the
-                -- shared outer equation column.
-                resetSubColumns = alignmentStrength == AlignmentOptional
-              infos <- zip3 isLastList (snd <$> subLengthsInfos) subDocs
-                `forM` \(lf, info, bd) -> if resetSubColumns
+              infos <- zip [0 ..]
+                (zip3 isLastList (snd <$> subLengthsInfos) subDocs)
+                `forM` \(subIndex, (lf, info, bd)) -> if resetSubColumns
                   then briDocToColInfo lf bd
-                  else mergeInfoBriDoc lf info bd
+                  else mergeInfoBriDoc
+                    lf rowIndex (path ++ [subIndex]) info bd
               let curLengths = briDocLineLength <$> subDocs
               let trueSpacings = getTrueSpacings (zip curLengths infos)
               do -- update map
@@ -867,70 +873,30 @@ alignColsLines bridocs = do -- colInfos `forM_` \colInfo -> do
             | otherwise -> briDocToColInfo lastFlag brdc
           delimited@(BDDelimited group) -> case delimiterDocument group of
             Right document -> mergeInfoBriDoc
-              lastFlag
+              lastFlag rowIndex path
               (ColInfo infoInd infoSig subLengthsInfos)
               document
             Left{} -> return $ ColInfoNo delimited
           brdc -> return $ ColInfoNo brdc
 
-      colSigsMerge :: ColSig -> ColSig -> Maybe AlignmentStrength
+      colSigsMerge :: ColSig -> ColSig -> Maybe Bool
       colSigsMerge (ColBindingLine previous) (ColBindingLine current)
-        | candidatesOverlap requiredGroups previous current =
-            Just AlignmentRequired
+        | candidatesOverlap structuralGroups previous current = Just False
         | candidatesOverlap optionalGroupsFor previous current =
-            Just AlignmentOptional
+            Just True
         | otherwise = Nothing
       colSigsMerge previous current
-        | previous == current = Just AlignmentRequired
+        | previous == current = Just False
         | otherwise = Nothing
 
       candidatesOverlap select previous current = not $ null
         $ select previous `List.intersect` select current
 
-      requiredGroups candidates =
-        [group | RequiredAlignment group <- candidates]
+      structuralGroups candidates =
+        [group | StructuralAffinity group <- candidates]
 
       optionalGroupsFor candidates =
         [group | OptionalAlignment group <- candidates]
-
-boundsOptionalBindingAlignment :: ColumnAlignMode -> Bool
-boundsOptionalBindingAlignment = \case
-  ColumnAlignModeDisabled -> False
-  ColumnAlignModeAlways -> False
-  _ -> True
-
-bindingAlignmentPlans
-  :: Int -> [BriDoc] -> [AlignmentPlan (Either Text.Text ())]
-bindingAlignmentPlans alignmentLimit = collect 0
- where
-  collect _ [] = []
-  collect rowIndex documents@(document : remaining) = case
-      bindingAlignmentRow rowIndex document of
-    Nothing -> collect (rowIndex + 1) remaining
-    Just{} ->
-      let (bindingDocuments, rest) = List.span isBindingLine documents
-          rows = Maybe.mapMaybe (uncurry bindingAlignmentRow)
-            $ zip
-              [rowIndex ..]
-              bindingDocuments
-          nextIndex = rowIndex + length bindingDocuments
-      in case planAlignment alignmentLimit rows of
-        Left{} -> collect nextIndex rest
-        Right plan -> plan : collect nextIndex rest
-
-  isBindingLine = Maybe.isJust . bindingAlignmentRow 0
-
-bindingAlignmentRow
-  :: Int -> BriDoc -> Maybe (AlignmentRow (Either Text.Text ()))
-bindingAlignmentRow identity = \case
-  BDCols (ColBindingLine candidates) columns -> do
-    firstColumn <- listToMaybe columns
-    pure AlignmentRow
-      { alignmentRowIdentity = identity
-      , alignmentRowCandidates = candidates
-      , alignmentRowWidth = briDocLineLength firstColumn
-      }
-  _ -> Nothing
 
 briDocToColInfo :: Bool -> BriDoc -> StateS.State ColBuildState ColInfo
 briDocToColInfo lastFlag = \case

@@ -3,9 +3,9 @@
 
 module Language.Haskell.Brittany.Internal.Alignment
   ( AlignmentCandidate(..)
-  , AlignmentStrength(..)
   , AlignmentRow(..)
   , AlignmentCost(..)
+  , AlignmentLayout(..)
   , AlignmentGroup(..)
   , AlignmentRejection(..)
   , AlignmentRejectionReason(..)
@@ -14,26 +14,28 @@ module Language.Haskell.Brittany.Internal.Alignment
   , alignmentPaddingLimit
   , alignmentPlanBreaks
   , planAlignment
+  , planAlignmentWithin
   ) where
 
 import qualified Data.Data
 import qualified Data.List as List
 import Language.Haskell.Brittany.Internal.Prelude
 
+-- Structural affinity controls legal partitions. It never requires visual
+-- padding. OptionalAlignment only describes a visual preference.
 data AlignmentCandidate group
-  = RequiredAlignment group
+  = StructuralAffinity group
   | OptionalAlignment group
+  | ProhibitedAlignment group
+  | UnalignedLayout
   deriving (Eq, Ord, Data.Data.Data, Show)
-
-data AlignmentStrength
-  = AlignmentRequired
-  | AlignmentOptional
-  deriving (Eq, Show)
 
 data AlignmentRow group = AlignmentRow
   { alignmentRowIdentity :: Int
   , alignmentRowCandidates :: [AlignmentCandidate group]
   , alignmentRowWidth :: Int
+  , alignmentRowContentWidth :: Int
+  , alignmentRowBreakCost :: Int
   }
   deriving (Eq, Show)
 
@@ -41,13 +43,20 @@ data AlignmentCost = AlignmentCost
   { alignmentTargetWidth :: Int
   , alignmentMaximumPadding :: Int
   , alignmentTotalPadding :: Int
+  , alignmentMaximumOverflow :: Int
+  , alignmentTotalOverflow :: Int
   , alignmentAffectedRows :: Int
   , alignmentRowCount :: Int
   }
   deriving (Eq, Show)
 
+data AlignmentLayout
+  = AlignmentAligned
+  | AlignmentUnaligned
+  deriving (Eq, Show)
+
 data AlignmentGroup group = AlignmentGroup
-  { alignmentGroupStrength :: AlignmentStrength
+  { alignmentGroupLayout :: AlignmentLayout
   , alignmentGroupRows :: [AlignmentRow group]
   , alignmentGroupCost :: AlignmentCost
   }
@@ -55,6 +64,8 @@ data AlignmentGroup group = AlignmentGroup
 
 data AlignmentRejectionReason
   = OptionalPaddingLimitExceeded
+  | ConfiguredWidthOverflow
+  | ExplicitUnalignedLayout
   | HigherCostPartitionSelected
   deriving (Eq, Show)
 
@@ -67,6 +78,8 @@ data AlignmentRejection group = AlignmentRejection
 
 data AlignmentPlan group = AlignmentPlan
   { alignmentOptionalPaddingLimit :: Int
+  , alignmentConfiguredWidth :: Maybe Int
+  , alignmentPlanBoundaryCost :: Int
   , alignmentPlanGroups :: [AlignmentGroup group]
   , alignmentPlanRejections :: [AlignmentRejection group]
   }
@@ -74,12 +87,17 @@ data AlignmentPlan group = AlignmentPlan
 
 data AlignmentPlanError
   = EmptyAlignmentPlan
+  | InvalidAlignmentLimit Int
+  | InvalidConfiguredWidth Int
   | MissingAlignmentCandidates Int
   | NegativeAlignmentWidth Int Int
+  | InvalidAlignmentContentWidth Int Int Int
+  | NegativeAlignmentBreakCost Int Int
+  | DuplicateAlignmentIdentity Int
+  | ContradictoryAlignmentConstraints Int
+  | ImpossibleAlignmentPartition Int Int
   deriving (Eq, Show)
 
--- Optional visual alignment is intentionally stricter than the existing
--- column-width tolerance. Required grammar relationships are never bounded.
 alignmentPaddingLimit :: Int -> Int
 alignmentPaddingLimit alignmentLimit = max 0 alignmentLimit `div` 2
 
@@ -88,48 +106,128 @@ planAlignment
   => Int
   -> [AlignmentRow group]
   -> Either AlignmentPlanError (AlignmentPlan group)
-planAlignment configuredLimit rows = do
-  validateRows rows
+planAlignment configuredLimit = planAlignmentWith configuredLimit Nothing
+
+planAlignmentWithin
+  :: Eq group
+  => Int
+  -> Int
+  -> [AlignmentRow group]
+  -> Either AlignmentPlanError (AlignmentPlan group)
+planAlignmentWithin configuredLimit configuredWidth =
+  planAlignmentWith configuredLimit $ Just configuredWidth
+
+planAlignmentWith
+  :: Eq group
+  => Int
+  -> Maybe Int
+  -> [AlignmentRow group]
+  -> Either AlignmentPlanError (AlignmentPlan group)
+planAlignmentWith configuredLimit configuredWidth rows = do
+  validateRows configuredLimit configuredWidth rows
   let paddingLimit = alignmentPaddingLimit configuredLimit
-      units = requiredUnits rows
-      groups = optionalGroups paddingLimit units
+      units = structuralUnits rows
+      groups = optionalGroups configuredWidth paddingLimit units
+  validatePartitions groups
   pure AlignmentPlan
     { alignmentOptionalPaddingLimit = paddingLimit
-    , alignmentPlanGroups = makeGroup <$> groups
-    , alignmentPlanRejections = rejectedGroups paddingLimit units groups
+    , alignmentConfiguredWidth = configuredWidth
+    , alignmentPlanBoundaryCost = boundaryCost groups
+    , alignmentPlanGroups = makeGroup configuredWidth paddingLimit <$> groups
+    , alignmentPlanRejections = rejectedGroups
+        configuredWidth paddingLimit units groups
     }
 
 alignmentPlanBreaks :: AlignmentPlan group -> [Int]
-alignmentPlanBreaks plan =
-  [ alignmentRowIdentity firstRow
-  | group <- drop 1 $ alignmentPlanGroups plan
-  , firstRow : _ <- [alignmentGroupRows group]
-  ]
+alignmentPlanBreaks plan = List.sort
+  $ groupBoundaryBreaks ++ unalignedBreaks
+ where
+  groups = alignmentPlanGroups plan
+  groupBoundaryBreaks =
+    [ alignmentRowIdentity firstRow
+    | group <- drop 1 groups
+    , firstRow : _ <- [alignmentGroupRows group]
+    ]
+  unalignedBreaks =
+    [ alignmentRowIdentity row
+    | group <- groups
+    , alignmentGroupLayout group == AlignmentUnaligned
+    , row <- drop 1 $ alignmentGroupRows group
+    ]
 
-validateRows :: [AlignmentRow group] -> Either AlignmentPlanError ()
-validateRows [] = Left EmptyAlignmentPlan
-validateRows rows = case List.find (null . alignmentRowCandidates) rows of
-  Just row -> Left $ MissingAlignmentCandidates $ alignmentRowIdentity row
-  Nothing -> case List.find ((< 0) . alignmentRowWidth) rows of
-    Just row -> Left
+validateRows
+  :: Eq group
+  => Int
+  -> Maybe Int
+  -> [AlignmentRow group]
+  -> Either AlignmentPlanError ()
+validateRows configuredLimit configuredWidth rows
+  | configuredLimit < 0 = Left $ InvalidAlignmentLimit configuredLimit
+  | Just width <- configuredWidth, width < 0 =
+      Left $ InvalidConfiguredWidth width
+  | null rows = Left EmptyAlignmentPlan
+  | Just row <- List.find (null . alignmentRowCandidates) rows =
+      Left $ MissingAlignmentCandidates $ alignmentRowIdentity row
+  | Just row <- List.find ((< 0) . alignmentRowWidth) rows = Left
       $ NegativeAlignmentWidth
         (alignmentRowIdentity row)
         (alignmentRowWidth row)
-    Nothing -> Right ()
+  | Just row <- List.find invalidContentWidth rows = Left
+      $ InvalidAlignmentContentWidth
+        (alignmentRowIdentity row)
+        (alignmentRowWidth row)
+        (alignmentRowContentWidth row)
+  | Just row <- List.find ((< 0) . alignmentRowBreakCost) rows = Left
+      $ NegativeAlignmentBreakCost
+        (alignmentRowIdentity row)
+        (alignmentRowBreakCost row)
+  | duplicate : _ <- duplicateIdentities = Left
+      $ DuplicateAlignmentIdentity duplicate
+  | Just row <- List.find contradictory rows = Left
+      $ ContradictoryAlignmentConstraints $ alignmentRowIdentity row
+  | otherwise = Right ()
+ where
+  invalidContentWidth row = alignmentRowContentWidth row
+    < alignmentRowWidth row
+  identities = alignmentRowIdentity <$> rows
+  duplicateIdentities = identities List.\\ List.nub identities
+  contradictory row = not $ null
+    $ (structuralKeys row ++ optionalKeys row)
+    `List.intersect` prohibitedKeys row
 
-requiredUnits :: Eq group => [AlignmentRow group] -> [[AlignmentRow group]]
-requiredUnits = foldr addRow []
+validatePartitions
+  :: [[[AlignmentRow group]]]
+  -> Either AlignmentPlanError ()
+validatePartitions groups = case List.concatMap List.concat groups of
+  [] -> Left $ ImpossibleAlignmentPartition 0 0
+  firstRow : remainingRows ->
+    let firstIdentity = alignmentRowIdentity firstRow
+        lastIdentity = foldl'
+          (\_ row -> alignmentRowIdentity row)
+          firstIdentity
+          remainingRows
+        plannedRowCount = 1 + length remainingRows
+    in if plannedRowCount == lastIdentity - firstIdentity + 1
+      then Right ()
+      else Left $ ImpossibleAlignmentPartition firstIdentity lastIdentity
+
+structuralUnits :: Eq group => [AlignmentRow group] -> [[AlignmentRow group]]
+structuralUnits = foldr addRow []
  where
   addRow row (unit@(next : _) : remaining)
-    | requiredTogether row next = (row : unit) : remaining
+    | structurallyConnected row next = (row : unit) : remaining
   addRow row units = [row] : units
 
-  requiredTogether left right = not $ null
-    $ requiredGroups left `List.intersect` requiredGroups right
+  structurallyConnected left right = not $ null
+    $ structuralKeys left `List.intersect` structuralKeys right
 
 optionalGroups
-  :: Eq group => Int -> [[AlignmentRow group]] -> [[[AlignmentRow group]]]
-optionalGroups paddingLimit units = case bestPlans of
+  :: Eq group
+  => Maybe Int
+  -> Int
+  -> [[AlignmentRow group]]
+  -> [[[AlignmentRow group]]]
+optionalGroups configuredWidth paddingLimit units = case bestPlans of
   plan : _ -> plan
   [] -> []
  where
@@ -150,111 +248,156 @@ optionalGroups paddingLimit units = case bestPlans of
     plan : _ -> plan
     [] -> []
 
-  selectBest (candidate : candidates) =
-    foldl' chooseBetter candidate candidates
+  selectBest (candidate : candidates) = foldl' chooseBetter candidate candidates
   selectBest [] = []
 
   chooseBetter left right
-    | comparePlans left right == GT = right
+    | compare (planScore left) (planScore right) == GT = right
     | otherwise = left
 
   candidateWithinLimit candidate =
-    alignmentMaximumPadding (costOfUnits candidate) <= paddingLimit
+    not (candidateForcesUnaligned candidate)
+      && alignmentMaximumPadding (costOfUnits configuredWidth candidate)
+        <= paddingLimit
 
   unitsConnected candidate = and
-    $ zipWith optionalUnitsConnected candidate (drop 1 candidate)
-
-  comparePlans left right = compare (planScore left) (planScore right)
+    $ zipWith visuallyConnectedUnits candidate (drop 1 candidate)
 
   planScore groups =
-    ( length groups
-    , sum $ alignmentTotalPadding . costOfUnits <$> groups
-    , maximum $ 0 : (alignmentMaximumPadding . costOfUnits <$> groups)
-    , sum $ alignmentAffectedRows . costOfUnits <$> groups
+    ( sum $ alignmentTotalOverflow . costOfUnits configuredWidth <$> groups
+    , length groups
+    , maximum
+        $ 0 : (alignmentMaximumPadding . costOfUnits configuredWidth <$> groups)
+    , sum $ alignmentTotalPadding . costOfUnits configuredWidth <$> groups
+    , boundaryCost groups
     , [ alignmentRowIdentity row
       | group <- drop 1 groups
       , row : _ <- [List.concat group]
       ]
     )
 
+boundaryCost :: [[[AlignmentRow group]]] -> Int
+boundaryCost groups = sum
+  [ alignmentRowBreakCost row
+  | group <- drop 1 groups
+  , row : _ <- [List.concat group]
+  ]
+
 rejectedGroups
   :: Eq group
-  => Int
+  => Maybe Int
+  -> Int
   -> [[AlignmentRow group]]
   -> [[[AlignmentRow group]]]
   -> [AlignmentRejection group]
-rejectedGroups paddingLimit units chosenGroups =
+rejectedGroups configuredWidth paddingLimit units chosenGroups =
   [ AlignmentRejection
       { alignmentRejectedRows = List.concat candidate
       , alignmentRejectedCost = candidateCost
       , alignmentRejectionReason =
-          if alignmentMaximumPadding candidateCost > paddingLimit
+          if candidateForcesUnaligned candidate
+            then ExplicitUnalignedLayout
+            else if alignmentMaximumPadding candidateCost > paddingLimit
             then OptionalPaddingLimitExceeded
-            else HigherCostPartitionSelected
+            else if alignmentTotalOverflow candidateCost > chosenOverflow
+              then ConfiguredWidthOverflow
+              else HigherCostPartitionSelected
       }
   | start <- [0 .. length units - 1]
   , candidateLength <- [2 .. length units - start]
   , let candidate = take candidateLength $ drop start units
   , unitsConnected candidate
   , candidateIdentities candidate `notElem` chosenIdentities
-  , let candidateCost = costOfUnits candidate
+  , let candidateCost = costOfUnits configuredWidth candidate
   ]
  where
   chosenIdentities = candidateIdentities <$> chosenGroups
-
+  chosenOverflow = sum
+    $ alignmentTotalOverflow . costOfUnits configuredWidth <$> chosenGroups
   candidateIdentities = fmap alignmentRowIdentity . List.concat
-
   unitsConnected candidate = and
-    $ zipWith optionalUnitsConnected candidate (drop 1 candidate)
+    $ zipWith visuallyConnectedUnits candidate (drop 1 candidate)
 
-makeGroup :: [[AlignmentRow group]] -> AlignmentGroup group
-makeGroup units = AlignmentGroup
-  { alignmentGroupStrength = case units of
-      [_] -> case List.concat units of
-        row : _ | not (null $ requiredGroups row) -> AlignmentRequired
-        [] -> AlignmentOptional
-        _ -> AlignmentOptional
-      _ -> AlignmentOptional
+makeGroup
+  :: Maybe Int
+  -> Int
+  -> [[AlignmentRow group]]
+  -> AlignmentGroup group
+makeGroup configuredWidth paddingLimit units = AlignmentGroup
+  { alignmentGroupLayout = if withinLimit
+      then AlignmentAligned
+      else AlignmentUnaligned
   , alignmentGroupRows = rows
-  , alignmentGroupCost = costOfUnits units
+  , alignmentGroupCost = if withinLimit
+      then cost
+      else unalignedCost configuredWidth rows
   }
  where
   rows = List.concat units
+  cost = costOfUnits configuredWidth units
+  withinLimit = not (candidateForcesUnaligned units)
+    && alignmentMaximumPadding cost <= paddingLimit
 
-costOfUnits :: [[AlignmentRow group]] -> AlignmentCost
-costOfUnits units = AlignmentCost
+candidateForcesUnaligned :: [[AlignmentRow group]] -> Bool
+candidateForcesUnaligned = any
+  $ any
+  $ any isUnaligned . alignmentRowCandidates
+ where
+  isUnaligned UnalignedLayout = True
+  isUnaligned _ = False
+
+costOfUnits :: Maybe Int -> [[AlignmentRow group]] -> AlignmentCost
+costOfUnits configuredWidth units = AlignmentCost
   { alignmentTargetWidth = targetWidth
-  , alignmentMaximumPadding = maximum (0 : paddings)
-  , alignmentTotalPadding = sum
-      $ zipWith (*) paddings (length <$> units)
-  , alignmentAffectedRows = sum
-      [ length unit
-      | (unit, padding) <- zip units paddings
-      , padding > 0
-      ]
+  , alignmentMaximumPadding = maximum $ 0 : rowPaddings
+  , alignmentTotalPadding = sum rowPaddings
+  , alignmentMaximumOverflow = maximum $ 0 : overflows
+  , alignmentTotalOverflow = sum overflows
+  , alignmentAffectedRows = length $ filter (> 0) rowPaddings
   , alignmentRowCount = length rows
   }
  where
   rows = List.concat units
   unitWidths = maximum . (0 :) . fmap alignmentRowWidth <$> units
   targetWidth = maximum $ 0 : unitWidths
-  paddings = (targetWidth -) <$> unitWidths
+  rowPaddings = (targetWidth -) . alignmentRowWidth <$> rows
+  overflows = case configuredWidth of
+    Nothing -> replicate (length rows) 0
+    Just width ->
+      [ max 0 $ alignmentRowContentWidth row + padding - width
+      | (row, padding) <- zip rows rowPaddings
+      ]
 
-requiredGroups :: AlignmentRow group -> [group]
-requiredGroups row =
-  [ group
-  | RequiredAlignment group <- alignmentRowCandidates row
-  ]
+unalignedCost :: Maybe Int -> [AlignmentRow group] -> AlignmentCost
+unalignedCost configuredWidth rows = AlignmentCost
+  { alignmentTargetWidth = maximum $ 0 : (alignmentRowWidth <$> rows)
+  , alignmentMaximumPadding = 0
+  , alignmentTotalPadding = 0
+  , alignmentMaximumOverflow = maximum $ 0 : overflows
+  , alignmentTotalOverflow = sum overflows
+  , alignmentAffectedRows = 0
+  , alignmentRowCount = length rows
+  }
+ where
+  overflows = case configuredWidth of
+    Nothing -> replicate (length rows) 0
+    Just width -> max 0 . subtract width . alignmentRowContentWidth <$> rows
 
-optionalGroupsFor :: AlignmentRow group -> [group]
-optionalGroupsFor row =
-  [ group
-  | OptionalAlignment group <- alignmentRowCandidates row
-  ]
+structuralKeys :: AlignmentRow group -> [group]
+structuralKeys row =
+  [group | StructuralAffinity group <- alignmentRowCandidates row]
 
-optionalUnitsConnected
+optionalKeys :: AlignmentRow group -> [group]
+optionalKeys row =
+  [group | OptionalAlignment group <- alignmentRowCandidates row]
+
+prohibitedKeys :: AlignmentRow group -> [group]
+prohibitedKeys row =
+  [group | ProhibitedAlignment group <- alignmentRowCandidates row]
+
+visuallyConnectedUnits
   :: Eq group => [AlignmentRow group] -> [AlignmentRow group] -> Bool
-optionalUnitsConnected left right = case (reverse left, right) of
+visuallyConnectedUnits left right = case (reverse left, right) of
   (leftRow : _, rightRow : _) -> not $ null
-    $ optionalGroupsFor leftRow `List.intersect` optionalGroupsFor rightRow
+    $ optionalKeys leftRow `List.intersect` optionalKeys rightRow
   _ -> False
