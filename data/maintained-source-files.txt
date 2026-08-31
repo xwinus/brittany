@@ -16,7 +16,11 @@ source/library/Language/Haskell/Brittany/Internal/Config/Types.hs
 source/library/Language/Haskell/Brittany/Internal/Config/Types/Instances.hs
 source/library/Language/Haskell/Brittany/Internal/ConstructorComments.hs
 source/library/Language/Haskell/Brittany/Internal/Delimiter.hs
+source/library/Language/Haskell/Brittany/Internal/Delimiter/Comments.hs
+source/library/Language/Haskell/Brittany/Internal/Delimiter/Render.hs
+source/library/Language/Haskell/Brittany/Internal/Delimiter/Render/Utils.hs
 source/library/Language/Haskell/Brittany/Internal/Delimiter/Types.hs
+source/library/Language/Haskell/Brittany/Internal/Delimiter/Validation.hs
 source/library/Language/Haskell/Brittany/Internal/ExactPrintCompat.hs
 source/library/Language/Haskell/Brittany/Internal/ExactPrintUtils.hs
 source/library/Language/Haskell/Brittany/Internal/ExactSource.hs

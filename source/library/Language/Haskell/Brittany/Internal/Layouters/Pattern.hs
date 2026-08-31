@@ -77,11 +77,22 @@ layoutPatNative lpat@(L _ pat) = docWrapNode (toL lpat) $ case pat of
   LitPat _ lit -> fmap Seq.singleton $ allocateNode $ litBriDoc lit
     -- 0 -> expr
   ParPat _ inner -> do
-    -- (nestedpat) -> expr
-    left <- docLit $ Text.pack "("
-    right <- docLit $ Text.pack ")"
     innerDocs <- colsWrapPat =<< layoutPat inner
-    return $ Seq.empty Seq.|> left Seq.|> innerDocs Seq.|> right
+    document <- docDelimitedSequence
+      ParenthesesDelimiter
+      (Text.pack "(")
+      (Text.pack ")")
+      (Just $ ExactPrintCompat.mkAnnKey $ toL lpat)
+      [ ( Just $ ExactPrintCompat.mkAnnKey $ toL inner
+        , PresentDelimiterChild
+        , pure innerDocs
+        )
+      ]
+      []
+      DelimiterIndentRegular
+      BlockDelimiterChild
+      [DelimiterCompact]
+    pure $ Seq.singleton document
     -- return $ (left Seq.<| innerDocs) Seq.|> right
     -- case Seq.viewl innerDocs of
     --   Seq.EmptyL -> fmap return $ docLit $ Text.pack "()" -- this should never occur..
@@ -173,8 +184,10 @@ layoutPatNative lpat@(L _ pat) = docWrapNode (toL lpat) $ case pat of
     -- (nestedpat1, nestedpat2, nestedpat3) -> expr
     -- (#nestedpat1, nestedpat2, nestedpat3#) -> expr
     case boxity of
-      Boxed -> wrapPatListy args "()" docParenL docParenR
-      Unboxed -> wrapPatListy args "(##)" docParenHashLSep docParenHashRSep
+      Boxed -> wrapPatListy lpat
+        ParenthesesDelimiter (Text.pack "(") (Text.pack ")") args
+      Unboxed -> wrapPatListy lpat
+        UnboxedParenthesesDelimiter (Text.pack "(#") (Text.pack "#)") args
   AsPat _ asName asPat -> do
     -- bind@nestedpat -> expr
     wrapPatPrepend asPat (docLit $ lrdrNameToText asName <> Text.pack "@")
@@ -201,7 +214,7 @@ layoutPatNative lpat@(L _ pat) = docWrapNode (toL lpat) $ case pat of
   ListPat _ elems ->
     -- [] -> expr1
     -- [nestedpat1, nestedpat2, nestedpat3] -> expr2
-    wrapPatListy elems "[]" docBracketL docBracketR
+    wrapPatListy lpat SquareBracketsDelimiter (Text.pack "[") (Text.pack "]") elems
   BangPat _ pat1 -> do
     -- !nestedpat -> expr
     wrapPatPrepend pat1 (docLit $ Text.pack "!")
@@ -301,20 +314,20 @@ layoutPatStructural lpat@(L _ pat)
   ParPat _ inner -> do
     innerDoc <- patternDocument =<< layoutPattern inner
     fmap Just $ docWrapNode (toL lpat)
-      $ docDelimitedAlternatives
+      $ docDelimitedSequence
         ParenthesesDelimiter
         (Text.pack "(")
         (Text.pack ")")
         (Just $ ExactPrintCompat.mkAnnKey $ toL lpat)
-        [Just $ ExactPrintCompat.mkAnnKey $ toL inner]
-        []
-        [ (DelimiterCompact, docSeq [docParenL, pure innerDoc, docParenR])
-        , ( DelimiterAttached
-          , docPar
-              (docSeq [docParenL, docSetIndentLevel $ pure innerDoc])
-              docParenR
+        [ ( Just $ ExactPrintCompat.mkAnnKey $ toL inner
+          , PresentDelimiterChild
+          , pure innerDoc
           )
         ]
+        []
+        DelimiterIndentRegular
+        PatternBlockDelimiterChild
+        [DelimiterCompact, DelimiterAttached]
   TuplePat _ elements boxity -> case boxity of
     Boxed -> layoutDelimitedPattern
       lpat ParenthesesDelimiter (Text.pack "(") (Text.pack ")")
@@ -392,44 +405,30 @@ layoutDelimitedPattern
   -> [LPat GhcPs]
   -> ToBriDocM (Maybe BriDocNumbered)
 layoutDelimitedPattern _ _ _ _ _ _ [] = pure Nothing
-layoutDelimitedPattern outer kind openToken closeToken open close elements = do
+layoutDelimitedPattern outer kind openToken closeToken _ _ elements = do
   elementDocs <- mapM (layoutPattern >=> patternDocument) elements
   fmap Just $ docWrapNode (toL outer)
-    $ docDelimitedAlternatives
+    $ docDelimitedSequence
       kind
       openToken
       closeToken
       (Just $ ExactPrintCompat.mkAnnKey $ toL outer)
-      (Just . ExactPrintCompat.mkAnnKey . toL <$> elements)
-      (replicate (max 0 $ length elements - 1) $ Text.pack ",")
-    $ case elementDocs of
-        [] -> []
-        [onlyPattern] ->
-          [ ( DelimiterCompact
-            , docSeq
-              [ appSep open
-              , pure onlyPattern
-              , docSeparator
-              , close
-              ]
-            )
-          ]
-        firstPattern : remainingPatterns ->
-          [ ( DelimiterAttached
-            , docSetBaseY $ docLines
-              $ [docSeq [appSep open, pure firstPattern, docCommaSep]]
-              ++ [ docEnsureIndent BrIndentRegular
-                   $ docSeq [pure elementDoc, docCommaSep]
-                 | elementDoc <- List.init remainingPatterns
-                 ]
-              ++ [ docEnsureIndent BrIndentRegular $ docSeq
-                   [ pure $ List.last remainingPatterns
-                   , docSeparator
-                   , close
-                   ]
-                 ]
-            )
-          ]
+      (zipWith
+        (\element document ->
+          ( Just $ ExactPrintCompat.mkAnnKey $ toL element
+          , PresentDelimiterChild
+          , pure document
+          )
+        )
+        elements
+        elementDocs)
+      (replicate (max 0 $ length elements - 1)
+        (RepeatedDelimiterSeparator, Text.pack ",", AttachSeparatorLeft))
+      DelimiterIndentRegular
+      TrailingDelimiterSeparators
+      (if length elements == 1
+        then [DelimiterCompact]
+        else [DelimiterAttached])
 
 layoutPatMultiline :: LPat GhcPs -> ToBriDocM (Maybe BriDocNumbered)
 layoutPatMultiline = layoutPatStructural
@@ -445,17 +444,31 @@ wrapPatPrepend pat prepElem = do
       return $ x1' Seq.<| xR
 
 wrapPatListy
-  :: [LPat GhcPs]
-  -> String
-  -> ToBriDocM BriDocNumbered
-  -> ToBriDocM BriDocNumbered
+  :: LPat GhcPs
+  -> DelimiterKind
+  -> Text
+  -> Text
+  -> [LPat GhcPs]
   -> ToBriDocM (Seq BriDocNumbered)
-wrapPatListy elems both start end = do
-  elemDocs <- Seq.fromList elems `forM` (layoutPat >=> colsWrapPat)
-  case Seq.viewl elemDocs of
-    Seq.EmptyL -> fmap Seq.singleton $ docLit $ Text.pack both
-    x1 Seq.:< rest -> do
-      sDoc <- start
-      eDoc <- end
-      rest' <- rest `forM` \bd -> docSeq [docCommaSep, return bd]
-      return $ (sDoc Seq.<| x1 Seq.<| rest') Seq.|> eDoc
+wrapPatListy outer kind open close elems = do
+  elemDocs <- elems `forM` (layoutPat >=> colsWrapPat)
+  document <- docDelimitedSequence
+    kind
+    open
+    close
+    (Just $ ExactPrintCompat.mkAnnKey $ toL outer)
+    (zipWith
+      (\element childDocument ->
+        ( Just $ ExactPrintCompat.mkAnnKey $ toL element
+        , PresentDelimiterChild
+        , pure childDocument
+        )
+      )
+      elems
+      elemDocs)
+    (replicate (max 0 $ length elems - 1)
+      (RepeatedDelimiterSeparator, Text.pack ",", AttachSeparatorRight))
+    DelimiterIndentRegular
+    PatternInlineDelimiter
+    [DelimiterCompact]
+  pure $ Seq.singleton document

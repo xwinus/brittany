@@ -7,7 +7,7 @@ module MultilineConstructorPatternEdge where
 handle
   (Run
     (Nested sourcePaths)
-    (excludedPaths   , ignoredPaths)
+    (excludedPaths, ignoredPaths)
     [builtInTemplates, templateRefs]
     variables
     runMode
@@ -61,7 +61,7 @@ adorned command = case command of
   Decorated
     !strictValueWithLongName
     ~lazyValueWithLongName
-    alias@(Nested nestedValue    )
-    (      typedValue :: Int     )
-    (      extract -> viewedValue) ->
+    alias@(Nested nestedValue)
+    (typedValue :: Int)
+    (extract -> viewedValue) ->
       result

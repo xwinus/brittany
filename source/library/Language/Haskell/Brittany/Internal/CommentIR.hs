@@ -151,8 +151,13 @@ lowerNode annotations plan state numbered@(nodeId, document)
       (line', state') <- lowerNode annotations plan state line
       (indented', state'') <- lowerNode annotations plan state' indented
       pure ((nodeId, BDFPar indent line' indented'), state'')
-    BDFDelimited group -> alternativeNode (BDFDelimited . replace group)
-      $ delimitedAlternativeDocument <$> delimitedAlternatives group
+    BDFDelimited group -> do
+      (documents, state') <- lowerChildren state
+        $ activeDelimitedDocuments group
+      pure
+        ( (nodeId, BDFDelimited $ replaceDelimitedDocuments documents group)
+        , state'
+        )
     BDFAlt alternatives -> alternativeNode BDFAlt alternatives
     BDFForwardLineMode child -> childNode BDFForwardLineMode child
     BDFExternal key addComment source -> case source of
@@ -259,7 +264,6 @@ lowerNode annotations plan state numbered@(nodeId, document)
           , selectedState
           )
       _ -> throwLower [AlternativeCommentMismatch coverages]
-  replace group alternatives = replaceDelimitedDocuments alternatives group
   plannedNodes current comments = Monad.foldM add ([], current)
     $ relativeCommentDeltas plan comments
   add (nodes, current) commentWithDelta@(comment, _) =
@@ -306,7 +310,7 @@ cacheDiscriminator = \case
   BDFCols signature children -> structural ("cols:" ++ show signature) children
   BDFAlt alternatives -> structural "alt" alternatives
   BDFDelimited group -> structural "delimited"
-    $ delimitedAlternativeDocument <$> delimitedAlternatives group
+    $ activeDelimitedDocuments group
   _ -> Nothing
  where
   structural label children = Just $ label ++ ":" ++ show (fst <$> children)

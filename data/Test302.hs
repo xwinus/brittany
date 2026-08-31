@@ -8,11 +8,11 @@ parserPrim =
     , _  <- string "f"
     ]
     <|> [ SGPPrimFloat $ bool id (0 -) minus $ fromIntegral
-            (readGnok "parserPrim" d1 :: Integer)
+          (readGnok "parserPrim" d1 :: Integer)
         | _ <- string "f"
         ]
     <|> [ SGPPrimInt $ bool id (0 -) minus $ fromIntegral
-            (readGnok "parserPrim" d1 :: Integer)
+          (readGnok "parserPrim" d1 :: Integer)
         | _ <- string "i"
         ]
   ]

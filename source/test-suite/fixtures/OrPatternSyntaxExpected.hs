@@ -3,4 +3,4 @@
 module OrPatternSyntaxExpected where
 pattern Present value = Just value
 classify (Nothing ; Just 0) = "empty"
-classify (Just value      ) = show value
+classify (Just value)       = show value

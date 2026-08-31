@@ -6,6 +6,7 @@
 module Language.Haskell.Brittany.Internal.Layouters.IE where
 
 import qualified Data.List.Extra
+import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
 import GHC
   ( GenLocated(L)
@@ -19,12 +20,13 @@ import GHC.Types.SrcLoc (SrcSpan)
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..))
 import GHC.Hs
 import qualified GHC.OldList as List
+import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.Delimiter.Types
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrintCompat
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Prelude
+import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
-import Language.Haskell.Brittany.Internal.Utils
 
 parenthesizeIfSymbolic :: Text -> Text
 parenthesizeIfSymbolic nameText =
@@ -57,36 +59,31 @@ layoutIE lie@(L _ ie) = docWrapNode lie $ case ie of
       : map (hasAnyCommentsBelow . toL) ns
       )
     let sortedNs = List.sortOn wrappedNameToText ns
-    runFilteredAlternative $ do
-      addAlternativeCond (not hasComments)
-        $ docSeq
-        $ [layoutWrapped x, docLit $ Text.pack "("]
-        ++ intersperse docCommaSep (map nameDoc sortedNs)
-        ++ [docParenR]
-      addAlternative
-        $ docWrapNodeRest lie
+    group <- docDelimitedSequence
+      ParenthesesDelimiter
+      (Text.pack "(")
+      (Text.pack ")")
+      (Just $ ExactPrintCompat.mkAnnKey lie)
+      [ ( Just $ ExactPrintCompat.mkAnnKey $ toL childName
+        , PresentDelimiterChild
+        , docWrapNode (toL childName) $ nameDoc childName
+        )
+      | childName <- sortedNs
+      ]
+      (replicate (max 0 $ length sortedNs - 1)
+        (RepeatedDelimiterSeparator, Text.pack ",", AttachSeparatorRight))
+      DelimiterIndentRegular
+      NestedIEDelimiter
+      ([DelimiterCompact | not hasComments] ++ [DelimiterAttached])
+    docAlt
+      [ docForceSingleline $ docSeq [layoutWrapped x, pure group]
+      , docWrapNodeRest lie
         $ docAddBaseY BrIndentRegular
-        $ docPar (layoutWrapped x) (layoutItems (splitFirstLast sortedNs))
+        $ docPar (layoutWrapped x) $ docForceMultiline $ pure group
+      ]
    where
     nameDoc = docLit
       <=< (fmap parenthesizeIfSymbolic . lrdrNameToTextAnn . toLocatedRdrName)
-    layoutItem n = docSeq [docCommaSep, docWrapNode (toL n) $ nameDoc n]
-    layoutItems FirstLastEmpty = docSetBaseY $ docLines
-      [ docSeq [docParenLSep, docNodeAnnKW lie (Just AnnOpenP) docEmpty]
-      , docParenR
-      ]
-    layoutItems (FirstLastSingleton n) = docSetBaseY $ docLines
-      [ docSeq [docParenLSep, docNodeAnnKW lie (Just AnnOpenP) $ nameDoc n]
-      , docParenR
-      ]
-    layoutItems (FirstLast n1 nMs nN) =
-      docSetBaseY
-        $ docLines
-        $ [docSeq [docParenLSep, docWrapNode (toL n1) $ nameDoc n1]]
-        ++ map layoutItem nMs
-        ++ [ docSeq [docCommaSep, docNodeAnnKW lie (Just AnnOpenP) $ nameDoc nN]
-           , docParenR
-           ]
   IEModuleContents _ n -> docSeq
     [ docLit $ Text.pack "module"
     , docSeparator
@@ -123,16 +120,13 @@ data SortItemsFlag = ShouldSortItems | KeepItemsUnsorted
 -- Helper function to deal with Located lists of LIEs.
 -- In particular this will also associate documentation
 -- from the located list that actually belongs to the last IE.
--- It also adds docCommaSep to all but the first element
--- This configuration allows both vertical and horizontal
--- handling of the resulting list. Adding parens is
--- left to the caller since that is context sensitive
-layoutAnnAndSepLLIEs
+-- Separators and parentheses are intentionally left to the structural
+-- delimiter sequence so they cannot become detached from their boundaries.
+layoutAnnLLIEs
   :: SortItemsFlag
   -> Located [LIE GhcPs]
   -> ToBriDocM [ToBriDocM BriDocNumbered]
-layoutAnnAndSepLLIEs shouldSort llies@(L _ lies) = do
-  let makeIENode ie = docSeq [docCommaSep, ie]
+layoutAnnLLIEs shouldSort llies@(L _ lies) = do
   let
     sortedLies =
       [ items
@@ -144,11 +138,7 @@ layoutAnnAndSepLLIEs shouldSort llies@(L _ lies) = do
       ShouldSortItems -> sortedLies
       KeepItemsUnsorted -> lies
   ieCommaDocs <-
-    docWrapNode llies $ sequence $ case splitFirstLast ieDocs of
-      FirstLastEmpty -> []
-      FirstLastSingleton ie -> [ie]
-      FirstLast ie1 ieMs ieN ->
-        [ie1] ++ map makeIENode ieMs ++ [makeIENode ieN]
+    docWrapNode llies $ sequence ieDocs
   pure $ fmap pure ieCommaDocs -- returned shared nodes
  where
   mergeGroup :: [LIE GhcPs] -> [LIE GhcPs]
@@ -206,40 +196,50 @@ layoutAnnAndSepLLIEs shouldSort llies@(L _ lies) = do
 -- )
 layoutLLIEs
   :: Bool -> SortItemsFlag -> Located [LIE GhcPs] -> ToBriDocM BriDocNumbered
-layoutLLIEs enableSingleline shouldSort llies = do
-  ieDs <- layoutAnnAndSepLLIEs shouldSort llies
+layoutLLIEs = layoutLLIEsWithIndent DelimiterIndentNone
+
+layoutLLIEsWithIndent
+  :: DelimiterIndent
+  -> Bool
+  -> SortItemsFlag
+  -> Located [LIE GhcPs]
+  -> ToBriDocM BriDocNumbered
+layoutLLIEsWithIndent indent enableSingleline shouldSort llies = do
+  ieDs <- layoutAnnLLIEs shouldSort llies
   hasComments <- hasAnyCommentsBelow llies
-  docDelimitedAlternatives
+  columnAlignMode <-
+    mAsk <&> _conf_layout .> _lconfig_columnAlignMode .> confUnpack
+  let owners = case shouldSort of
+        ShouldSortItems -> repeat Nothing
+        KeepItemsUnsorted -> Just . ExactPrintCompat.mkAnnKey . toL <$> unLoc llies
+      children = zipWith
+        (\owner document -> (owner, PresentDelimiterChild, document))
+        owners
+        ieDs
+      separators = replicate (max 0 $ length ieDs - 1)
+        (RepeatedDelimiterSeparator, Text.pack ",", AttachSeparatorRight)
+      layouts = case ieDs of
+        []
+          | hasComments -> [DelimiterAttached]
+          | otherwise -> [DelimiterCompact]
+        _ -> [ DelimiterCompact
+             | not hasComments && (enableSingleline || length ieDs == 1)
+             ]
+          ++ [DelimiterAttached]
+  docDelimitedSequence
     ParenthesesDelimiter
     (Text.pack "(")
     (Text.pack ")")
     (Just $ ExactPrintCompat.mkAnnKey llies)
-    (Just . ExactPrintCompat.mkAnnKey . toL <$> unLoc llies)
-    (replicate (max 0 $ length ieDs - 1) $ Text.pack ",")
-    $ case ieDs of
-      [] ->
-        [ (DelimiterCompact, docLit $ Text.pack "()") | not hasComments ]
-        ++ [ ( DelimiterAttached
-             , docPar
-               (docSeq [docParenLSep, docWrapNodeRest llies docEmpty])
-               docParenR
-             )
-           | hasComments
-           ]
-      ieDsH : ieDsT ->
-        [ ( DelimiterCompact
-          , docSeq
-            $ [docLit $ Text.pack "("]
-            ++ (docForceSingleline <$> ieDs)
-            ++ [docParenR]
-          )
-        | not hasComments && enableSingleline
-        ]
-        ++ [ ( DelimiterAttached
-             , docPar (docSetBaseY $ docSeq [docParenLSep, ieDsH])
-               $ docLines $ ieDsT ++ [docParenR]
-             )
-           ]
+    children
+    separators
+    indent
+    (case shouldSort of
+      ShouldSortItems -> case columnAlignMode of
+        ColumnAlignModeDisabled -> TightImportExportDelimiter
+        _ -> ImportExportDelimiter
+      KeepItemsUnsorted -> ModuleExportDelimiter)
+    layouts
 
 -- | Returns a "fingerprint string", not a full text representation, nor even
 -- a source code representation of this syntax node.

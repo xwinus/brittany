@@ -40,8 +40,7 @@ layoutRecordPattern layoutChild outer name (HsRecFields _ fields dotdot) = do
   let leadingComments = case fieldDocs of
         [] -> []
         (firstField, _, _) : _ -> filter
-          (patternSourceCommentPrecedesNode firstField)
-          sourceComments
+          (patternSourceCommentPrecedesNode firstField) sourceComments
       fieldComments
         :: Located field -> LPat GhcPs -> [SourceComment]
       fieldComments field value = filter
@@ -61,54 +60,52 @@ layoutRecordPattern layoutChild outer name (HsRecFields _ fields dotdot) = do
       dotdotEnabled = case dotdot of
         Just (L _ (RecFieldsDotDot index)) -> index == length fields
         Nothing -> False
-      recordRows = case rowFields of
-        [] -> if dotdotEnabled
-          then [docSeq [docLit $ Text.pack "{", docLit $ Text.pack "..}"]]
-          else [docLit $ Text.pack "{}"]
-        firstField : remainingFields ->
-          recordFieldRow (docLit $ Text.pack "{") firstField
-            : [ recordFieldRow docCommaSep field
-              | field <- remainingFields
-              ]
-            ++ (if dotdotEnabled
-                  then [docSeq [docCommaSep, docLit $ Text.pack ".."]]
-                  else []
-               )
-            ++ [docLit $ Text.pack "}"]
-      rows = (layoutPatternSourceComment <$> leadingComments) ++ recordRows
-      children =
-        [ Just $ ExactPrintCompat.mkAnnKey field
-        | (field, _, _) <- fieldDocs
-        ]
-        ++ [Nothing | dotdotEnabled]
-  docWrapNode (toL outer)
-    $ docDelimitedAlternatives
+      children = zipWith
+        (\index field@(located, _, _, _) ->
+          ( Just $ ExactPrintCompat.mkAnnKey located
+          , PresentDelimiterChild
+          , recordFieldRow (index == 0) field
+          )
+        )
+        [0 :: Int ..]
+        rowFields
+        ++ [ ( Nothing
+             , RecordWildcardDelimiterChild
+             , docLit $ Text.pack ".."
+             )
+           | dotdotEnabled
+           ]
+      layouts = [DelimiterAttached]
+  docWrapNode (toL outer) $ do
+    group <- docDelimitedSequence
       CurlyBracesDelimiter
       (Text.pack "{")
       (Text.pack "}")
       (Just $ ExactPrintCompat.mkAnnKey $ toL outer)
       children
-      (replicate (max 0 $ length children - 1) $ Text.pack ",")
-      [ ( DelimiterAttached
-        , docAddBaseY BrIndentRegular
-          $ docPar (pure nameDoc)
-          $ docSetIndentLevel
-          $ docLines rows
-        )
-      ]
+      (replicate (max 0 $ length children - 1)
+        (RepeatedDelimiterSeparator, Text.pack ",", AttachSeparatorRight))
+      DelimiterIndentRegular
+      RecordDelimiterFields
+      layouts
+    let body = case leadingComments of
+          [] -> pure group
+          comments -> docLines
+            $ (layoutPatternSourceComment <$> comments) ++ [pure group]
+    docAddBaseY BrIndentRegular
+      $ docPar (pure nameDoc) $ docSetIndentLevel body
 
 recordFieldRow
-  :: ToBriDocM BriDocNumbered
+  :: Bool
   -> ( Located (HsFieldBind (LocatedA (FieldOcc GhcPs)) (LPat GhcPs))
      , Text.Text
      , Maybe (LPat GhcPs, PatternLayout)
      , [SourceComment]
      )
   -> ToBriDocM BriDocNumbered
-recordFieldRow punctuation (field, fieldName, valueLayout, sourceComments) =
-  docWrapNode field $ docCols ColRec
-    [ appSep punctuation
-    , appSep $ docLit fieldName
+recordFieldRow isFirst (field, fieldName, valueLayout, sourceComments) =
+  (if isFirst then docWrapNodeRest field else docWrapNode field) $ docCols ColRec
+    [ appSep $ docLit fieldName
     , case valueLayout of
         Nothing -> docEmpty
         Just (_, layout) -> recordPatternFieldValue sourceComments layout

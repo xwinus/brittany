@@ -18,6 +18,7 @@ import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
 import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.Config.Types
+import Language.Haskell.Brittany.Internal.Delimiter (delimiterLayoutDocuments)
 import Language.Haskell.Brittany.Internal.Delimiter.Types
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
@@ -260,21 +261,15 @@ transformAlts =
                                       -- fail-early approach; BDEmpty does not
                                       -- make sense semantically for Alt[].
       BDFAlt alts -> chooseAlternative alts >>= rec
-      BDFDelimited group -> case validateDelimitedGroup group of
+      BDFDelimited group -> case delimiterLayoutDocuments brDcId group of
         Left{} -> return $ reWrap $ BDFDelimited group
-        Right{} -> do
-          let alternatives = delimitedAlternatives group
-              documents = delimitedAlternativeDocument <$> alternatives
-          chosen <- chooseAlternative documents
+        Right alternatives -> do
+          chosen <- chooseAlternative $ snd <$> alternatives
           chosen' <- rec chosen
-          let selected = fromMaybe (List.last alternatives)
-                $ List.find
-                  ((== fst chosen) . fst . delimitedAlternativeDocument)
-                  alternatives
-          return $ reWrap $ BDFDelimited $ group
-            { delimitedAlternatives =
-                [selected { delimitedAlternativeDocument = chosen' }]
-            }
+          let selectedLayout = fromMaybe (fst $ List.last alternatives)
+                $ fst <$> List.find ((== fst chosen) . fst . snd) alternatives
+          return $ reWrap $ BDFDelimited
+            $ selectDelimitedDocument selectedLayout chosen' group
       BDFForceMultiline bd -> do
         acp <- mGet
         x <- do
@@ -573,9 +568,10 @@ getSpacing !bridoc = rec bridoc
       BDFPar{} -> error "BDPar with indent in getSpacing"
       BDFAlt [] -> error "empty BDAlt"
       BDFAlt (alt : _) -> rec alt
-      BDFDelimited group -> case delimitedAlternatives group of
-        [] -> error "empty BDFDelimited"
-        alternative : _ -> rec $ delimitedAlternativeDocument alternative
+      BDFDelimited group -> case delimiterLayoutDocuments brDcId group of
+        Left{} -> return LineModeInvalid
+        Right [] -> return LineModeInvalid
+        Right ((_, document) : _) -> rec document
       BDFForceMultiline bd -> do
         mVs <- rec bd
         return $ mVs >>= _vs_paragraph .> \case
@@ -889,9 +885,11 @@ getSpacings limit bridoc = preFilterLimit <$> rec bridoc
         r <- rec `mapM` alts
         return $ filterAndLimit =<< r
       BDFDelimited group -> do
-        r <- rec `mapM`
-          (delimitedAlternativeDocument <$> delimitedAlternatives group)
-        return $ filterAndLimit =<< r
+        case delimiterLayoutDocuments brDcId group of
+          Left{} -> return []
+          Right alternatives -> do
+            r <- rec `mapM` (snd <$> alternatives)
+            return $ filterAndLimit =<< r
       BDFForceMultiline bd -> do
         mVs <- filterAndLimit <$> rec bd
         return $ filter ((/= VerticalSpacingParNone) . _vs_paragraph) mVs

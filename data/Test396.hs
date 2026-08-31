@@ -2,7 +2,7 @@
 {-# LANGUAGE ImplicitParams #-}
 func
   :: ( ?asd
-     :: lkasdlkjalsdjlakjsdlkjasldkjalskdjlkajsd
-     -> lkasdlkjalsdjlakjsdlkjasldkjalskdjlkajsd
-     )
+  :: lkasdlkjalsdjlakjsdlkjasldkjalskdjlkajsd
+  -> lkasdlkjalsdjlakjsdlkjasldkjalskdjlkajsd
+  )
   -> ()

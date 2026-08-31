@@ -12,5 +12,5 @@ lazyIdentity (
   value
 isEmpty (length
   -- Keep the view-pattern arrow comment.
-  -> 0              ) = True
+  -> 0)               = True
 isEmpty _ = False

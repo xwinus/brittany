@@ -19,17 +19,13 @@ transformSimplifyPar = transformUp $ \case
   --   Just $ BDPar ind1 line (BDLines [p1, p2])
   x@(BDPar _ (BDPar _ BDPar{} _) _) -> x
   BDPar ind1 (BDDelimited group) (BDLines indenteds)
-    | Right alternative <- selectedDelimiterAlternative group
-    , BDPar ind2 line p1 <- delimitedAlternativeDocument alternative
-    -> BDDelimited $ mapDelimitedGroup
-      (const $ BDPar ind1 line $ BDLines (BDEnsureIndent ind2 p1 : indenteds))
-      group
+    | Right (layout, BDPar ind2 line p1) <- selectedDelimiterDocument group
+    -> BDDelimited $ selectDelimitedDocument layout
+      (BDPar ind1 line $ BDLines (BDEnsureIndent ind2 p1 : indenteds)) group
   BDPar ind1 (BDDelimited group) p2
-    | Right alternative <- selectedDelimiterAlternative group
-    , BDPar ind2 line p1 <- delimitedAlternativeDocument alternative
-    -> BDDelimited $ mapDelimitedGroup
-      (const $ BDPar ind1 line $ BDLines [BDEnsureIndent ind2 p1, p2])
-      group
+    | Right (layout, BDPar ind2 line p1) <- selectedDelimiterDocument group
+    -> BDDelimited $ selectDelimitedDocument layout
+      (BDPar ind1 line $ BDLines [BDEnsureIndent ind2 p1, p2]) group
   BDPar ind1 (BDPar ind2 line p1) (BDLines indenteds) ->
     BDPar ind1 line (BDLines (BDEnsureIndent ind2 p1 : indenteds))
   BDPar ind1 (BDPar ind2 line p1) p2 ->

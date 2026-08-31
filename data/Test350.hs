@@ -1,10 +1,10 @@
 xeoeqibIaib
   :: ( KqujhIsaus m
-     , XivuvIpoboi Droqifim m
-     , IgorvOtowtf m
-     , RyagaYaqac m
-     , QouruDU m
-     )
+  , XivuvIpoboi Droqifim m
+  , IgorvOtowtf m
+  , RyagaYaqac m
+  , QouruDU m
+  )
   => MaptAdfuxgu
   -> Zcnxg NsxayqmvIjsezea -- ^ if Lvqucoo, opsip jl reyoyhk lfil qaculxgd
   -> QNOZqwuzg

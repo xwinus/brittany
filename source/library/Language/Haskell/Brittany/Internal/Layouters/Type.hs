@@ -46,8 +46,6 @@ import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import qualified Language.Haskell.Brittany.Internal.Layouters.Type.Operator as Operator
-import Language.Haskell.Brittany.Internal.Utils
-  (FirstLastView(..), splitFirstLast)
 import Unsafe.Coerce (unsafeCoerce)
 
 
@@ -64,7 +62,7 @@ layoutType ltype = layoutType' (toL ltype)
       case promoted of
         IsPromoted -> docSeq [docSeparator, docTick, docWrapNode (toL name) $ docLit t']
         NotPromoted -> docWrapNode (toL name) $ docLit t'
-    HsForAllTy _ hsf (L _ (HsQualTy _ (L _ cntxts) typ2)) -> do
+    HsForAllTy _ hsf (L _ (HsQualTy _ lcntxts@(L _ cntxts) typ2)) -> do
       let bndrs = getBinders hsf
       let sep = case hsf of
             HsForAllVis{}   -> " -> "
@@ -96,19 +94,29 @@ layoutType ltype = layoutType' (toL ltype)
             )
           ]
         contextDoc = case cntxtDocs of
-          [] -> docLit $ Text.pack "()"
+          [] -> docDelimitedSequence
+            ParenthesesDelimiter (Text.pack "(") (Text.pack ")")
+            (Just $ ExactPrintCompat.mkAnnKey $ toL lcntxts)
+            [] [] DelimiterIndentRegular LeadingDelimiterSeparators
+            [DelimiterCompact]
           [x] -> x
-          _ -> docAlt
-            [ let open = docLit $ Text.pack "("
-                  close = docLit $ Text.pack ")"
-                  list = List.intersperse docCommaSep $ docForceSingleline <$> cntxtDocs
-                in docSeq ([open] ++ list ++ [close])
-            , let
-                open = docCols ColTyOpPrefix [docParenLSep, docAddBaseY (BrIndentSpecial 2) $ head cntxtDocs]
-                close = docLit $ Text.pack ")"
-                list = List.tail cntxtDocs <&> \cntxtDoc -> docCols ColTyOpPrefix [docCommaSep, docAddBaseY (BrIndentSpecial 2) cntxtDoc]
-                in docPar open $ docLines $ list ++ [close]
-            ]
+          _ -> docDelimitedSequence
+            ParenthesesDelimiter (Text.pack "(") (Text.pack ")")
+            (Just $ ExactPrintCompat.mkAnnKey $ toL lcntxts)
+            (zipWith
+              (\context document ->
+                ( Just $ ExactPrintCompat.mkAnnKey $ toL context
+                , PresentDelimiterChild
+                , document
+                )
+              )
+              cntxts
+              cntxtDocs)
+            (replicate (max 0 $ length cntxtDocs - 1)
+              (RepeatedDelimiterSeparator, Text.pack ",", AttachSeparatorRight))
+            (DelimiterIndentFixed 2)
+            TypeDelimiterSeparators
+            [DelimiterCompact, DelimiterHanging]
       let multilineDoc = docPar
             forallDoc
             (docLines
@@ -234,21 +242,29 @@ layoutType ltype = layoutType' (toL ltype)
       cntxtDocs <- cntxts' `forM` docSharedWrapper layoutType
       let
         contextDoc = docWrapNode lcntxts' $ case cntxtDocs of
-          [] -> docLit $ Text.pack "()"
+          [] -> docDelimitedSequence
+            ParenthesesDelimiter (Text.pack "(") (Text.pack ")")
+            (Just $ ExactPrintCompat.mkAnnKey lcntxts')
+            [] [] DelimiterIndentRegular LeadingDelimiterSeparators
+            [DelimiterCompact]
           [x] -> x
-          _ -> docAlt
-            [ let
-              open = docLit $ Text.pack "("
-              close = docLit $ Text.pack ")"
-              list =
-                List.intersperse docCommaSep $ docForceSingleline <$> cntxtDocs
-            in docSeq ([open] ++ list ++ [close])
-            , let
-                open = docCols ColTyOpPrefix [docParenLSep, docAddBaseY (BrIndentSpecial 2) $ head cntxtDocs]
-                close = docLit $ Text.pack ")"
-                list = List.tail cntxtDocs <&> \cntxtDoc -> docCols ColTyOpPrefix [docCommaSep, docAddBaseY (BrIndentSpecial 2) cntxtDoc]
-            in docPar open $ docLines $ list ++ [close]
-            ]
+          _ -> docDelimitedSequence
+            ParenthesesDelimiter (Text.pack "(") (Text.pack ")")
+            (Just $ ExactPrintCompat.mkAnnKey lcntxts')
+            (zipWith
+              (\context document ->
+                ( Just $ ExactPrintCompat.mkAnnKey context
+                , PresentDelimiterChild
+                , document
+                )
+              )
+              cntxts'
+              cntxtDocs)
+            (replicate (max 0 $ length cntxtDocs - 1)
+              (RepeatedDelimiterSeparator, Text.pack ",", AttachSeparatorRight))
+            (DelimiterIndentFixed 2)
+            TypeDelimiterSeparators
+            [DelimiterCompact, DelimiterHanging]
       let
         maybeForceML = case toL typ1 of
           (L _ HsFunTy{}) -> docForceMultiline
@@ -299,21 +315,20 @@ layoutType ltype = layoutType' (toL ltype)
            ]
     HsParTy _ typ1 -> do
       typeDoc1 <- docSharedWrapper layoutType (toL typ1)
-      docAlt
-        [ docSeq
-          [  docLit $ Text.pack "("
-          , docForceSingleline typeDoc1
-          , docLit $ Text.pack ")"
-          ]
-        , docPar
-          (docCols
-            ColTyOpPrefix
-            [  docParenLSep
-            , docAddBaseY (BrIndentSpecial 2) $ typeDoc1
-            ]
+      docDelimitedSequence
+        ParenthesesDelimiter
+        (Text.pack "(")
+        (Text.pack ")")
+        (Just $ ExactPrintCompat.mkAnnKey ltype)
+        [ ( Just $ ExactPrintCompat.mkAnnKey $ toL typ1
+          , PresentDelimiterChild
+          , typeDoc1
           )
-          (docLit $ Text.pack ")")
         ]
+        []
+        (DelimiterIndentFixed 2)
+        TypeBlockDelimiterChild
+        [DelimiterCompact, DelimiterAttached]
     HsAppTy _ typ1@(L _ HsAppTy{}) typ2 -> do
       let
         gather
@@ -340,31 +355,20 @@ layoutType ltype = layoutType' (toL ltype)
         ]
     HsListTy _ typ1 -> do
       typeDoc1 <- docSharedWrapper layoutType (toL typ1)
-      docDelimitedAlternatives
+      docDelimitedSequence
         SquareBracketsDelimiter
         (Text.pack "[")
         (Text.pack "]")
         (Just $ ExactPrintCompat.mkAnnKey ltype)
-        [Just $ ExactPrintCompat.mkAnnKey $ toL typ1]
-        []
-        [ ( DelimiterCompact
-          , docSeq
-          [ docLit $ Text.pack "["
-          , docForceSingleline typeDoc1
-          , docLit $ Text.pack "]"
-          ]
-          )
-        , ( DelimiterAttached
-          , docPar
-          (docCols
-            ColTyOpPrefix
-            [ docLit $ Text.pack "[ "
-            , docAddBaseY (BrIndentSpecial 2) $ typeDoc1
-            ]
-          )
-          (docLit $ Text.pack "]")
+        [ ( Just $ ExactPrintCompat.mkAnnKey $ toL typ1
+          , PresentDelimiterChild
+          , typeDoc1
           )
         ]
+        []
+        (DelimiterIndentFixed 2)
+        TypeBlockDelimiterChild
+        [DelimiterCompact, DelimiterAttached]
     HsTupleTy _ tupleSort typs -> case tupleSort of
       HsUnboxedTuple -> unboxed
       HsBoxedOrConstraintTuple -> simple
@@ -373,74 +377,58 @@ layoutType ltype = layoutType' (toL ltype)
           then error "brittany internal error: unboxed unit"
           else unboxedL
         simple = if null typs then unitL else simpleL
-        unitL = docDelimitedAlternatives
+        unitL = docDelimitedSequence
           ParenthesesDelimiter
           (Text.pack "(")
           (Text.pack ")")
           (Just $ ExactPrintCompat.mkAnnKey ltype)
           []
           []
-          [(DelimiterCompact, docLit $ Text.pack "()")]
+          DelimiterIndentRegular
+          LeadingDelimiterSeparators
+          [DelimiterCompact]
         simpleL = do
           docs <- docSharedWrapper layoutType `mapM` (map toL typs)
-          let
-            end = docLit $ Text.pack ")"
-            lines =
-              List.tail docs
-                <&> \d -> docAddBaseY (BrIndentSpecial 2)
-                      $ docCols ColTyOpPrefix [docCommaSep, d]
-            commaDocs = List.intersperse docCommaSep (docForceSingleline <$> docs)
-          docDelimitedAlternatives
+          docDelimitedSequence
             ParenthesesDelimiter
             (Text.pack "(")
             (Text.pack ")")
             (Just $ ExactPrintCompat.mkAnnKey ltype)
-            (Just . ExactPrintCompat.mkAnnKey . toL <$> typs)
-            (replicate (max 0 $ length typs - 1) $ Text.pack ",")
-            [ ( DelimiterCompact
-              , docSeq
-            $ [docLit $ Text.pack "("]
-            ++ commaDocs
-            ++ [end]
+            (zipWith
+              (\typ document ->
+                ( Just $ ExactPrintCompat.mkAnnKey $ toL typ
+                , PresentDelimiterChild
+                , document
+                )
               )
-            , ( DelimiterAttached
-              , let line1 = docCols ColTyOpPrefix [docParenLSep, head docs]
-              in
-                docPar
-                  (docAddBaseY (BrIndentSpecial 2) $ line1)
-                  (docLines $ lines ++ [end])
-              )
-            ]
+              typs
+              docs)
+            (replicate (max 0 $ length typs - 1)
+              (RepeatedDelimiterSeparator, Text.pack ",", AttachSeparatorRight))
+            (DelimiterIndentFixed 2)
+            TypeDelimiterSeparators
+            [DelimiterCompact, DelimiterAttached]
         unboxedL = do
           docs <- docSharedWrapper layoutType `mapM` (map toL typs)
-          let
-            start = docParenHashLSep
-            end = docParenHashRSep
-          docDelimitedAlternatives
+          docDelimitedSequence
             UnboxedParenthesesDelimiter
             (Text.pack "(#")
             (Text.pack "#)")
             (Just $ ExactPrintCompat.mkAnnKey ltype)
-            (Just . ExactPrintCompat.mkAnnKey . toL <$> typs)
-            (replicate (max 0 $ length typs - 1) $ Text.pack ",")
-            [ ( DelimiterCompact
-              , docSeq
-            $ [start]
-            ++ List.intersperse docCommaSep docs
-            ++ [end]
+            (zipWith
+              (\typ document ->
+                ( Just $ ExactPrintCompat.mkAnnKey $ toL typ
+                , PresentDelimiterChild
+                , document
+                )
               )
-            , ( DelimiterAttached
-              , let
-                line1 = docCols ColTyOpPrefix [start, head docs]
-                lines =
-                  List.tail docs
-                    <&> \d -> docAddBaseY (BrIndentSpecial 2)
-                          $ docCols ColTyOpPrefix [docCommaSep, d]
-              in docPar
-                (docAddBaseY (BrIndentSpecial 2) line1)
-                (docLines $ lines ++ [end])
-              )
-            ]
+              typs
+              docs)
+            (replicate (max 0 $ length typs - 1)
+              (RepeatedDelimiterSeparator, Text.pack ",", AttachSeparatorRight))
+            (DelimiterIndentFixed 2)
+            TypeDelimiterSeparators
+            [DelimiterCompact, DelimiterAttached]
     HsOpTy _ promotion typ1 opName typ2 ->
       Operator.layoutOperatorType layoutType ltype promotion typ1 opName typ2
     HsIParamTy _ (L _ (HsIPName ipName)) typ1 -> do
@@ -564,53 +552,26 @@ layoutType ltype = layoutType' (toL ltype)
     HsExplicitListTy _ _ typs -> do
       typDocs <- (docSharedWrapper layoutType) `mapM` (map toL typs)
       hasComments <- hasAnyCommentsBelow ltype
-      let specialCommaSep = appSep $ docLit $ Text.pack " ,"
-      docAlt
-        [ docSeq
-        $ [docLit $ Text.pack "'["]
-        ++ List.intersperse specialCommaSep (docForceSingleline <$> typDocs)
-        ++ [docLit $ Text.pack "]"]
-        , case splitFirstLast typDocs of
-          FirstLastEmpty ->
-            docSeq
-            [ docLit $ Text.pack "'["
-            , docNodeAnnKW ltype (Just AnnOpenS) $ docLit $ Text.pack "]"
-            ]
-          FirstLastSingleton e -> docAlt
-            [ docSeq
-              [ docLit $ Text.pack "'["
-              , docNodeAnnKW ltype (Just AnnOpenS) $ docForceSingleline e
-              , docLit $ Text.pack "]"
-              ]
-            , docSetBaseY $ docLines
-              [ docSeq
-                [ docLit $ Text.pack "'["
-                , docSeparator
-                , docSetBaseY $ docNodeAnnKW ltype (Just AnnOpenS) e
-                ]
-              , docLit $ Text.pack " ]"
-              ]
-            ]
-          FirstLast e1 ems eN -> runFilteredAlternative $ do
-            addAlternativeCond (not hasComments)
-              $ docSeq
-              $ [docLit $ Text.pack "'["]
-              ++ List.intersperse
-                   specialCommaSep
-                   (docForceSingleline
-                   <$> (e1 : ems ++ [docNodeAnnKW ltype (Just AnnOpenS) eN])
-                   )
-              ++ [docLit $ Text.pack " ]"]
-            addAlternative
-              $ let
-                  start = docCols ColList [appSep $ docLit $ Text.pack "'[", e1]
-                  linesM = ems <&> \d -> docCols ColList [specialCommaSep, d]
-                  lineN = docCols
-                    ColList
-                    [specialCommaSep, docNodeAnnKW ltype (Just AnnOpenS) eN]
-                  end = docLit $ Text.pack " ]"
-                in docSetBaseY $ docLines $ [start] ++ linesM ++ [lineN] ++ [end]
-        ]
+      docDelimitedSequence
+        CustomDelimiter
+        (Text.pack "'[")
+        (Text.pack "]")
+        (Just $ ExactPrintCompat.mkAnnKey ltype)
+        (zipWith
+          (\typ document ->
+            ( Just $ ExactPrintCompat.mkAnnKey $ toL typ
+            , PresentDelimiterChild
+            , document
+            )
+          )
+          typs
+          typDocs)
+        (replicate (max 0 $ length typs - 1)
+          (RepeatedDelimiterSeparator, Text.pack ",", AttachSeparatorRight))
+        DelimiterIndentRegular
+        PromotedListDelimiter
+        ([DelimiterCompact | not hasComments]
+          ++ [DelimiterAttached | hasComments || not (null typs)])
     HsExplicitTupleTy{} -> layoutExactSourceType ltype
     HsTyLit _ lit -> case lit of
       HsNumTy (SourceText srctext) _ -> docLit $ Text.pack (FastString.unpackFS srctext)
