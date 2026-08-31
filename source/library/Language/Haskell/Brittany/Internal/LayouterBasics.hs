@@ -986,10 +986,17 @@ docPar
   :: ToBriDocM BriDocNumbered
   -> ToBriDocM BriDocNumbered
   -> ToBriDocM BriDocNumbered
-docPar lineM indentedM = do
+docPar = docParIndented BrIndentNone
+
+docParIndented
+  :: BrIndent
+  -> ToBriDocM BriDocNumbered
+  -> ToBriDocM BriDocNumbered
+  -> ToBriDocM BriDocNumbered
+docParIndented indent lineM indentedM = do
   line <- lineM
   indented <- indentedM
-  allocateNode $ BDFPar BrIndentNone line indented
+  allocateNode $ BDFPar indent line indented
 
 docForceSingleline :: ToBriDocM BriDocNumbered -> ToBriDocM BriDocNumbered
 docForceSingleline bdm = allocateNode . BDFForceSingleline =<< bdm

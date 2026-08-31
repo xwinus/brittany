@@ -56,7 +56,12 @@ spec projectRoot = Hspec.describe "sibling binding alignment" $ do
         largeRuns = filter (>= 12) paddingRuns
     maximum (0 : paddingRuns)
       `Hspec.shouldSatisfy` (<= alignmentPaddingLimit 30)
+    sum paddingRuns
+      `Hspec.shouldSatisfy`
+        (<= length (lines formatted) * alignmentPaddingLimit 30)
     length largeRuns * 4 `Hspec.shouldSatisfy` (<= length paddingRuns)
+    configuredOverflow 72 formatted
+      `Hspec.shouldSatisfy` (<= configuredOverflow 72 distributionInput)
   Hspec.it "bounds optional padding in every width-aware alignment mode" $ do
     let boundedModes =
           [ ColumnAlignModeUnanimously
@@ -66,11 +71,26 @@ spec projectRoot = Hspec.describe "sibling binding alignment" $ do
           ]
     boundedModes `forM_` \mode ->
       assertFormatting (configWithAlignMode mode) paddingInput paddingExpected
-  Hspec.it "retains unbounded optional alignment in always mode" $ do
+  Hspec.it "bounds optional alignment in always mode" $ do
     assertFormatting
       (configWithAlignMode ColumnAlignModeAlways)
       paddingInput
-      paddingAlwaysExpected
+      paddingExpected
+  Hspec.it "keeps self-hosted column reproducers bounded for three passes" $ do
+    firstPass <- formatSource defaultConfig plannerReproducerInput
+    assertEquivalent
+      "PlannerReproducerInput.hs"
+      plannerReproducerInput
+      "PlannerReproducerOutput.hs"
+      firstPass
+    secondPass <- formatSource defaultConfig firstPass
+    thirdPass <- formatSource defaultConfig secondPass
+    secondPass `Hspec.shouldBe` firstPass
+    thirdPass `Hspec.shouldBe` firstPass
+    maximum (0 : (internalSpaceRuns =<< lines firstPass))
+      `Hspec.shouldSatisfy` (<= alignmentPaddingLimit 30)
+    firstPass `Hspec.shouldNotContain` "<$>              "
+    firstPass `Hspec.shouldNotContain` "$                       "
   parseFailureExample
     projectRoot
     "leaves malformed sibling bindings byte-identical"
@@ -268,21 +288,6 @@ paddingExpected = renderLines
   , "  in  getFileType"
   ]
 
-paddingAlwaysExpected :: String
-paddingAlwaysExpected = renderLines
-  [ "{-# LANGUAGE LambdaCase #-}"
-  , "{-# LANGUAGE TupleSections #-}"
-  , "{-# LANGUAGE TypeApplications #-}"
-  , "{-# LANGUAGE ViewPatterns #-}"
-  , "module AlignmentPadding where"
-  , ""
-  , "example ="
-  , "  let loadTemplate (ft, ref, T.strip -> c) = (ft, ) <$> parseTemplate @a ref c"
-  , "      getFileType                          = \\case"
-  , "        InlineRef _ -> pure Nothing"
-  , "  in  getFileType"
-  ]
-
 headerInput :: String
 headerInput = renderLines
   [ "module MixedBindingPadding where"
@@ -359,12 +364,42 @@ distributionInput = renderLines
   , "  in short input + right input + finalName input"
   ]
 
+plannerReproducerInput :: String
+plannerReproducerInput = renderLines
+  [ "{-# LANGUAGE LambdaCase #-}"
+  , "module PlannerReproducers where"
+  , ""
+  , "alignmentRows plan ="
+  , "  alignmentGroupRows' <$> alignmentPlanGroups plan"
+  , ""
+  , "beforeCommitResult restore cleanup action ="
+  , "  tryIO $ restore action `onException` cleanup"
+  , ""
+  , "stageAll _ [] = pure []"
+  , "stageAll operations (plan : remainingPlans) = do"
+  , "  current <- stage operations plan"
+  , "  remaining <- stageAll operations remainingPlans"
+  , "  pure (current : remaining)"
+  , ""
+  , "choose = \\case"
+  , "  -- Keep this comment with the first alternative."
+  , "  Short -> 1"
+  , "  MuchLongerConstructor value -> value"
+  , ""
+  , "recordValue = Record { shortField = 1, substantiallyLongerField = 2 }"
+  , ""
+  , "comprehension input = [value | value <- input, value > 0]"
+  ]
+
 internalSpaceRuns :: String -> [Int]
 internalSpaceRuns line =
   [ length spaces
   | spaces@(' ' : _) <- List.group $ dropWhile (== ' ') line
   , length spaces > 1
   ]
+
+configuredOverflow :: Int -> String -> Int
+configuredOverflow width = sum . fmap (max 0 . subtract width . length) . lines
 
 renderLines :: [String] -> String
 renderLines = List.intercalate "\n"

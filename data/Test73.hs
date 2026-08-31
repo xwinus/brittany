@@ -12,11 +12,11 @@ data XIILqcacwiuNiu = XIILqcacwiuNiu
   , opjUxtkxzkiKse_luqjuZazt
       :: Jgtoyuh [(Eujo, Int, Int, Int, Int, Int, NELUxro)]
   -- , jcqRaqznxfhIpa_ywevMezmoYkutuwa        :: Jgtoyuh ()
-  , vayOmuasyphOfd_bcsVljmvt               :: Jgtoyuh Eujo
-  , rifArahilooRax_ufikecqdImsv            :: Jgtoyuh Oaivn
-  , raqKtopcpszDwb_oqocubasZuqjcryoDojGkw  :: Jgtoyuh Oaivn
+  , vayOmuasyphOfd_bcsVljmvt :: Jgtoyuh Eujo
+  , rifArahilooRax_ufikecqdImsv :: Jgtoyuh Oaivn
+  , raqKtopcpszDwb_oqocubasZuqjcryoDojGkw :: Jgtoyuh Oaivn
   , mluJiilpcijUtt_gaisklifVekfeyagRmfbyzz :: Jgtoyuh Oaivn
-  , oqhPaahjupaSmi_gamwwoovKyxznecvEayluc  :: Jgtoyuh Oaivn
-  , mazFubimwebZpa_itidehDodiDlboz         :: Jgtoyuh Vrep
-  , jeyOcuesexaYoy_vpqn                    :: Jgtoyuh ()
+  , oqhPaahjupaSmi_gamwwoovKyxznecvEayluc :: Jgtoyuh Oaivn
+  , mazFubimwebZpa_itidehDodiDlboz :: Jgtoyuh Vrep
+  , jeyOcuesexaYoy_vpqn :: Jgtoyuh ()
   }

@@ -147,6 +147,8 @@ data BrittanyError
     -- ^ comment ownership could not be normalized before layout
   | ErrorDelimiterInvariant String
     -- ^ a first-class delimiter group became structurally invalid
+  | ErrorAlignmentPlan String
+    -- ^ column alignment constraints could not produce a legal plan
   | ErrorMacroConfig String String
     -- ^ in-source config string parsing error; first argument is the parser
     --   output and second the corresponding, ill-formed input.

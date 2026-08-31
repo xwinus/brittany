@@ -1,5 +1,5 @@
 func = do
-  abc                  <- expr
+  abc <- expr
   abcccccccccccccccccc <- expr
   abcccccccccccccccccccccccccccccccccccccccccc <- expr
   abccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc <- expr

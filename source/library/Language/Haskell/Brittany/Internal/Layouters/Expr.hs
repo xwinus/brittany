@@ -163,9 +163,10 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
       , (if allowPar then docForceParSpacing else docForceSingleline)
         lastOperandDoc
       ]
-    addAlternative $ docPar
-      leftOperandDoc
-      (docLines
+    addAlternative
+      $ docParIndented BrIndentRegular
+        leftOperandDoc
+      $ docLines
       $ (appListDocs <&> \(opDoc, operandDoc) ->
           docCols ColOpPrefix [appSep opDoc, docSetBaseY operandDoc]
         )
@@ -173,7 +174,6 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
              ColOpPrefix
              [appSep lastOpDoc, docSetBaseY lastOperandDoc]
          ]
-      )
 
 layoutOperatorApplication
   :: LHsExpr GhcPs

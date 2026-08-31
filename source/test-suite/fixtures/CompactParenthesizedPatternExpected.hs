@@ -18,7 +18,7 @@ caseCompact value = case value of
 caseGuardCompact value = case value of
   (ConfigurationParseError scope parseError)
     | scope == expectedConfigurationScope -> parseError
-    | otherwise                           -> defaultParseError
+    | otherwise -> defaultParseError
 
 lambdaCaseCompact = \case
   (ConfigurationParseError scope parseError) ->

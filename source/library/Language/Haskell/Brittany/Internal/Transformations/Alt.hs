@@ -255,7 +255,10 @@ transformAlts =
         sameLine' <- rec sameLine
         mModify $ \acp' -> acp' { _acp_line = ind, _acp_indent = ind }
         indented' <- rec indented
-        return $ reWrap $ BDFPar indent sameLine' indented'
+        let resolvedIndent = case indent of
+              BrIndentRegular -> BrIndentSpecial indAdd
+              _ -> indent
+        return $ reWrap $ BDFPar resolvedIndent sameLine' indented'
       BDFAlt [] -> error "empty BDAlt" -- returning BDEmpty instead is a
                                       -- possibility, but i will prefer a
                                       -- fail-early approach; BDEmpty does not
@@ -542,14 +545,19 @@ getSpacing !bridoc = rec bridoc
       BDFBaseYPop bd -> rec bd
       BDFIndentLevelPushCur bd -> rec bd
       BDFIndentLevelPop bd -> rec bd
-      BDFPar BrIndentNone sameLine indented -> do
+      BDFPar indent sameLine indented -> do
         mVs <- rec sameLine
         mIndSp <- rec indented
+        let indentWidth = case indent of
+              BrIndentNone -> 0
+              BrIndentRegular ->
+                confUnpack $ _lconfig_indentAmount $ _conf_layout config
+              BrIndentSpecial i -> i
         return
           $ [ VerticalSpacing lsp pspResult parFlagResult
             | VerticalSpacing lsp mPsp _ <- mVs
             , indSp <- mIndSp
-            , lineMax <- getMaxVS $ mIndSp
+            , lineMax <- (+ indentWidth) <$> getMaxVS mIndSp
             , let
               pspResult = case mPsp of
                 VerticalSpacingParSome psp ->
@@ -565,7 +573,6 @@ getSpacing !bridoc = rec bridoc
                   == VerticalSpacingParNone
                   && _vs_parFlag indSp
             ]
-      BDFPar{} -> error "BDPar with indent in getSpacing"
       BDFAlt [] -> error "empty BDAlt"
       BDFAlt (alt : _) -> rec alt
       BDFDelimited group -> case delimiterLayoutDocuments brDcId group of
@@ -857,19 +864,29 @@ getSpacings limit bridoc = preFilterLimit <$> rec bridoc
       BDFBaseYPop bd -> rec bd
       BDFIndentLevelPushCur bd -> rec bd
       BDFIndentLevelPop bd -> rec bd
-      BDFPar BrIndentNone sameLine indented -> do
+      BDFPar indent sameLine indented -> do
         mVss <- filterAndLimit <$> rec sameLine
         indSps <- filterAndLimit <$> rec indented
+        let indentWidth = case indent of
+              BrIndentNone -> 0
+              BrIndentRegular ->
+                confUnpack $ _lconfig_indentAmount $ _conf_layout config
+              BrIndentSpecial i -> i
         let mVsIndSp = take limit $ [ (x, y) | x <- mVss, y <- indSps ]
         return $ mVsIndSp <&> \(VerticalSpacing lsp mPsp _, indSp) ->
           VerticalSpacing
             lsp
             (case mPsp of
               VerticalSpacingParSome psp ->
-                VerticalSpacingParSome $ max psp $ getMaxVS indSp -- TODO
-              VerticalSpacingParNone -> spMakePar indSp
+                VerticalSpacingParSome
+                  $ max psp
+                  $ indentWidth + getMaxVS indSp -- TODO
+              VerticalSpacingParNone ->
+                addParagraphIndent indentWidth $ spMakePar indSp
               VerticalSpacingParAlways psp ->
-                VerticalSpacingParAlways $ max psp $ getMaxVS indSp
+                VerticalSpacingParAlways
+                  $ max psp
+                  $ indentWidth + getMaxVS indSp
             )
             (mPsp
             == VerticalSpacingParNone
@@ -878,7 +895,6 @@ getSpacings limit bridoc = preFilterLimit <$> rec bridoc
             && _vs_parFlag indSp
             )
 
-      BDFPar{} -> error "BDPar with indent in getSpacing"
       BDFAlt [] -> error "empty BDAlt"
       -- BDAlt (alt:_) -> rec alt
       BDFAlt alts -> do
@@ -1083,7 +1099,10 @@ getSpacings limit bridoc = preFilterLimit <$> rec bridoc
     VerticalSpacingParSome i -> VerticalSpacingParSome $ x1 `max` i
     VerticalSpacingParNone -> VerticalSpacingParSome $ x1
     VerticalSpacingParAlways i -> VerticalSpacingParAlways $ x1 `max` i
-
+  addParagraphIndent amount = \case
+    VerticalSpacingParSome i -> VerticalSpacingParSome $ amount + i
+    VerticalSpacingParNone -> VerticalSpacingParNone
+    VerticalSpacingParAlways i -> VerticalSpacingParAlways $ amount + i
 fixIndentationForMultiple
   :: (MonadMultiReader (CConfig Identity) m) => AltCurPos -> BrIndent -> m Int
 fixIndentationForMultiple acp indent = do
