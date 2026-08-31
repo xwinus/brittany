@@ -222,6 +222,7 @@ test-suite brittany-test-suite
     FallbackSweepSpec
     FixitySignatureSpec
     InstanceHeadSpec
+    InfixContinuationAlignmentSpec
     LetStatementBoundarySpec
     OpaqueSyntaxSpec
     PatternSynonymBindingSpec

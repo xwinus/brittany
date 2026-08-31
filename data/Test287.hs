@@ -1,6 +1,6 @@
 showPackageDetailedInfo pkginfo =
   renderStyle (style { lineLength = 80, ribbonsPerLine = 1 })
-    $   char '*'
+    $ char '*'
     $+$ something
           [ entry "Synopsis" synopsis hideIfNull reflowParagraphs
           , entry "Versions available"

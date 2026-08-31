@@ -24,6 +24,7 @@ type ColumnPath = [Int]
 data ColumnAlignmentKey
   = ColumnSignature ColSig
   | BindingAffinity (Either Text.Text ())
+  | OperatorLayoutAffinity Text.Text
   deriving (Eq, Ord, Show)
 
 data ColumnAlignmentPlan = ColumnAlignmentPlan
@@ -59,7 +60,8 @@ columnAlignmentPlans alignmentLimit configuredWidth documents =
       let (columnDocuments, rest) = List.span
             (Maybe.isJust . columnAlignmentRowAt path 0)
             remainingDocuments
-          rows = Maybe.mapMaybe (uncurry $ columnAlignmentRowAt path)
+          rows = markHeterogeneousOperatorRows
+            $ Maybe.mapMaybe (uncurry $ columnAlignmentRowAt path)
             $ zip [rowIndex ..] columnDocuments
           nextIndex = rowIndex + length columnDocuments
       plan <- case planAlignmentWithin alignmentLimit configuredWidth rows of
@@ -93,7 +95,7 @@ columnAlignmentRowAt path identity document = do
       contentWidth = sum $ columnLineLength <$> columns
   pure AlignmentRow
     { alignmentRowIdentity = identity
-    , alignmentRowCandidates = columnCandidates signature
+    , alignmentRowCandidates = columnCandidates signature firstColumn
     , alignmentRowWidth = prefixWidth
     , alignmentRowContentWidth = max prefixWidth contentWidth
     , alignmentRowBreakCost = 1
@@ -136,15 +138,63 @@ columnNode = \case
   BDDebug _ nested -> columnNode nested
   _ -> Nothing
 
-columnCandidates :: ColSig -> [AlignmentCandidate ColumnAlignmentKey]
-columnCandidates = \case
+columnCandidates
+  :: ColSig
+  -> BriDoc
+  -> [AlignmentCandidate ColumnAlignmentKey]
+columnCandidates signature firstColumn = case signature of
   ColBindingLine candidates -> translateBindingCandidate <$> candidates
-  signature
-    | structurallyAtomic signature ->
-        [ StructuralAffinity $ ColumnSignature signature
-        , OptionalAlignment $ ColumnSignature signature
+  ColOpPrefix ->
+    StructuralAffinity (ColumnSignature signature)
+      : operatorLayoutCandidate firstColumn
+  otherSignature
+    | structurallyAtomic otherSignature ->
+        [ StructuralAffinity $ ColumnSignature otherSignature
+        , OptionalAlignment $ ColumnSignature otherSignature
         ]
-    | otherwise -> [OptionalAlignment $ ColumnSignature signature]
+    | otherwise -> [OptionalAlignment $ ColumnSignature otherSignature]
+
+operatorLayoutCandidate
+  :: BriDoc
+  -> [AlignmentCandidate ColumnAlignmentKey]
+operatorLayoutCandidate document = case columnLayoutText document of
+  Just layout | not $ Text.null layout ->
+    [OptionalAlignment $ OperatorLayoutAffinity layout]
+  _ -> [UnalignedLayout]
+
+markHeterogeneousOperatorRows
+  :: [AlignmentRow ColumnAlignmentKey]
+  -> [AlignmentRow ColumnAlignmentKey]
+markHeterogeneousOperatorRows [] = []
+markHeterogeneousOperatorRows remaining@(row : rows)
+  | isOperatorRow row =
+      let (operatorRows, rest) = List.span isOperatorRow remaining
+      in markGroup operatorRows ++ markHeterogeneousOperatorRows rest
+  | otherwise = row : markHeterogeneousOperatorRows rows
+ where
+  markGroup operatorRows
+    | length (List.nub $ Maybe.mapMaybe operatorAffinity operatorRows) > 1 =
+        addUnalignedLayout <$> operatorRows
+    | otherwise = operatorRows
+
+  addUnalignedLayout operatorRow
+    | UnalignedLayout `elem` alignmentRowCandidates operatorRow = operatorRow
+    | otherwise = operatorRow
+        { alignmentRowCandidates = UnalignedLayout
+            : alignmentRowCandidates operatorRow
+        }
+
+isOperatorRow :: AlignmentRow ColumnAlignmentKey -> Bool
+isOperatorRow row = StructuralAffinity (ColumnSignature ColOpPrefix)
+  `elem` alignmentRowCandidates row
+
+operatorAffinity
+  :: AlignmentRow ColumnAlignmentKey
+  -> Maybe Text.Text
+operatorAffinity row = listToMaybe
+  [layout | OptionalAlignment (OperatorLayoutAffinity layout) <- candidates]
+ where
+  candidates = alignmentRowCandidates row
 
 translateBindingCandidate
   :: AlignmentCandidate (Either Text.Text ())
@@ -159,8 +209,38 @@ structurallyAtomic :: ColSig -> Bool
 structurallyAtomic = \case
   ColTyOpPrefix -> True
   ColApp{} -> True
-  ColOpPrefix -> True
   _ -> False
+
+columnLayoutText :: BriDoc -> Maybe Text.Text
+columnLayoutText = \case
+  BDEmpty -> Just Text.empty
+  BDLit text -> Just text
+  BDSeq nested -> Text.concat <$> mapM columnLayoutText nested
+  BDSeparator -> Just Text.empty
+  BDAddBaseY _ nested -> columnLayoutText nested
+  BDBaseYPushCur nested -> columnLayoutText nested
+  BDBaseYPop nested -> columnLayoutText nested
+  BDIndentLevelPushCur nested -> columnLayoutText nested
+  BDIndentLevelPop nested -> columnLayoutText nested
+  BDDelimited group -> either (const Nothing) columnLayoutText
+    $ delimiterDocument group
+  BDForceMultiline nested -> columnLayoutText nested
+  BDForceSingleline nested -> columnLayoutText nested
+  BDColumnsLimit _ nested -> columnLayoutText nested
+  BDForwardLineMode nested -> columnLayoutText nested
+  BDExternal _ _ source -> Just $ externalSourceText source
+  BDPlain _ text -> Just text
+  BDAnnotationPrior _ _ nested -> columnLayoutText nested
+  BDAnnotationKW _ _ nested -> columnLayoutText nested
+  BDAnnotationRest _ nested -> columnLayoutText nested
+  BDMoveToKWDP _ _ _ nested -> columnLayoutText nested
+  BDLines [nested] -> columnLayoutText nested
+  BDEnsureIndent _ nested -> columnLayoutText nested
+  BDSetParSpacing nested -> columnLayoutText nested
+  BDForceParSpacing nested -> columnLayoutText nested
+  BDNonBottomSpacing _ nested -> columnLayoutText nested
+  BDDebug _ nested -> columnLayoutText nested
+  _ -> Nothing
 
 columnLineLength :: BriDoc -> Int
 columnLineLength document = flip StateS.evalState False $ measure document

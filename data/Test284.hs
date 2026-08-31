@@ -8,8 +8,8 @@ readMergePersConfig path shouldCreate conf = do
       fileConf <- case Data.Yaml.decodeEither contents of
         Left e -> do
           liftIO
-            $  putStrErrLn
-            $  "error reading in brittany config from "
+            $ putStrErrLn
+            $ "error reading in brittany config from "
             ++ path
             ++ ":"
           liftIO $ putStrErrLn e
