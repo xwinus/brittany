@@ -3,15 +3,15 @@
 
 module Language.Haskell.Brittany.Internal.Layouters.Module where
 
-import qualified Data.Map as Map
 import qualified Data.Maybe
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
 import GHC (GenLocated(L), Located, getLoc, srcSpanStartLine, unLoc)
 import GHC.Hs hiding (DeltaPos)
 import qualified GHC.OldList as List
+import Language.Haskell.Brittany.Internal.CommentIR (planComment)
 import Language.Haskell.Brittany.Internal.Config.Types
-import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), Annotation(..), Comment(commentContents), DeltaPos(..), deltaRow, srcSpanToRealSpan)
+import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKeywordId(..), Annotation(..), Comment, DeltaPos(..), deltaRow, srcSpanToRealSpan)
 import Language.Haskell.Brittany.Internal.ExactSource (nodeSourceSlice)
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.IE (layoutLLIEs, SortItemsFlag(KeepItemsUnsorted), toL)
@@ -267,4 +267,10 @@ commentedImportsToDoc exactText = \case
       : map commentToDoc (commentsAfter r)
       )
  where
-  commentToDoc (c, DP (_y, x)) = docLitS (replicate x ' ' ++ commentContents c)
+  commentToDoc commentWithDelta = do
+    commentPlan <- mAsk
+    case planComment commentPlan commentWithDelta of
+      Left commentError -> do
+        mTell [ErrorCommentPlan $ show commentError]
+        docEmpty
+      Right planned -> allocateNode $ BDFComment planned

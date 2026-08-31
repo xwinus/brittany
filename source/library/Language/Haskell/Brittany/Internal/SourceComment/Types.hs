@@ -113,9 +113,27 @@ data CommentPlacement = CommentPlacement
   }
   deriving (Data.Data.Data, Eq, Ord, Show)
 
+data CommentIndentPolicy
+  = OwnerRelativeIndent
+  | ContainerRelativeIndent
+  | TokenRelativeIndent
+  | SourceColumnIndent
+  deriving (Data.Data.Data, Eq, Ord, Show)
+
+data PlannedComment = PlannedComment
+  { plannedCommentSource :: SourceComment
+  , plannedCommentPlacement :: CommentPlacement
+  , plannedCommentBoundary :: CommentBoundaryId
+  , plannedCommentIndentPolicy :: CommentIndentPolicy
+  , plannedCommentLineDelta :: Int
+  , plannedCommentColumnDelta :: Int
+  }
+  deriving (Data.Data.Data, Eq, Ord, Show)
+
 data CommentPlan = CommentPlan
   { commentPlanSources :: Map SourceCommentKey SourceComment
   , commentPlanPlacements :: Map SourceCommentKey CommentPlacement
+  , commentPlanBoundaries :: Map SourceCommentKey CommentBoundaryId
   }
   deriving (Data.Data.Data, Eq, Show)
 

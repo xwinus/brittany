@@ -1,10 +1,11 @@
 data Foo = Bar
   {
             -- a
-    foo  ::
+    foo
+      ::
            -- b
            -- c
-            Baz -- d
+         Baz -- d
     -- e
   , bars :: Bizzz
   }

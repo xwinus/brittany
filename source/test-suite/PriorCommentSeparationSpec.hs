@@ -1,6 +1,7 @@
 module PriorCommentSeparationSpec (spec) where
 
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import qualified GHC.Data.FastString as FastString
 import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.BackendUtils
@@ -98,6 +99,7 @@ layoutState cursor = LayoutState
   , _lstate_indLevels = [4]
   , _lstate_indLevelLinger = 4
   , _lstate_comments = Map.empty
+  , _lstate_emittedComments = Set.empty
   , _lstate_commentCol = Just 8
   , _lstate_addSepSpace = Just 2
   , _lstate_commentNewlines = 0

@@ -234,9 +234,13 @@ priorCommentRequiresLineBoundary comment = case
 
 priorCommentSourceBoundary :: AnnKey -> ExactPrint.Comment -> Int
 priorCommentSourceBoundary annKey comment = fromMaybe 0 $ do
-  nodeSpan <- ExactPrint.annKeyRealSpan annKey
   commentSpan <- ExactPrint.srcSpanToRealSpan
     $ ExactPrint.commentIdentifier comment
+  pure $ sourceCommentBoundary annKey commentSpan
+
+sourceCommentBoundary :: AnnKey -> SrcLoc.RealSrcSpan -> Int
+sourceCommentBoundary annKey commentSpan = fromMaybe 0 $ do
+  nodeSpan <- ExactPrint.annKeyRealSpan annKey
   guard $ SrcLoc.srcSpanFile nodeSpan == SrcLoc.srcSpanFile commentSpan
   -- Multi-line spans ending in column one use an exclusive final line.
   let occupiedCommentEndLine

@@ -13,6 +13,7 @@ import qualified Control.Monad.Memo as Memo
 import qualified Control.Monad.Trans.MultiRWS.Strict as MultiRWSS
 import Data.HList.ContainsType
 import qualified Data.List.Extra
+import qualified Data.Maybe as Maybe
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
 import qualified GHC.OldList as List
@@ -41,6 +42,80 @@ data AltLineModeState
   | AltLineModeStateContradiction
   -- i.e. ForceX False -> ForceX True -> None
   deriving (Show)
+
+commentSpacing :: PlannedComment -> VerticalSpacing
+commentSpacing comment
+  | placementLineRelation (plannedCommentPlacement comment) == CommentOwnLine =
+      VerticalSpacing 0 VerticalSpacingParNone False
+  | otherwise = VerticalSpacing commentWidth VerticalSpacingParNone False
+ where
+  commentWidth = Text.length
+    $ sourceCommentText
+    $ plannedCommentSource comment
+
+forceCommentLineBreak :: VerticalSpacing -> VerticalSpacing
+forceCommentLineBreak spacing = spacing
+  { _vs_paragraph = VerticalSpacingParAlways $ max
+      (_vs_sameLine spacing)
+      (case _vs_paragraph spacing of
+        VerticalSpacingParNone -> 0
+        VerticalSpacingParSome width -> width
+        VerticalSpacingParAlways width -> width
+      )
+  }
+
+sequenceRequiresCommentLineBreak :: [BriDocNumbered] -> Bool
+sequenceRequiresCommentLineBreak = \case
+  [] -> False
+  child : rest ->
+    (endsWithLineComment child && any hasLayoutContent rest)
+      || sequenceRequiresCommentLineBreak rest
+
+endsWithLineComment :: BriDocNumbered -> Bool
+endsWithLineComment (_, document) = case document of
+  BDFComment planned -> sourceCommentSyntax (plannedCommentSource planned)
+    == LineComment
+    && ( placementLineRelation (plannedCommentPlacement planned) == InlineComment
+      || commentBoundaryGap (plannedCommentBoundary planned) == BeforeCloseBoundary
+      )
+  BDFSeq children -> maybe False endsWithLineComment $ lastLayoutChild children
+  BDFCols _ children -> maybe False endsWithLineComment
+    $ lastLayoutChild children
+  BDFAddBaseY _ child -> endsWithLineComment child
+  BDFBaseYPushCur child -> endsWithLineComment child
+  BDFBaseYPop child -> endsWithLineComment child
+  BDFIndentLevelPushCur child -> endsWithLineComment child
+  BDFIndentLevelPop child -> endsWithLineComment child
+  BDFPar _ line indented -> endsWithLineComment indented
+    || not (hasLayoutContent indented) && endsWithLineComment line
+  BDFAlt alternatives -> any endsWithLineComment alternatives
+  BDFForwardLineMode child -> endsWithLineComment child
+  BDFAnnotationPrior _ _ child -> endsWithLineComment child
+  BDFAnnotationKW _ _ child -> endsWithLineComment child
+  BDFAnnotationRest _ child -> endsWithLineComment child
+  BDFMoveToKWDP _ _ _ child -> endsWithLineComment child
+  BDFLines children -> maybe False endsWithLineComment
+    $ lastLayoutChild children
+  BDFEnsureIndent _ child -> endsWithLineComment child
+  BDFForceMultiline child -> endsWithLineComment child
+  BDFForceSingleline child -> endsWithLineComment child
+  BDFColumnsLimit _ child -> endsWithLineComment child
+  BDFNonBottomSpacing _ child -> endsWithLineComment child
+  BDFSetParSpacing child -> endsWithLineComment child
+  BDFForceParSpacing child -> endsWithLineComment child
+  BDFDebug _ child -> endsWithLineComment child
+  _ -> False
+
+lastLayoutChild :: [BriDocNumbered] -> Maybe BriDocNumbered
+lastLayoutChild = Maybe.listToMaybe . reverse . filter hasLayoutContent
+
+hasLayoutContent :: BriDocNumbered -> Bool
+hasLayoutContent (_, document) = case document of
+  BDFEmpty -> False
+  BDFSeparator -> False
+  BDFSeq children -> any hasLayoutContent children
+  BDFCols _ children -> any hasLayoutContent children
+  _ -> True
 
 altLineModeRefresh :: AltLineModeState -> AltLineModeState
 altLineModeRefresh AltLineModeStateNone = AltLineModeStateNone
@@ -135,6 +210,7 @@ transformAlts =
       BDFEmpty{} -> processSpacingSimple bdX $> bdX
       BDFBlankLine{} -> processSpacingSimple bdX $> bdX
       BDFLit{} -> processSpacingSimple bdX $> bdX
+      BDFComment{} -> pure bdX
       BDFSeq list -> reWrap . BDFSeq <$> list `forM` rec
       BDFCols sig list -> reWrap . BDFCols sig <$> list `forM` rec
       BDFSeparator -> processSpacingSimple bdX $> bdX
@@ -416,8 +492,17 @@ getSpacing !bridoc = rec bridoc
         (Text.length t)
         VerticalSpacingParNone
         False
-      BDFSeq list -> sumVs <$> rec `mapM` list
-      BDFCols _sig list -> sumVs <$> rec `mapM` list
+      BDFComment comment -> return $ LineModeValid $ commentSpacing comment
+      BDFSeq list -> do
+        spacing <- sumVs <$> rec `mapM` list
+        pure $ if sequenceRequiresCommentLineBreak list
+          then forceCommentLineBreak <$> spacing
+          else spacing
+      BDFCols _sig list -> do
+        spacing <- sumVs <$> rec `mapM` list
+        pure $ if sequenceRequiresCommentLineBreak list
+          then forceCommentLineBreak <$> spacing
+          else spacing
       BDFSeparator ->
         return $ LineModeValid $ VerticalSpacing 1 VerticalSpacingParNone False
       BDFAddBaseY indent bd -> do
@@ -719,8 +804,17 @@ getSpacings limit bridoc = preFilterLimit <$> rec bridoc
         return $ [VerticalSpacing 0 VerticalSpacingParNone False]
       BDFLit t ->
         return $ [VerticalSpacing (Text.length t) VerticalSpacingParNone False]
-      BDFSeq list -> fmap sumVs . mapM filterAndLimit <$> rec `mapM` list
-      BDFCols _sig list -> fmap sumVs . mapM filterAndLimit <$> rec `mapM` list
+      BDFComment comment -> return [commentSpacing comment]
+      BDFSeq list -> do
+        spacings <- fmap sumVs . mapM filterAndLimit <$> rec `mapM` list
+        pure $ if sequenceRequiresCommentLineBreak list
+          then forceCommentLineBreak <$> spacings
+          else spacings
+      BDFCols _sig list -> do
+        spacings <- fmap sumVs . mapM filterAndLimit <$> rec `mapM` list
+        pure $ if sequenceRequiresCommentLineBreak list
+          then forceCommentLineBreak <$> spacings
+          else spacings
       BDFSeparator -> return $ [VerticalSpacing 1 VerticalSpacingParNone False]
       BDFAddBaseY indent bd -> do
         mVs <- rec bd

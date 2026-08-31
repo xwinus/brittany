@@ -23,23 +23,16 @@ import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.Alignment
 import Language.Haskell.Brittany.Internal.BackendUtils
 import Language.Haskell.Brittany.Internal.Config.Types
-import Language.Haskell.Brittany.Internal.CommentPlan
-  ( isCanonicalInlinePlacement
-  , lookupCommentPlacement
-  )
 import Language.Haskell.Brittany.Internal.Delimiter
 import Language.Haskell.Brittany.Internal.ExactSource
   ( validateExactSourceFragment
   )
-import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Utils
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrintCompat
-import qualified Language.Haskell.GHC.ExactPrint as ExactPrint
-import qualified Language.Haskell.GHC.ExactPrint.Types as ExactPrint.Types
 
 
 
@@ -204,178 +197,19 @@ layoutBriDocM = \case
     layoutIndentRestorePostComment
     layoutRemoveIndentLevelLinger
     layoutWriteAppend t
-  BDAnnotationPrior priorCommentMode annKey bd -> do
+  BDComment planned -> renderPlannedComment planned
+  BDAnnotationPrior _ annKey bd -> do
     layoutRemoveIndentLevelLinger
     state <- mGet
-    let m = _lstate_comments state
-    let
-      moveToExactLocationAction = case _lstate_curYOrAddNewline state of
-        Left{} -> pure ()
-        Right{} -> moveToExactAnn annKey
-    mAnn <- do
-      let mAnn = ExactPrintCompat.annPriorComments <$> Map.lookup annKey m
-      mSet $ state
-        { _lstate_comments = Map.adjust
-          (\ann -> ann { ExactPrintCompat.annPriorComments = [] })
-          annKey
-          m
-        }
-      return mAnn
-    case mAnn of
-      Nothing -> moveToExactLocationAction
-      Just [] -> moveToExactLocationAction
-      Just priors -> do
-        -- layoutResetSepSpace
-        let forceInline = priorCommentMode == PriorCommentInline
-        commentPlan <- mAsk
-        indentAmount <-
-          mAsk
-          <&> _conf_layout
-          .> _lconfig_indentAmount
-          .> confUnpack
-        let emittedPriors = filter
-              (\(comment, _) -> ExactPrintCompat.commentContents comment
-                `notElem` ["(", ")"])
-              priors
-        zip [0 :: Int ..] emittedPriors
-          `forM_` \(commentIndex,
-                     (comment@(ExactPrintCompat.Comment _ _ commentStr),
-                      ExactPrintCompat.DP (y, x))) -> do
-                      commentState <- mGet
-                      let previousComment
-                            | commentIndex <= 0 = Nothing
-                            | otherwise = fst <$> Maybe.listToMaybe
-                                (drop (commentIndex - 1) emittedPriors)
-                          sourceDelta = priorCommentLineDelta
-                            previousComment comment
-                          sourceColumn = priorCommentSourceColumn comment
-                      let placement = lookupCommentPlacement commentPlan comment
-                          role = placementRole <$> placement
-                          structuralInline = maybe False
-                            isCanonicalInlinePlacement placement
-                          recordPostDoc =
-                            role == Just (HaddockPostDoc RecordField)
-                          commentLines = Text.lines $ Text.pack commentStr
-                          inlineFirst = forceInline && commentIndex == 0
-                          adjustedY
-                            | inlineFirst = 0
-                            | structuralInline = 0
-                            | recordPostDoc = 1
-                            | y > 0 = sourceDelta
-                            | otherwise = y
-                          adjustedX
-                            | inlineFirst = 1
-                            | structuralInline = 1
-                            | recordPostDoc = indentAmount
-                            | forceInline, y > 0 = max 0
-                                $ fromMaybe x
-                                  (_lstate_commentCol commentState)
-                                - _lstate_indLevelLinger commentState
-                            | y > 0, x == 0 = max 0
-                                $ lstate_baseY commentState
-                                - _lstate_indLevelLinger commentState
-                            | y > 0 = max 0
-                                $ fromMaybe x sourceColumn
-                                - _lstate_indLevelLinger commentState
-                            | otherwise = x
-                      case commentStr of
-                        ('#' : _) ->
-                          layoutMoveToCommentPos adjustedY (-999) (length commentLines)
-                                   --  ^ evil hack for CPP
-                        _ | recordPostDoc -> layoutMoveToAbsoluteCommentPos
-                          adjustedY
-                          (lstate_baseY commentState + indentAmount)
-                          (length commentLines)
-                        _ -> layoutMoveToCommentPos
-                          adjustedY adjustedX (length commentLines)
-                      layoutWriteAppendMultiline commentLines
-                      when (priorCommentRequiresLineBoundary commentStr)
-                        layoutFinishPriorCommentLine
-        case reverse emittedPriors of
-          (lastComment, _) : _ -> layoutFinishPriorCommentBoundary
-            $ priorCommentSourceBoundary annKey lastComment
-          [] -> pure ()
-          -- mModify $ \s -> s { _lstate_curYOrAddNewline = Right 0 }
-        moveToExactLocationAction
+    case _lstate_curYOrAddNewline state of
+      Left{} -> pure ()
+      Right{} -> moveToExactAnn annKey
     layoutBriDocM bd
-  BDAnnotationKW annKey keyword bd -> do
-    layoutBriDocM bd
-    mComments <- do
-      state <- mGet
-      let m = _lstate_comments state
-      let mAnn = ExactPrintCompat.annsDP <$> Map.lookup annKey m
-      let
-        mToSpan = case mAnn of
-          Just anns | Maybe.isNothing keyword -> Just anns
-          Just ((ExactPrintCompat.G kw1, _) : annR) | keyword == Just kw1 ->
-            Just annR
-          _ -> Nothing
-      case mToSpan of
-        Just anns -> do
-          let
-            (comments, rest) = flip spanMaybe anns $ \case
-              (ExactPrintCompat.AnnComment x, dp) -> Just (x, dp)
-              _ -> Nothing
-          mSet $ state
-            { _lstate_comments = Map.adjust
-              (\ann -> ann { ExactPrintCompat.annsDP = rest })
-              annKey
-              m
-            }
-          return $ nonEmpty comments
-        _ -> return Nothing
-    case mComments of
-      Nothing -> pure ()
-      Just comments -> do
-        commentPlan <- mAsk
-        commentState <- mGet
-        indentAmount <-
-          mAsk
-          <&> _conf_layout
-          .> _lconfig_indentAmount
-          .> confUnpack
-        comments
-          `forM_` \(comment@(ExactPrintCompat.Comment _ _ commentStr),
-                     ExactPrintCompat.DP (y, x)) ->
-                    when (commentStr /= "(" && commentStr /= ")") $ do
-                      let placement = lookupCommentPlacement commentPlan comment
-                          role = placementRole <$> placement
-                          structuralInline = maybe False
-                            isCanonicalInlinePlacement placement
-                          recordPostDoc = role
-                            == Just (HaddockPostDoc RecordField)
-                          adjustedY
-                            | structuralInline = 0
-                            | recordPostDoc = 1
-                            | otherwise = y
-                          adjustedX
-                            | structuralInline = 1
-                            | recordPostDoc = indentAmount
-                            | otherwise = x
-                          commentLines = Text.lines $ Text.pack commentStr
-                      -- evil hack for CPP:
-                      case commentStr of
-                        ('#' : _) ->
-                          layoutMoveToCommentPos adjustedY (-999)
-                            (length commentLines)
-                        _ | recordPostDoc -> layoutMoveToAbsoluteCommentPos
-                          adjustedY
-                          (lstate_baseY commentState + indentAmount)
-                          (length commentLines)
-                        _ -> layoutMoveToCommentPos adjustedY adjustedX
-                          (length commentLines)
-                      -- fixedX <- fixMoveToLineByIsNewline x
-                      -- replicateM_ fixedX layoutWriteNewline
-                      -- layoutMoveToIndentCol y
-                      layoutWriteAppendMultiline commentLines
-      -- mModify $ \s -> s { _lstate_curYOrAddNewline = Right 0 }
+  BDAnnotationKW _ _ bd -> layoutBriDocM bd
   BDAnnotationRest annKey bd -> do
     layoutBriDocM bd
-    annMay <- do
-      state <- mGet
-      let m = _lstate_comments state
-      pure $ Map.lookup annKey m
-    let mComments = nonEmpty . extractAllComments =<< annMay
+    state <- mGet
+    let annMay = Map.lookup annKey $ _lstate_comments state
     let
       semiCount = length
         [ ()
@@ -387,114 +221,8 @@ layoutBriDocM = \case
       <&> _conf_layout
       .> _lconfig_experimentalSemicolonNewlines
       .> confUnpack
-    indentAmount <-
-      mAsk
-      <&> _conf_layout
-      .> _lconfig_indentAmount
-      .> confUnpack
-    mModify $ \state -> state
-      { _lstate_comments = Map.adjust
-        (\ann -> ann
-          { ExactPrintCompat.annFollowingComments = []
-          , ExactPrintCompat.annPriorComments = []
-          , ExactPrintCompat.annsDP = flip filter (ExactPrintCompat.annsDP ann) $ \case
-            (ExactPrintCompat.AnnComment{}, _) -> False
-            _ -> True
-          }
-        )
-        annKey
-        (_lstate_comments state)
-      }
-    case mComments of
-      Nothing -> do
-        when shouldAddSemicolonNewlines $ do
-          [1 .. semiCount] `forM_` const layoutWriteNewline
-      Just comments -> do
-        -- For multi-line following comments (y>0), x is absolute column
-        -- (0-indexed) but layoutMoveToCommentPos does indLevelLinger + x.
-        -- Compensate by subtracting indLevelLinger. Marked structural
-        -- comments instead use the current layout's indentation.
-        restState <- mGet
-        commentPlan <- mAsk
-        let indLinger = _lstate_indLevelLinger restState
-            commentList = Foldable.toList comments
-        zip [0 :: Int ..] commentList
-          `forM_` \(commentIndex,
-                     (comment, ExactPrintCompat.DP (y, x))) ->
-                    let commentStr = ExactPrintCompat.commentContents comment
-                        placement = lookupCommentPlacement commentPlan comment
-                        role = placementRole <$> placement
-                        structuralInline = maybe False
-                          isCanonicalInlinePlacement placement
-                        previousComment
-                          | commentIndex <= 0 = Nothing
-                          | otherwise = fst <$> Maybe.listToMaybe
-                              (drop (commentIndex - 1) commentList)
-                        sourceDelta = restCommentLineDelta
-                          annKey previousComment comment
-                    in
-                    when (commentStr /= "(" && commentStr /= ")") $ do
-                      let signaturePostDoc = role `elem`
-                            [ Just $ HaddockPostDoc SignatureArgument
-                            , Just $ HaddockPostDoc SignatureResult
-                            ]
-                          constructorPostDoc = role
-                            == Just (HaddockPostDoc DataConstructor)
-                          commentIndent
-                            | y > 0, signaturePostDoc =
-                                lstate_baseY restState
-                            | otherwise = x
-                          commentLines = Text.lines $ Text.pack commentStr
-                          adjustedY
-                            | structuralInline = 0
-                            | constructorPostDoc = 1
-                            | role == Just (HaddockPostDoc RecordField) = 1
-                            | y > 0
-                            , role == Just (BetweenChildren TypeOperator) = 1
-                            | y > 0 = sourceDelta
-                            | otherwise = y
-                          adjustedX
-                            | structuralInline = 1
-                            | constructorPostDoc = indentAmount
-                            | y > 0, signaturePostDoc =
-                                max 0 $ commentIndent - indLinger
-                            | y > 0
-                            , role == Just (BetweenChildren TypeOperator) = 0
-                            | role == Just (HaddockPostDoc RecordField) =
-                                indentAmount
-                            | y > 0
-                            , role `elem`
-                                [ Just SectionComment
-                                , Just $ BetweenChildren DerivingClause
-                                ] =
-                                max 0
-                                  (lstate_baseY restState
-                                    + indentAmount
-                                    - indLinger
-                                  )
-                            | y > 0 = x - indLinger
-                            | otherwise = x
-                      case commentStr of
-                        ('#' : _) -> layoutMoveToCommentPos adjustedY (-999) 1
-                                   --  ^ evil hack for CPP
-                        ")" -> pure ()
-                                   --  ^ fixes the formatting of parens
-                                   --    on the lhs of type alias defs
-                        _ | constructorPostDoc ->
-                          layoutMoveToAbsoluteCommentPos adjustedY
-                            (lstate_baseY restState + indentAmount)
-                            (length commentLines)
-                        _ | role == Just (HaddockPostDoc RecordField) ->
-                          layoutMoveToAbsoluteCommentPos adjustedY
-                            (lstate_baseY restState + indentAmount)
-                            (length commentLines)
-                        _ -> layoutMoveToCommentPos adjustedY adjustedX
-                          (length commentLines)
-                      -- fixedX <- fixMoveToLineByIsNewline x
-                      -- replicateM_ fixedX layoutWriteNewline
-                      -- layoutMoveToIndentCol y
-                      layoutWriteAppendMultiline commentLines
-      -- mModify $ \s -> s { _lstate_curYOrAddNewline = Right 0 }
+    when shouldAddSemicolonNewlines $
+      [1 .. semiCount] `forM_` const layoutWriteNewline
   BDMoveToKWDP annKey keyword shouldRestoreIndent bd -> do
     mDP <- do
       state <- mGet
@@ -527,6 +255,198 @@ layoutBriDocM = \case
     mTell $ Text.Builder.fromText $ Text.pack $ "{-" ++ s ++ "-}"
     layoutBriDocM bd
 
+renderPlannedComment :: LayoutConstraints m => PlannedComment -> m ()
+renderPlannedComment planned = do
+  state <- mGet
+  commentPlan :: CommentPlan <- mAsk
+  let source = plannedCommentSource planned
+      key = sourceCommentKey source
+      commentText = sourceCommentText source
+      commentLines = Text.lines commentText
+      lineCount = max 1 $ length commentLines
+      placement = plannedCommentPlacement planned
+      ownLine = placementLineRelation placement == CommentOwnLine
+        && (plannedCommentLineDelta planned > 0
+          || plannedCommentIndentPolicy planned /= TokenRelativeIndent
+        )
+      lineDelta
+        | ownLine, placementAnchor placement == BeforeNode = case
+            _lstate_curYOrAddNewline state of
+              Left{} -> max 1 $ plannedCommentLineDelta planned
+              Right pending -> max pending $ plannedCommentLineDelta planned
+        | ownLine = max 1 $ plannedCommentLineDelta planned
+        | otherwise = 0
+  if Set.member key $ _lstate_emittedComments state
+    then mTell
+      [ ErrorCommentPlan
+          $ "Duplicate planned comment emission at "
+          ++ show (plannedCommentBoundary planned)
+          ++ ": "
+          ++ show key
+      ]
+    else do
+      indentAmount <-
+        mAsk
+        <&> _conf_layout
+        .> _lconfig_indentAmount
+        .> confUnpack
+      mSet state
+        { _lstate_comments = removePlannedComment key
+            $ _lstate_comments state
+        , _lstate_emittedComments = Set.insert key
+            $ _lstate_emittedComments state
+        }
+      when (not ownLine && placementRole placement == Unattached) $ do
+        layoutSetCommentCol
+        mModify $ \current -> current
+          { _lstate_commentCol = (+ max 1 (plannedCommentColumnDelta planned))
+              <$> _lstate_commentCol current
+          }
+      when (not ownLine && placementRole placement == SectionComment) $
+        layoutSetCommentCol
+      case plannedCommentIndentPolicy planned of
+        OwnerRelativeIndent
+          | ownLine, placementAnchor placement == BeforeNode ->
+              layoutMoveToCommentPos lineDelta
+                (max 0
+                  $ lstate_baseY state - _lstate_indLevelLinger state
+                  + plannedCommentColumnDelta planned
+                )
+                lineCount
+          | ownLine -> layoutMoveToAbsoluteCommentPos
+              lineDelta (lstate_baseY state) lineCount
+          | otherwise -> layoutMoveToCommentPos 0 1 lineCount
+        ContainerRelativeIndent ->
+          let containerColumn = lstate_baseY state
+              contentColumn = containerColumn + indentAmount
+              commentColumn
+                | placementRole placement == SectionComment
+                    || isExportPlacement placement = contentColumn
+                | commentBoundaryGap (plannedCommentBoundary planned)
+                    == BeforeCloseBoundary = containerColumn
+                | otherwise = max containerColumn
+                    $ min contentColumn
+                    $ plannedCommentColumnDelta planned
+          in layoutMoveToAbsoluteCommentPos
+            lineDelta commentColumn lineCount
+        TokenRelativeIndent
+          | ownLine -> layoutMoveToAbsoluteCommentPos lineDelta
+              (fromMaybe
+                ( lstate_baseY state
+                  + if placementRole placement == BetweenChildren TypeOperator
+                    then 3
+                    else indentAmount
+                )
+                (_lstate_commentCol state)
+              )
+              lineCount
+          | Left{} <- _lstate_curYOrAddNewline state -> layoutWriteAppendSpaces
+              $ max 0
+              $ max 1 (plannedCommentColumnDelta planned)
+              - if placementRole placement == SectionComment
+                then fromMaybe 0 (_lstate_addSepSpace state)
+                else 0
+          | otherwise -> layoutMoveToCommentPos 0
+              (max 0
+                $ 1 - _lstate_indLevelLinger state
+              )
+              lineCount
+        SourceColumnIndent
+          | placementRole placement == HaddockPostDoc RecordField ->
+              layoutMoveToAbsoluteCommentPos
+                lineDelta (lstate_baseY state + indentAmount) lineCount
+          | placementRole placement == HaddockPostDoc SignatureArgument ->
+              layoutMoveToAbsoluteCommentPos
+                lineDelta (lstate_baseY state) lineCount
+          | placementRole placement == HaddockPostDoc SignatureResult ->
+              layoutMoveToAbsoluteCommentPos lineDelta indentAmount lineCount
+          | otherwise -> layoutMoveToCommentPos lineDelta
+              (plannedCommentColumnDelta planned - _lstate_indLevelLinger state)
+              lineCount
+      layoutWriteAppendMultiline commentLines
+      when (sourceCommentSyntax source == LineComment) $ case
+          (placementAnchor placement, placementOwner placement) of
+            _ | placementLineRelation placement == InlineComment ->
+              layoutFinishPriorCommentLine
+            (BeforeNode, NodeId owner)
+              | isLastCommentBeforeOwner commentPlan planned -> do
+                  layoutFinishPriorCommentBoundary
+                    $ sourceCommentBoundary owner (sourceCommentSpan source)
+                  when
+                    ( plannedCommentIndentPolicy planned == SourceColumnIndent
+                    && commentBoundaryGap (plannedCommentBoundary planned)
+                      == WithinBoundary
+                    ) $ case ExactPrintCompat.annKeyRealSpan owner of
+                      Nothing -> pure ()
+                      Just ownerSpan -> mModify $ \current -> current
+                        { _lstate_addSepSpace = Just $ max 0
+                            $ SrcLoc.srcSpanStartCol ownerSpan - 1
+                        }
+                  when
+                    (plannedCommentIndentPolicy planned == ContainerRelativeIndent) $
+                    let containerColumn = lstate_baseY state
+                        contentColumn = containerColumn + indentAmount
+                        commentColumn = max containerColumn
+                          $ min contentColumn
+                          $ plannedCommentColumnDelta planned
+                    in mModify $ \current -> current
+                      { _lstate_addSepSpace = Just
+                          $ max indentAmount commentColumn
+                      }
+            (AfterNode, NodeId owner)
+              | commentBoundaryGap (plannedCommentBoundary planned)
+                  == WithinBoundary
+              , plannedCommentIndentPolicy planned == SourceColumnIndent
+              , plannedCommentLineDelta planned > 0
+              , Maybe.isJust $ ExactPrintCompat.annKeyRealSpan owner -> pure ()
+            _ -> layoutFinishPriorCommentLine
+
+isExportPlacement :: CommentPlacement -> Bool
+isExportPlacement placement = case placementOwner placement of
+  NodeId (ExactPrintCompat.AnnKey _ constructor) ->
+    "IE" `List.isPrefixOf` ExactPrintCompat.unConName constructor
+
+isLastCommentBeforeOwner :: CommentPlan -> PlannedComment -> Bool
+isLastCommentBeforeOwner plan planned = case placementOwner placement of
+  NodeId owner -> case ExactPrintCompat.annKeyRealSpan owner of
+    Just ownerSpan -> not $ any (isBetween currentSpan ownerSpan)
+      $ Map.elems
+      $ commentPlanSources plan
+    Nothing -> noLaterSibling
+ where
+  placement = plannedCommentPlacement planned
+  currentSpan = sourceCommentSpan $ plannedCommentSource planned
+  noLaterSibling = not $ any isLaterSibling
+    $ Map.elems
+    $ commentPlanPlacements plan
+  isLaterSibling other = placementOwner other == placementOwner placement
+    && placementAnchor other == BeforeNode
+    && placementRelativeOrder other > placementRelativeOrder placement
+  isBetween current owner other = sourceCommentKey other
+    /= sourceCommentKey (plannedCommentSource planned)
+    && SrcLoc.srcSpanFile (sourceCommentSpan other) == SrcLoc.srcSpanFile current
+    && SrcLoc.srcSpanStartLine (sourceCommentSpan other)
+      > SrcLoc.srcSpanEndLine current
+    && SrcLoc.srcSpanStartLine (sourceCommentSpan other)
+      < SrcLoc.srcSpanStartLine owner
+
+removePlannedComment
+  :: SourceCommentKey -> ExactPrintCompat.Anns -> ExactPrintCompat.Anns
+removePlannedComment key = fmap $ \annotation -> annotation
+  { ExactPrintCompat.annPriorComments = filter keep
+      $ ExactPrintCompat.annPriorComments annotation
+  , ExactPrintCompat.annFollowingComments = filter keep
+      $ ExactPrintCompat.annFollowingComments annotation
+  , ExactPrintCompat.annsDP = filter keepKeyword
+      $ ExactPrintCompat.annsDP annotation
+  }
+ where
+  keep (comment, _) = commentIdentity comment /= key
+  keepKeyword (ExactPrintCompat.AnnComment comment, _) =
+    commentIdentity comment /= key
+  keepKeyword _ = True
+  commentIdentity = SourceCommentKey . ExactPrintCompat.commentIdentifier
+
 briDocLineLength :: BriDoc -> Int
 briDocLineLength briDoc = flip StateS.evalState False $ rec briDoc
                           -- the state encodes whether a separator was already
@@ -554,6 +474,7 @@ briDocLineLength briDoc = flip StateS.evalState False $ rec briDoc
     BDForwardLineMode bd -> rec bd
     BDExternal _ _ source -> return $ Text.length $ externalSourceText source
     BDPlain _ t -> return $ Text.length t
+    BDComment{} -> return 0
     BDAnnotationPrior _ _ bd -> rec bd
     BDAnnotationKW _ _ bd -> rec bd
     BDAnnotationRest _ bd -> rec bd
@@ -596,6 +517,8 @@ briDocIsMultiLine briDoc = rec briDoc
     BDExternal{} -> True
     BDPlain _ t | [_] <- Text.lines t -> False
     BDPlain{} -> True
+    BDComment planned -> plannedCommentLineDelta planned > 0
+      || length (Text.lines $ sourceCommentText $ plannedCommentSource planned) > 1
     BDAnnotationPrior _ _ bd -> rec bd
     BDAnnotationKW _ _ bd -> rec bd
     BDAnnotationRest _ bd -> rec bd
@@ -608,48 +531,6 @@ briDocIsMultiLine briDoc = rec briDoc
     BDForceParSpacing bd -> rec bd
     BDNonBottomSpacing _ bd -> rec bd
     BDDebug _ bd -> rec bd
-
-priorCommentLineDelta
-  :: Maybe ExactPrintCompat.Comment
-  -> ExactPrintCompat.Comment
-  -> Int
-priorCommentLineDelta Nothing _ = 1
-priorCommentLineDelta (Just previous) current = fromMaybe 1 $ do
-  previousSpan <- ExactPrintCompat.srcSpanToRealSpan
-    $ ExactPrintCompat.commentIdentifier previous
-  currentSpan <- ExactPrintCompat.srcSpanToRealSpan
-    $ ExactPrintCompat.commentIdentifier current
-  guard $ SrcLoc.srcSpanFile previousSpan == SrcLoc.srcSpanFile currentSpan
-  pure $ max 0
-    $ SrcLoc.srcSpanStartLine currentSpan - occupiedSpanEndLine previousSpan
-
-restCommentLineDelta
-  :: ExactPrintCompat.AnnKey
-  -> Maybe ExactPrintCompat.Comment
-  -> ExactPrintCompat.Comment
-  -> Int
-restCommentLineDelta _ (Just previous) current =
-  priorCommentLineDelta (Just previous) current
-restCommentLineDelta owner Nothing current = fromMaybe 1 $ do
-  ownerSpan <- ExactPrintCompat.annKeyRealSpan owner
-  currentSpan <- ExactPrintCompat.srcSpanToRealSpan
-    $ ExactPrintCompat.commentIdentifier current
-  guard $ SrcLoc.srcSpanFile ownerSpan == SrcLoc.srcSpanFile currentSpan
-  pure $ max 0
-    $ SrcLoc.srcSpanStartLine currentSpan - occupiedSpanEndLine ownerSpan
-
-occupiedSpanEndLine :: SrcLoc.RealSrcSpan -> Int
-occupiedSpanEndLine span'
-  | SrcLoc.srcSpanEndCol span' == 1
-  , SrcLoc.srcSpanEndLine span' > SrcLoc.srcSpanStartLine span'
-  = SrcLoc.srcSpanEndLine span' - 1
-  | otherwise = SrcLoc.srcSpanEndLine span'
-
-priorCommentSourceColumn :: ExactPrintCompat.Comment -> Maybe Int
-priorCommentSourceColumn comment = do
-  span' <- ExactPrintCompat.srcSpanToRealSpan
-    $ ExactPrintCompat.commentIdentifier comment
-  pure $ SrcLoc.srcSpanStartCol span' - 1
 
 sourceFragmentRequiresLineBoundary :: ExactSourceFragment -> Bool
 sourceFragmentRequiresLineBoundary fragment = case reverse
@@ -717,6 +598,7 @@ sourceFragmentCommentKeys = \case
   BDExternal _ _ (SourceFragment fragment) -> fragmentCommentKeys fragment
   BDExternal _ _ ExactPrintSource{} -> Set.empty
   BDPlain _ _ -> Set.empty
+  BDComment _ -> Set.empty
   BDAnnotationPrior _ _ document -> sourceFragmentCommentKeys document
   BDAnnotationKW _ _ document -> sourceFragmentCommentKeys document
   BDAnnotationRest _ document -> sourceFragmentCommentKeys document

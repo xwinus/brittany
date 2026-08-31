@@ -2,27 +2,27 @@
 layoutPatternBindFinal alignmentToken binderDoc mPatDoc clauseDocs = do
   docAlt
         $  -- one-line solution
-          [ docCols
-              (ColBindingLine alignmentToken)
-              [ docSeq (patPartInline ++ [guardPart])
-              , docSeq
-                [ appSep $ return binderDoc
-                , docForceSingleline $ return body
-                , wherePart
-                ]
+        [ docCols
+            (ColBindingLine alignmentToken)
+            [ docSeq (patPartInline ++ [guardPart])
+            , docSeq
+              [ appSep $ return binderDoc
+              , docForceSingleline $ return body
+              , wherePart
               ]
-          | not hasComments
-          , [(guards, body, _bodyRaw)] <- [clauseDocs]
-          , let guardPart = singleLineGuardsDoc guards
-          , wherePart <- case mWhereDocs of
-            Nothing  -> return @[] $ docEmpty
-            Just [w] -> return @[] $ docSeq
-              [ docSeparator
-              , appSep $ docLit $ Text.pack "where"
-              , docSetIndentLevel $ docForceSingleline $ return w
-              ]
-            _ -> []
-          ]
+            ]
+        | not hasComments
+        , [(guards, body, _bodyRaw)] <- [clauseDocs]
+        , let guardPart = singleLineGuardsDoc guards
+        , wherePart <- case mWhereDocs of
+          Nothing  -> return @[] $ docEmpty
+          Just [w] -> return @[] $ docSeq
+            [ docSeparator
+            , appSep $ docLit $ Text.pack "where"
+            , docSetIndentLevel $ docForceSingleline $ return w
+            ]
+          _ -> []
+        ]
       ++ -- one-line solution + where in next line(s)
          [ docLines
            $  [ docCols
@@ -33,10 +33,10 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc clauseDocs = do
                   ]
               ]
            ++ wherePartMultiLine
-         | [(guards, body, _bodyRaw)] <- [clauseDocs]
-         , let guardPart = singleLineGuardsDoc guards
-         , Data.Maybe.isJust mWhereDocs
-         ]
+      | [(guards, body, _bodyRaw)] <- [clauseDocs]
+      , let guardPart = singleLineGuardsDoc guards
+      , Data.Maybe.isJust mWhereDocs
+      ]
     ++ -- two-line solution + where in next line(s)
        [ docLines
          $  [ docForceSingleline
@@ -45,6 +45,6 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc clauseDocs = do
               body
             ]
          ++ wherePartMultiLine
-       | [(guards, body, _bodyRaw)] <- [clauseDocs]
-       , let guardPart = singleLineGuardsDoc guards
-       ]
+    | [(guards, body, _bodyRaw)] <- [clauseDocs]
+    , let guardPart = singleLineGuardsDoc guards
+    ]

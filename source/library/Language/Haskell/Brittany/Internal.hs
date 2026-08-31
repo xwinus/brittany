@@ -27,6 +27,7 @@ import qualified Data.Map as Map
 import qualified Data.Maybe
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Sequence as Seq
+import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Data.Text.Lazy as TextL
 import qualified Data.Text.Lazy.Builder as Text.Builder
@@ -53,6 +54,7 @@ import Language.Haskell.Brittany.Internal.CommentUtils
 import Language.Haskell.Brittany.Internal.CommentPlan
 import Language.Haskell.Brittany.Internal.CommentBoundary
   ( canonicalCommentGraph )
+import Language.Haskell.Brittany.Internal.CommentIR
 import Language.Haskell.Brittany.Internal.Config
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactSource (nodeSourceSlice)
@@ -413,7 +415,7 @@ pPrintModuleWithSource
   -> GHC.ParsedSource
   -> ([BrittanyError], TextL.Text)
 pPrintModuleWithSource originalSource conf inlineConf anns parsedModule =
-  case normalizeCommentPlan anns of
+  case prepareCommentPlan parsedModule anns of
     Left planErrors ->
       ( fmap (ErrorCommentPlan . show) planErrors
       , maybe
@@ -523,7 +525,10 @@ pPrintModuleAndCheckWithSource originalSource conf inlineConf anns parsedModule 
           semanticErrors parsedModule outputModule
             ++ if omitCommentCheck
               then []
-              else case (normalizeCommentPlan anns, normalizeCommentPlan outputAnns) of
+              else case
+                ( prepareCommentPlan parsedModule anns
+                , prepareCommentPlan outputModule outputAnns
+                ) of
               (Left planErrors, _) -> fmap (ErrorCommentPlan . show) planErrors
               (_, Left planErrors) -> fmap (ErrorCommentPlan . show) planErrors
               (Right inputPlan, Right outputPlan) ->
@@ -1000,6 +1005,14 @@ _bindHead = \case
 
 layoutBriDoc :: BriDocNumbered -> PPMLocal ()
 layoutBriDoc briDoc = do
+  annotations :: Anns <- mAsk
+  commentPlan :: CommentPlan <- mAsk
+  let lowered = lowerPlannedComments annotations commentPlan briDoc
+  briDocWithComments <- case lowered of
+    Left errors -> do
+      mTell $ fmap (ErrorCommentPlan . show) errors
+      pure (0, BDFEmpty)
+    Right document -> pure document
   -- first step: transform the briDoc.
   briDoc' <- MultiRWSS.withMultiStateS BDEmpty $ do
     -- Note that briDoc is BriDocNumbered, but state type is BriDoc.
@@ -1007,9 +1020,9 @@ layoutBriDoc briDoc = do
     traceIfDumpConf "bridoc raw" _dconf_dump_bridoc_raw
       $ briDocToDoc
       $ unwrapBriDocNumbered
-      $ briDoc
+      $ briDocWithComments
     -- bridoc transformation: remove alts
-    transformAlts briDoc >>= mSet
+    transformAlts briDocWithComments >>= mSet
     mGet
       >>= briDocToDoc
       .> traceIfDumpConf "bridoc post-alt" _dconf_dump_bridoc_simpl_alt
@@ -1054,12 +1067,23 @@ layoutBriDoc briDoc = do
       , _lstate_indLevels = [0]
       , _lstate_indLevelLinger = 0
       , _lstate_comments = reserveSourceFragmentComments briDoc' anns
+      , _lstate_emittedComments = Set.empty
       , _lstate_commentCol = Nothing
       , _lstate_addSepSpace = Nothing
       , _lstate_commentNewlines = 0
       }
 
   state' <- MultiRWSS.withMultiStateS state $ layoutBriDocM briDoc'
+
+  case validatePlannedCommentNodes briDoc' of
+    Left errors -> mTell $ fmap (ErrorCommentPlan . show) errors
+    Right () -> pure ()
+
+  let plannedKeys = Set.fromList $ plannedCommentKeys briDoc'
+      missingEmissions = Set.toList
+        $ plannedKeys `Set.difference` _lstate_emittedComments state'
+  missingEmissions `forM_` \key -> mTell
+    [ ErrorCommentPlan $ "Planned comment was not emitted: " ++ show key ]
 
   let
     remainingComments =

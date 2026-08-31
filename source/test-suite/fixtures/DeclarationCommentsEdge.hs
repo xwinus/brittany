@@ -1,6 +1,7 @@
 {-# LANGUAGE DerivingVia #-}
 data Wrapped value = Wrapped
-  { unWrapped :: value -- field comment
+  { unWrapped
+      :: value -- field comment
   -- , removed :: Bool
   }
   deriving

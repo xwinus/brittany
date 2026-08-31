@@ -3,6 +3,7 @@
 
 module Language.Haskell.Brittany.Internal.CommentBoundary
   ( canonicalCommentGraph
+  , attachCommentBoundaries
   , materializeCommentBoundaries
   ) where
 
@@ -206,12 +207,25 @@ emptyAnnotation =
 
 canonicalCommentGraph :: ParsedSource -> CommentPlan -> [CanonicalComment]
 canonicalCommentGraph (L _ module') plan = canonicalizeRuns
-  [ CanonicalComment (boundaryFor module' sourceComment)
+  [ CanonicalComment
+                     (Map.findWithDefault
+                       (boundaryFor module' sourceComment)
+                       (sourceCommentKey sourceComment)
+                       (commentPlanBoundaries plan)
+                     )
                      (sourceCommentText sourceComment)
                      (sourceCommentSyntax sourceComment)
                      (placementRole placement)
   | (sourceComment, placement) <- orderedComments plan
   ]
+
+attachCommentBoundaries :: ParsedSource -> CommentPlan -> CommentPlan
+attachCommentBoundaries (L _ module') plan = plan
+  { commentPlanBoundaries = Map.fromList
+      [ (key, boundaryFor module' sourceComment)
+      | (key, sourceComment) <- Map.toList $ commentPlanSources plan
+      ]
+  }
 
 canonicalizeRuns :: [CanonicalComment] -> [CanonicalComment]
 canonicalizeRuns = List.concatMap canonicalizeRun . List.groupBy sameBoundary
@@ -402,4 +416,7 @@ isPragmaText :: String -> Bool
 isPragmaText = List.isPrefixOf "{-#"
 
 startsWith :: Char -> String -> Bool
-startsWith expected = (== Just expected) . listToMaybe . dropWhile Char.isSpace
+startsWith expected = \case
+  actual : _ | actual == expected -> True
+  space : actual : _ -> Char.isSpace space && actual == expected
+  _ -> False

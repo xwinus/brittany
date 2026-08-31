@@ -5,9 +5,9 @@
  -}
 module Test
   ( test1
-  -- ^ test
+    -- ^ test
   , test2
-  -- | test
+    -- | test
   , test3
   , test4
   , test5
