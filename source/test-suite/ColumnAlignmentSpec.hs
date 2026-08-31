@@ -34,11 +34,57 @@ spec = Hspec.describe "column alignment integration" $ do
         nestedPlans -> Hspec.expectationFailure
           $ "expected one nested plan, got " ++ show nestedPlans
 
+  Hspec.it "keeps heterogeneous operator continuations unaligned" $ do
+    let documents = operatorRow <$> ["$", "<$>", "`Data.List.intersect`"]
+    case columnAlignmentPlans 30 100 documents of
+      Left plannerError -> Hspec.expectationFailure $ show plannerError
+      Right [plan] -> do
+        let result = columnAlignmentPlanResult plan
+        alignmentPlanBreaks result `Hspec.shouldBe` [1, 2]
+        alignmentGroupLayout <$> alignmentPlanGroups result
+          `Hspec.shouldBe` [AlignmentUnaligned]
+        alignmentGroupCost <$> alignmentPlanGroups result
+          `Hspec.shouldBe` [AlignmentCost 22 0 0 0 0 0 3]
+        show result `Hspec.shouldContain` "OperatorLayoutAffinity"
+        show result `Hspec.shouldContain` "UnalignedLayout"
+      Right plans -> Hspec.expectationFailure
+        $ "expected one operator plan, got " ++ show plans
+
+  Hspec.it "retains alignment for repeated compatible operators" $ do
+    let documents = replicate 3 $ operatorRow ">>="
+    case columnAlignmentPlans 30 100 documents of
+      Left plannerError -> Hspec.expectationFailure $ show plannerError
+      Right [plan] -> do
+        let result = columnAlignmentPlanResult plan
+        alignmentPlanBreaks result `Hspec.shouldBe` []
+        alignmentGroupLayout <$> alignmentPlanGroups result
+          `Hspec.shouldBe` [AlignmentAligned]
+      Right plans -> Hspec.expectationFailure
+        $ "expected one operator plan, got " ++ show plans
+
+  Hspec.it "does not infer compatibility from equal operator widths" $ do
+    let documents = operatorRow <$> ["<$>", ">>="]
+    (fmap . fmap)
+      (alignmentPlanBreaks . columnAlignmentPlanResult)
+      (columnAlignmentPlans 30 100 documents)
+      `Hspec.shouldBe` Right [[1]]
+
   Hspec.it "reports invalid producer data with row and path context" $ do
     let invalid = BDCols (ColBindingLine []) [BDLit $ Text.pack "value"]
     columnAlignmentPlans 30 80 [invalid]
       `Hspec.shouldBe` Left
         (ColumnAlignmentError [] 0 $ MissingAlignmentCandidates 0)
+
+  Hspec.it "preserves contradictory producer errors" $ do
+    let key = Right ()
+        invalid = BDCols
+          (ColBindingLine
+            [StructuralAffinity key, ProhibitedAlignment key]
+          )
+          [BDLit $ Text.pack "value"]
+    columnAlignmentPlans 30 80 [invalid]
+      `Hspec.shouldBe` Left
+        (ColumnAlignmentError [] 0 $ ContradictoryAlignmentConstraints 0)
 
 signatureRows :: ColSig -> [BriDoc]
 signatureRows signature =
@@ -57,6 +103,12 @@ nestedRow :: String -> BriDoc
 nestedRow prefix = BDCols ColTuple
   [ row ColRec prefix
   , BDLit $ Text.pack " tail"
+  ]
+
+operatorRow :: String -> BriDoc
+operatorRow operator = BDCols ColOpPrefix
+  [ BDSeq [BDSeparator, BDLit $ Text.pack operator]
+  , BDLit $ Text.pack "operand"
   ]
 
 allColumnSignatures :: [ColSig]

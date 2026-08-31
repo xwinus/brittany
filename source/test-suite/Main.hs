@@ -25,6 +25,7 @@ import qualified FallbackSpec
 import qualified FallbackSweepSpec
 import qualified FixitySignatureSpec
 import qualified InstanceHeadSpec
+import qualified InfixContinuationAlignmentSpec
 import qualified LetStatementBoundarySpec
 import qualified Language.Haskell.Brittany.Main as Brittany
 import qualified OpaqueSyntaxSpec
@@ -122,6 +123,7 @@ main = Hspec.hspec $ do
   FallbackSweepSpec.spec
   FixitySignatureSpec.spec projectRoot
   InstanceHeadSpec.spec projectRoot
+  InfixContinuationAlignmentSpec.spec
   LetStatementBoundarySpec.spec projectRoot
   OpaqueSyntaxSpec.spec projectRoot
   PatternSynonymBindingSpec.spec projectRoot

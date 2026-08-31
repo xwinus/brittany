@@ -1,5 +1,5 @@
 func =
-  ( lkjadljasldjalskdjaldjalsdjkalsdjlaksdjlasjdlajsaldskj
+  (lkjadljasldjalskdjaldjalsdjkalsdjlaksdjlasjdlajsaldskj
   $ abc
   $ def
   $ ghi
