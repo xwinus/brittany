@@ -72,6 +72,7 @@ data LayoutState = LayoutState
                                   -- annotation offset relative to the last
                                   -- non-indented element, which is confusing.
   , _lstate_comments      :: Anns
+  , _lstate_emittedComments :: Set SourceCommentKey
   , _lstate_commentCol    :: Maybe Int -- this communicates two things:
                                        -- firstly, that cursor is currently
                                        -- at the end of a comment (so needs
@@ -251,10 +252,10 @@ data DocMultiLine
 -- of transformations on `BriDocF Identity`s and it is really annoying to
 -- `Identity`/`runIdentity` everywhere.
 data BriDoc
-  = -- BDWrapAnnKey AnnKey BriDoc
-    BDEmpty
+  = BDEmpty
   | BDBlankLine
   | BDLit !Text
+  | BDComment PlannedComment
   | BDSeq [BriDoc] -- elements other than the last should
                    -- not contains BDPars.
   | BDCols ColSig [BriDoc] -- elements other than the last
@@ -271,8 +272,6 @@ data BriDoc
     , _bdpar_indented :: BriDoc
     }
   | BDDelimited (DelimitedGroup BriDoc)
-  -- | BDAddIndent BrIndent (BriDocF f)
-  -- | BDNewline
   | BDAlt [BriDoc]
   | BDForwardLineMode BriDoc
   | BDExternal AnnKey
@@ -300,10 +299,10 @@ data BriDoc
   deriving (Data.Data.Data, Eq, Ord)
 
 data BriDocF f
-  = -- BDWrapAnnKey AnnKey BriDoc
-    BDFEmpty
+  = BDFEmpty
   | BDFBlankLine
   | BDFLit !Text
+  | BDFComment PlannedComment
   | BDFSeq [f (BriDocF f)] -- elements other than the last should
                    -- not contains BDPars.
   | BDFCols ColSig [f (BriDocF f)] -- elements other than the last
@@ -320,8 +319,6 @@ data BriDocF f
     , _bdfpar_indented :: f (BriDocF f)
     }
   | BDFDelimited (DelimitedGroup (f (BriDocF f)))
-  -- | BDAddIndent BrIndent (BriDocF f)
-  -- | BDNewline
   | BDFAlt [f (BriDocF f)]
   | BDFForwardLineMode (f (BriDocF f))
   | BDFExternal AnnKey
@@ -343,7 +340,6 @@ data BriDocF f
   | BDFForceParSpacing (f (BriDocF f))
   | BDFDebug String (f (BriDocF f))
 
--- deriving instance Data.Data.Data (BriDocF Identity)
 deriving instance Data.Data.Data (BriDocF ((,) Int))
 
 type BriDocFInt = BriDocF ((,) Int)
@@ -353,6 +349,7 @@ instance Uniplate.Uniplate BriDoc where
   uniplate x@BDEmpty{}               = plate x
   uniplate x@BDBlankLine{}           = plate x
   uniplate x@BDLit{}                 = plate x
+  uniplate x@BDComment{}             = plate x
   uniplate (BDSeq list     )         = plate BDSeq ||* list
   uniplate (BDCols sig list)         = plate BDCols |- sig ||* list
   uniplate x@BDSeparator             = plate x
@@ -395,6 +392,7 @@ unwrapBriDocNumbered tpl = case snd tpl of
   BDFEmpty                     -> BDEmpty
   BDFBlankLine                 -> BDBlankLine
   BDFLit t                     -> BDLit t
+  BDFComment comment           -> BDComment comment
   BDFSeq list                  -> BDSeq $ rec <$> list
   BDFCols sig list             -> BDCols sig $ rec <$> list
   BDFSeparator                 -> BDSeparator
@@ -435,6 +433,7 @@ briDocSeqSpine = \case
   BDEmpty                        -> ()
   BDBlankLine                    -> ()
   BDLit _t                       -> ()
+  BDComment _comment             -> ()
   BDSeq list                     -> foldl' ((briDocSeqSpine .) . seq) () list
   BDCols _sig list               -> foldl' ((briDocSeqSpine .) . seq) () list
   BDSeparator                    -> ()

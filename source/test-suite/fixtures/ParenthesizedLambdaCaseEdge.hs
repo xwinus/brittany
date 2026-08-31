@@ -20,7 +20,7 @@ commented = apply
   (\case
     Just value -> value
     -- Keep this comment between alternatives.
-    Nothing    -> 0
+    Nothing -> 0
   )
 
 argument = apply

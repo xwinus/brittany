@@ -114,13 +114,14 @@ spec projectRoot = Hspec.describe "exact-source comment ownership" $ do
             , placementLineRelation = CommentOwnLine
             , placementRelativeOrder = 0
             }
+          , commentPlanBoundaries = Map.empty
           }
     validateOpaqueSourceFragment fragment commentPlan
       `Hspec.shouldSatisfy` isOwnershipError
 
   Hspec.it "rejects opaque fragments without a comment placement" $ do
     let (fragment, _, _) = fragmentFixture
-        commentPlan = CommentPlan Map.empty Map.empty
+        commentPlan = CommentPlan Map.empty Map.empty Map.empty
     validateOpaqueSourceFragment fragment commentPlan
       `Hspec.shouldSatisfy` isOwnershipError
 

@@ -1,6 +1,8 @@
 module Main
   ( DataTypeI
-  , DataTypeII(DataConstructor)
+  , DataTypeII
+    ( DataConstructor
+    )
     -- * Haddock heading
   , name
   ) where

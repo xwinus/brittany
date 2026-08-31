@@ -3,6 +3,7 @@
 
 module Language.Haskell.Brittany.Internal.CommentPlan
   ( normalizeCommentPlan
+  , prepareCommentPlan
   , isSourceComment
   , lookupCommentPlacement
   , lookupCommentRole
@@ -20,9 +21,13 @@ import qualified Data.Maybe as Maybe
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified GHC.Types.SrcLoc as SrcLoc
+import GHC (ParsedSource)
 import Language.Haskell.Brittany.Internal.ExactPrintCompat
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.SourceComment.Types
+import Language.Haskell.Brittany.Internal.CommentBoundary
+  ( attachCommentBoundaries
+  )
 
 data CommentSlot
   = PriorSlot
@@ -43,6 +48,7 @@ normalizeCommentPlan annotations = case
   [] -> Right CommentPlan
     { commentPlanSources = Map.fromList sourceEntries
     , commentPlanPlacements = Map.fromList placementEntries
+    , commentPlanBoundaries = Map.empty
     }
   errors -> Left errors
  where
@@ -100,6 +106,11 @@ normalizeCommentPlan annotations = case
       )
     | (key, occurrence) <- uniqueOccurrences
     ]
+
+prepareCommentPlan
+  :: ParsedSource -> Anns -> Either [CommentPlanError] CommentPlan
+prepareCommentPlan parsedModule annotations =
+  attachCommentBoundaries parsedModule <$> normalizeCommentPlan annotations
 
 annotationOccurrences :: (AnnKey, Annotation) -> [CommentOccurrence]
 annotationOccurrences (ownerKey, annotation) =
@@ -403,6 +414,6 @@ isPragmaText = List.isPrefixOf "{-#"
 
 startsWith :: Char -> String -> Bool
 startsWith expected = \case
-  rest -> case dropWhile Char.isSpace rest of
-    actual : _ -> actual == expected
-    [] -> False
+  actual : _ | actual == expected -> True
+  space : actual : _ -> Char.isSpace space && actual == expected
+  _ -> False

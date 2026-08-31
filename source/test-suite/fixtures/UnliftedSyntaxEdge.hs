@@ -26,14 +26,14 @@ data UPair a = UPair
                      a a
 swap
   :: (# Int#
-      -- Keep the tuple type comment.
-            , Int# #)
+    -- Keep the tuple type comment.
+    , Int# #)
   -> (# Int#, Int# #)
 swap (# left
-   -- Keep the tuple pattern comment.
-            , right #) =
+  -- Keep the tuple pattern comment.
+  , right #) =
   (# right
-   -- Keep the tuple expression comment.
+    -- Keep the tuple expression comment.
   ,  left
   #)
 select

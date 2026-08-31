@@ -21,7 +21,7 @@ applyRanked
   -> (Int, Bool)
 applyRanked function =
   ( function @Int
-      -- Keep the visible type application comment.
-                  1
+    -- Keep the visible type application comment.
+    1
   , function @Bool True
   )

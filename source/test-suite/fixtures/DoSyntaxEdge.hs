@@ -29,6 +29,6 @@ recursiveStatement =
   do
     rec
         -- Keep the recursive statement comment.
-        first  <- Just second
+        first <- Just second
         second <- Just first
     pure (first, second)

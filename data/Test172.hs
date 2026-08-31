@@ -4,9 +4,9 @@
  -}
 module Test
   ( test1
-  -- ^ test
+    -- ^ test
   , test2
-  -- | test
+    -- | test
   , test3
   , test4
   , test5
@@ -15,7 +15,7 @@ module Test
   , test8
   , test9
   , test10
-  -- Test 10
+    -- Test 10
   ) where
 -- Test
 import           Data.List                                ( nub ) -- Test

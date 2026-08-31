@@ -17,6 +17,7 @@ transformSimplifyColumns = Uniplate.rewrite $ \case
   BDEmpty -> Nothing
   BDBlankLine -> Nothing
   BDLit{} -> Nothing
+  BDComment{} -> Nothing
   BDSeq list
     | any
       (\case
