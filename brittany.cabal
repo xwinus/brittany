@@ -181,6 +181,7 @@ library
     Language.Haskell.Brittany.Internal.Preprocessor
     Language.Haskell.Brittany.Internal.SemanticFingerprint.Ghc
     Language.Haskell.Brittany.Internal.SemanticModel
+    Language.Haskell.Brittany.Internal.SourceComment.Indentation
     Language.Haskell.Brittany.Internal.TypeFallbacks
     Language.Haskell.Brittany.Main.Transform
 
@@ -218,6 +219,7 @@ test-suite brittany-test-suite
     DelimiterLayoutSpec
     ExtractAnnsSpec
     ExactSourceFragmentSpec
+    ExpressionCommentIndentationSpec
     FallbackSpec
     FallbackSweepSpec
     FixitySignatureSpec

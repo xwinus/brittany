@@ -322,6 +322,15 @@ renderPlannedComment planned = do
           | ownLine -> layoutMoveToAbsoluteCommentPos
               lineDelta (lstate_baseY state) lineCount
           | otherwise -> layoutMoveToCommentPos 0 1 lineCount
+        RenderedAnchorIndent -> do
+          layoutSetCommentCol
+          current <- mGet
+          let anchorColumn = fromMaybe
+                (lstate_baseY current)
+                (_lstate_commentCol current)
+          layoutMoveToAbsoluteCommentPos lineDelta
+            (anchorColumn + max 0 (plannedCommentColumnDelta planned))
+            lineCount
         ContainerRelativeIndent ->
           let containerColumn = lstate_baseY state
               contentColumn = containerColumn + indentAmount

@@ -8,6 +8,7 @@ module Language.Haskell.Brittany.Internal.CommentBoundary
   ) where
 
 import qualified Data.Char                               as Char
+import qualified Data.Generics                           as Generics
 import qualified Data.List                               as List
 import qualified Data.Map                                as Map
 import qualified Data.Maybe                              as Maybe
@@ -24,6 +25,7 @@ import           GHC.Hs                                   ( DataDefnCons(..)
                                                           , HsDecl(..)
                                                           , ImportDecl(..)
                                                           , LConDecl
+                                                          , LHsExpr
                                                           , LHsDecl
                                                           , LImportDecl
                                                           , TyClDecl(..)
@@ -209,7 +211,12 @@ canonicalCommentGraph :: ParsedSource -> CommentPlan -> [CanonicalComment]
 canonicalCommentGraph (L _ module') plan = canonicalizeRuns
   [ CanonicalComment
                      (Map.findWithDefault
-                       (boundaryFor module' sourceComment)
+                       (boundaryFor
+                         module'
+                         expressionOwners
+                         sourceComment
+                         placement
+                       )
                        (sourceCommentKey sourceComment)
                        (commentPlanBoundaries plan)
                      )
@@ -218,14 +225,19 @@ canonicalCommentGraph (L _ module') plan = canonicalizeRuns
                      (placementRole placement)
   | (sourceComment, placement) <- orderedComments plan
   ]
+ where
+  expressionOwners = expressionOwnerIndices module'
 
 attachCommentBoundaries :: ParsedSource -> CommentPlan -> CommentPlan
 attachCommentBoundaries (L _ module') plan = plan
   { commentPlanBoundaries = Map.fromList
-      [ (key, boundaryFor module' sourceComment)
+      [ (key, boundaryFor module' expressionOwners sourceComment placement)
       | (key, sourceComment) <- Map.toList $ commentPlanSources plan
+      , Just placement <- [Map.lookup key $ commentPlanPlacements plan]
       ]
   }
+ where
+  expressionOwners = expressionOwnerIndices module'
 
 canonicalizeRuns :: [CanonicalComment] -> [CanonicalComment]
 canonicalizeRuns = List.concatMap canonicalizeRun . List.groupBy sameBoundary
@@ -260,17 +272,43 @@ acceptsPostDoc boundary =
     (ConstructorBoundaryPath{}, WithinBoundary) -> True
     _ -> False
 
-boundaryFor :: HsModule GhcPs -> SourceComment -> CommentBoundaryId
-boundaryFor module' sourceComment =
+boundaryFor
+  :: HsModule GhcPs
+  -> Map NodeId Int
+  -> SourceComment
+  -> CommentPlacement
+  -> CommentBoundaryId
+boundaryFor module' expressionOwners sourceComment placement =
   fromMaybe moduleBoundary
     $   delimiterBoundary module' commentSpan
     <|> constructorBoundary declarations commentSpan
+    <|> expressionBoundary expressionOwners placement
     <|> declarationBoundary declarations commentSpan
     <|> importBoundary (hsmodImports module') commentSpan
  where
   declarations   = hsmodDecls module'
   commentSpan    = sourceCommentSpan sourceComment
   moduleBoundary = CommentBoundaryId ModuleBoundaryPath WithinBoundary
+
+expressionOwnerIndices :: HsModule GhcPs -> Map NodeId Int
+expressionOwnerIndices module' = Map.fromList $ zip expressionOwners [0 ..]
+ where
+  expressionOwners = Generics.everything (++) expressionQuery module'
+  expressionQuery :: Generics.GenericQ [NodeId]
+  expressionQuery = Generics.mkQ [] $ \expression ->
+    [ NodeId $ mkAnnKey $ L
+        (getLocA (expression :: LHsExpr GhcPs))
+        (unLoc expression)
+    ]
+
+expressionBoundary
+  :: Map NodeId Int -> CommentPlacement -> Maybe CommentBoundaryId
+expressionBoundary expressionOwners placement = do
+  guard $ placementRole placement == LeadingOrdinary
+  guard $ placementAnchor placement == BeforeNode
+  guard $ placementLineRelation placement == CommentOwnLine
+  index <- Map.lookup (placementOwner placement) expressionOwners
+  pure $ CommentBoundaryId (ExpressionBoundaryPath index) WithinBoundary
 
 declarationBoundary
   :: [LHsDecl GhcPs] -> SrcLoc.RealSrcSpan -> Maybe CommentBoundaryId

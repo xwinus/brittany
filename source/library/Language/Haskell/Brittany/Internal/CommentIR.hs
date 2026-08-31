@@ -20,6 +20,11 @@ import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.Delimiter.Types
 import Language.Haskell.Brittany.Internal.ExactPrintCompat
 import Language.Haskell.Brittany.Internal.Prelude
+import Language.Haskell.Brittany.Internal.SourceComment.Indentation
+  ( commentIndentPolicy
+  , statementOwnerRelative
+  , structuralOwnerRelative
+  )
 import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.Types
 data CommentIRError
@@ -394,6 +399,10 @@ planSourceCommentWithDelta plan source lineDelta columnDelta = case
         effectivePlacement = if inlineConstructorDoc
           then placement { placementLineRelation = InlineComment }
           else placement
+        effectiveIndentPolicy = if inlineConstructorDoc
+          then OwnerRelativeIndent
+          else commentIndentPolicy
+            baseLineDelta plannedSource effectivePlacement boundary
         effectiveLineDelta
           | inlineConstructorDoc = 0
           | placementRole placement == BetweenChildren TypeOperator = 1
@@ -426,6 +435,8 @@ planSourceCommentWithDelta plan source lineDelta columnDelta = case
               pure $ max 0
                 $ SrcLoc.srcSpanStartCol (sourceCommentSpan plannedSource)
                 - SrcLoc.srcSpanStartCol ownerSpan
+          else if effectiveIndentPolicy == RenderedAnchorIndent
+            then 0
           else if placementLineRelation placement == CommentOwnLine
               && baseLineDelta > 0
             then SrcLoc.srcSpanStartCol (sourceCommentSpan plannedSource) - 1
@@ -434,10 +445,7 @@ planSourceCommentWithDelta plan source lineDelta columnDelta = case
       plannedSource
       effectivePlacement
       boundary
-      (if inlineConstructorDoc
-        then OwnerRelativeIndent
-        else indentPolicy baseLineDelta plannedSource effectivePlacement boundary
-      )
+      effectiveIndentPolicy
       effectiveLineDelta
       effectiveColumnDelta
   (Nothing, _, _) -> Left $ MissingPlannedComment key
@@ -445,50 +453,6 @@ planSourceCommentWithDelta plan source lineDelta columnDelta = case
   (_, _, Nothing) -> Left $ MissingCommentBoundary key
  where
   key = sourceCommentKey source
-
-indentPolicy
-  :: Int
-  -> SourceComment
-  -> CommentPlacement
-  -> CommentBoundaryId
-  -> CommentIndentPolicy
-indentPolicy lineDelta source placement boundary
-  | Text.isPrefixOf (Text.singleton '#')
-      (Text.stripStart $ sourceCommentText source) = SourceColumnIndent
-  | placementLineRelation placement /= InlineComment
-  , case placementRole placement of
-      HaddockPostDoc{} -> True
-      _ -> False = SourceColumnIndent
-  | placementLineRelation placement == InlineComment = TokenRelativeIndent
-  | lineDelta == 0, placementAnchor placement == AfterNode = TokenRelativeIndent
-  | placementRole placement == BetweenChildren TypeOperator
-  , ConstructorBoundaryPath{} <- commentBoundaryPath boundary = TokenRelativeIndent
-  | placementRole placement == BetweenChildren DerivingClause
-  , placementAnchor placement == BeforeNode = OwnerRelativeIndent
-  | structuralOwnerRelative placement = OwnerRelativeIndent
-  | statementOwnerRelative placement = OwnerRelativeIndent
-  | DelimiterBoundaryPath{} <- commentBoundaryPath boundary
-  , commentBoundaryGap boundary `elem`
-      [AfterOpenBoundary, WithinBoundary, BetweenBoundary, BeforeCloseBoundary] =
-        ContainerRelativeIndent
-  | otherwise = SourceColumnIndent
-
-statementOwnerRelative :: CommentPlacement -> Bool
-statementOwnerRelative placement = placementLineRelation placement
-    == CommentOwnLine
-  && placementAnchor placement == BeforeNode
-  && case placementOwner placement of
-    NodeId (AnnKey _ constructor) -> unConName constructor
-      `elem` ["BodyStmt", "BindStmt", "LastStmt", "LetStmt"]
-
-structuralOwnerRelative :: CommentPlacement -> Bool
-structuralOwnerRelative placement = placementLineRelation placement
-    == CommentOwnLine
-  && placementAnchor placement == BeforeNode
-  && placementRole placement `elem` [LeadingDoc, LeadingOrdinary]
-  && case placementOwner placement of
-    NodeId (AnnKey _ constructor) -> unConName constructor
-      `elem` ["ConDeclH98", "ConDeclGADT", "VarPat"]
 
 leadingDocContinuation :: CommentPlan -> SourceComment -> CommentBoundaryId -> Bool
 leadingDocContinuation plan source boundary = case commentBoundaryPath boundary of

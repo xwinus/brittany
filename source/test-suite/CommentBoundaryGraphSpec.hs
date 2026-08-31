@@ -66,6 +66,20 @@ spec = Hspec.describe "canonical comment boundary graph" $ do
     trailingBoundaries
       `Hspec.shouldBe` [CommentBoundaryId (DeclarationBoundaryPath 0) WithinBoundary]
 
+  Hspec.it "attaches a leading branch comment to its expression boundary" $ do
+    firstPass <- formatChecked expressionBoundarySource
+    graph <- parsedGraph "ExpressionBoundary.hs" firstPass
+    let expressionBoundaries =
+          [ canonicalCommentBoundary comment
+          | comment <- graph
+          , canonicalCommentText comment == Text.pack "-- branch expression"
+          ]
+    expressionBoundaries `Hspec.shouldSatisfy` \case
+      [CommentBoundaryId (ExpressionBoundaryPath _) WithinBoundary] -> True
+      _ -> False
+    assertThreePasses
+      "ExpressionBoundary.hs" expressionBoundarySource firstPass
+
   Hspec.it "rejects malformed input without inventing a boundary" $ do
     parsePrintModule staticDefaultConfig (Text.pack malformedSource) >>= \case
       Left _ -> pure ()
@@ -173,6 +187,17 @@ trailingCommentSource = unlines
   , "render values = case values of"
   , "  [] -> output (pack \"\") -- trailing"
   , "  _ -> output values"
+  ]
+
+expressionBoundarySource :: String
+expressionBoundarySource = unlines
+  [ "module ExpressionBoundary where"
+  , ""
+  , "choose condition = if condition"
+  , "  then"
+  , "    -- branch expression"
+  , "    selectedValue"
+  , "  else fallbackValue"
   ]
 
 malformedSource :: String

@@ -48,6 +48,7 @@ data CommentBoundaryPath
   | ImportBoundaryPath String Int
   | DeclarationBoundaryPath Int
   | ConstructorBoundaryPath Int Int
+  | ExpressionBoundaryPath Int
   | DelimiterBoundaryPath Int
   deriving (Data.Data.Data, Eq, Ord, Show)
 
@@ -115,6 +116,7 @@ data CommentPlacement = CommentPlacement
 
 data CommentIndentPolicy
   = OwnerRelativeIndent
+  | RenderedAnchorIndent
   | ContainerRelativeIndent
   | TokenRelativeIndent
   | SourceColumnIndent
