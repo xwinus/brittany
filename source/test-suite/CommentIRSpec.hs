@@ -14,6 +14,7 @@ import Language.Haskell.Brittany
 import Language.Haskell.Brittany.Internal.CommentIR
   ( CommentIRError(..)
   , lowerPlannedComments
+  , planComment
   , plannedCommentKeys
   )
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as EP
@@ -45,6 +46,29 @@ spec = Hspec.describe "first-class planned comments" $ do
               plannedCommentIndentPolicy planned
                 `Hspec.shouldBe` SourceColumnIndent
           _ -> Hspec.expectationFailure "unexpected lowered document shape"
+
+  Hspec.it "rebases an own-line expression comment to its rendered anchor" $ do
+    case planComment expressionPlan (comment, EP.DP (1, farSourceIndent)) of
+      Left planError -> Hspec.expectationFailure $ show planError
+      Right planned -> do
+        plannedCommentIndentPolicy planned
+          `Hspec.shouldBe` RenderedAnchorIndent
+        plannedCommentColumnDelta planned `Hspec.shouldBe` 0
+
+  Hspec.it "retains source-column placement for source directives" $ do
+    case planComment directivePlan (comment, EP.DP (1, farSourceIndent)) of
+      Left planError -> Hspec.expectationFailure $ show planError
+      Right planned -> do
+        plannedCommentIndentPolicy planned `Hspec.shouldBe` SourceColumnIndent
+        plannedCommentColumnDelta planned `Hspec.shouldBe` farSourceIndent
+
+  Hspec.it "keeps delimiter comments relative to their container" $ do
+    case planComment delimiterPlan (comment, EP.DP (1, farSourceIndent)) of
+      Left planError -> Hspec.expectationFailure $ show planError
+      Right planned -> do
+        plannedCommentIndentPolicy planned
+          `Hspec.shouldBe` ContainerRelativeIndent
+        plannedCommentColumnDelta planned `Hspec.shouldBe` farSourceIndent
 
   Hspec.it
     "rebases a far-column final record-field comment and remains stable"
@@ -88,6 +112,38 @@ completePlan = basePlan
   { commentPlanBoundaries = Map.singleton commentKey commentBoundary
   }
 
+expressionPlan :: CommentPlan
+expressionPlan = planFor sourceComment expressionPlacement expressionBoundary
+
+directivePlan :: CommentPlan
+directivePlan = planFor
+  (sourceComment { sourceCommentText = Text.pack "#if FLAG" })
+  expressionPlacement
+  commentBoundary
+
+delimiterPlan :: CommentPlan
+delimiterPlan = planFor sourceComment expressionPlacement CommentBoundaryId
+  { commentBoundaryPath = DelimiterBoundaryPath 0
+  , commentBoundaryGap = WithinBoundary
+  }
+
+expressionBoundary :: CommentBoundaryId
+expressionBoundary = CommentBoundaryId
+  { commentBoundaryPath = ExpressionBoundaryPath 0
+  , commentBoundaryGap = WithinBoundary
+  }
+
+planFor
+  :: SourceComment
+  -> CommentPlacement
+  -> CommentBoundaryId
+  -> CommentPlan
+planFor plannedSource placement boundary = CommentPlan
+  { commentPlanSources = Map.singleton commentKey plannedSource
+  , commentPlanPlacements = Map.singleton commentKey placement
+  , commentPlanBoundaries = Map.singleton commentKey boundary
+  }
+
 missingBoundaryPlan :: CommentPlan
 missingBoundaryPlan = basePlan { commentPlanBoundaries = Map.empty }
 
@@ -113,6 +169,11 @@ commentPlacement = CommentPlacement
   , placementAnchor = BeforeNode
   , placementLineRelation = CommentOwnLine
   , placementRelativeOrder = 0
+  }
+
+expressionPlacement :: CommentPlacement
+expressionPlacement = commentPlacement
+  { placementOwner = NodeId expressionOwnerKey
   }
 
 commentBoundary :: CommentBoundaryId
@@ -147,6 +208,9 @@ annotatedAlternative =
 
 ownerKey :: EP.AnnKey
 ownerKey = EP.AnnKey [ownerSourceSpan] $ EP.CN "ValueDecl"
+
+expressionOwnerKey :: EP.AnnKey
+expressionOwnerKey = EP.AnnKey [ownerSourceSpan] $ EP.CN "HsVar"
 
 comment :: EP.Comment
 comment = EP.Comment Nothing commentSourceSpan "-- disabled field"

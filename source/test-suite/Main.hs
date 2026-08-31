@@ -21,6 +21,7 @@ import qualified DataDeclSingleConstructorSpec
 import qualified DelimiterLayoutSpec
 import qualified ExtractAnnsSpec
 import qualified ExactSourceFragmentSpec
+import qualified ExpressionCommentIndentationSpec
 import qualified FallbackSpec
 import qualified FallbackSweepSpec
 import qualified FixitySignatureSpec
@@ -109,6 +110,7 @@ main = Hspec.hspec $ do
   DelimiterLayoutSpec.spec
   ExtractAnnsSpec.spec
   ExactSourceFragmentSpec.spec projectRoot
+  ExpressionCommentIndentationSpec.spec
   CompatibilitySpec.spec projectRoot
   CommentPlanSpec.spec
   CommentBoundaryGraphSpec.spec
