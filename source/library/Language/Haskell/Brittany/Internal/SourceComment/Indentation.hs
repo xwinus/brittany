@@ -39,7 +39,7 @@ commentIndentPolicy lineDelta source placement boundary
   , commentBoundaryGap boundary `elem`
       [AfterOpenBoundary, WithinBoundary, BetweenBoundary, BeforeCloseBoundary] =
       ContainerRelativeIndent
-  | expressionBoundaryRelative placement boundary = RenderedAnchorIndent
+  | renderedBoundaryRelative placement boundary = RenderedAnchorIndent
   | otherwise = SourceColumnIndent
 
 statementOwnerRelative :: CommentPlacement -> Bool
@@ -59,11 +59,12 @@ structuralOwnerRelative placement = placementLineRelation placement
     NodeId (AnnKey _ constructor) -> unConName constructor
       `elem` ["ConDeclH98", "ConDeclGADT", "VarPat"]
 
-expressionBoundaryRelative :: CommentPlacement -> CommentBoundaryId -> Bool
-expressionBoundaryRelative placement boundary =
+renderedBoundaryRelative :: CommentPlacement -> CommentBoundaryId -> Bool
+renderedBoundaryRelative placement boundary =
   placementLineRelation placement == CommentOwnLine
     && placementAnchor placement == BeforeNode
     && placementRole placement == LeadingOrdinary
     && case (commentBoundaryPath boundary, commentBoundaryGap boundary) of
       (ExpressionBoundaryPath{}, WithinBoundary) -> True
+      (CaseAlternativeBoundaryPath{}, BeforeBoundary) -> True
       _ -> False

@@ -37,6 +37,10 @@ import qualified GHC.Types.SrcLoc                        as SrcLoc
 import           Language.Haskell.Brittany.Internal.ConstructorComments
                                                           ( normalizeConstructorComments
                                                           )
+import           Language.Haskell.Brittany.Internal.CommentBoundary.Case
+                                                          ( caseAlternativeBoundary
+                                                          , materializeCaseComments
+                                                          )
 import           Language.Haskell.Brittany.Internal.CommentBoundary.Delimiter
                                                           ( delimiterBoundary
                                                           )
@@ -47,7 +51,8 @@ import           Language.Haskell.Brittany.Internal.SourceComment.Types
 materializeCommentBoundaries :: ParsedSource -> Anns -> Anns
 materializeCommentBoundaries (L _ module') annotations =
   normalizeConstructorComments declarations
-    $ foldl materializeDeclarationGap annotations
+    $ foldl materializeDeclarationGap
+      (materializeCaseComments module' annotations)
     $ zip declarations (drop 1 declarations)
  where
   declarations = hsmodDecls module'
@@ -280,7 +285,8 @@ boundaryFor
   -> CommentBoundaryId
 boundaryFor module' expressionOwners sourceComment placement =
   fromMaybe moduleBoundary
-    $   delimiterBoundary module' commentSpan
+    $   caseAlternativeBoundary module' commentSpan
+    <|> delimiterBoundary module' commentSpan
     <|> constructorBoundary declarations commentSpan
     <|> expressionBoundary expressionOwners placement
     <|> declarationBoundary declarations commentSpan
