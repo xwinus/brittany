@@ -49,6 +49,7 @@ data CommentBoundaryPath
   | DeclarationBoundaryPath Int
   | ConstructorBoundaryPath Int Int
   | ExpressionBoundaryPath Int
+  | CaseAlternativeBoundaryPath Int
   | DelimiterBoundaryPath Int
   deriving (Data.Data.Data, Eq, Ord, Show)
 

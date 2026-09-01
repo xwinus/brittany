@@ -3,8 +3,9 @@
 import qualified AlignmentPlannerSpec
 import qualified ColumnAlignmentSpec
 import qualified Control.Monad as Monad
-import qualified CompatibilitySpec
+import qualified CaseAlternativeCommentSpec
 import qualified CanonicalSemanticModelSpec
+import qualified CompatibilitySpec
 import qualified CommentPlanSpec
 import qualified CommentOwnershipSpec
 import qualified CommentBoundaryGraphSpec
@@ -100,6 +101,7 @@ main = Hspec.hspec $ do
   AlignmentPlannerSpec.spec
   ColumnAlignmentSpec.spec
   CanonicalSemanticModelSpec.spec
+  CaseAlternativeCommentSpec.spec projectRoot
   SemanticFingerprintSpec.spec
   SignaturePostDocSpec.spec projectRoot
   SiblingBindingAlignmentSpec.spec projectRoot

@@ -382,6 +382,18 @@ renderPlannedComment planned = do
               (plannedCommentColumnDelta planned - _lstate_indLevelLinger state)
               lineCount
       layoutWriteAppendMultiline commentLines
+      when
+        ( sourceCommentSyntax source == BlockComment
+        && ownLine
+        && placementAnchor placement == BeforeNode
+        && isLastCommentBeforeOwner commentPlan planned
+        && case commentBoundaryPath $ plannedCommentBoundary planned of
+          CaseAlternativeBoundaryPath{} -> True
+          _ -> False
+        ) $ do
+          let NodeId owner = placementOwner placement
+          layoutFinishPriorCommentBoundary
+            $ sourceCommentBoundary owner (sourceCommentSpan source)
       when (sourceCommentSyntax source == LineComment) $ case
           (placementAnchor placement, placementOwner placement) of
             _ | placementLineRelation placement == InlineComment ->
