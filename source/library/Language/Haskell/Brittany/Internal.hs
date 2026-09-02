@@ -7,8 +7,10 @@ module Language.Haskell.Brittany.Internal
   , parsePrintModuleTests
   , pPrintModule
   , pPrintModuleWithSource
+  , pPrintModulePrepared
   , pPrintModuleAndCheck
   , pPrintModuleAndCheckWithSource
+  , commentValidationErrors
   , semanticErrors
    -- re-export from utils:
   , parseModule
@@ -84,6 +86,7 @@ import Language.Haskell.Brittany.Internal.SemanticFingerprint
 import Language.Haskell.Brittany.Internal.SourceComment.Types
   ( SourceComment(sourceCommentSpan)
   , CommentPlan(commentPlanSources)
+  , CommentPlanError
   , ExactSourceFragment(fragmentCommentKeys)
   )
 import Language.Haskell.Brittany.Internal.Transformations.Alt
@@ -416,7 +419,25 @@ pPrintModuleWithSource
   -> GHC.ParsedSource
   -> ([BrittanyError], TextL.Text)
 pPrintModuleWithSource originalSource conf inlineConf anns parsedModule =
-  case prepareCommentPlan parsedModule anns of
+  let preparedPlan = prepareCommentPlan parsedModule anns
+      groupedAnnotations = case preparedPlan of
+        Left{} -> Map.empty
+        Right{} -> extractToplevelAnns parsedModule anns
+  in pPrintModulePrepared originalSource conf inlineConf anns parsedModule
+    preparedPlan groupedAnnotations
+
+pPrintModulePrepared
+  :: Maybe Text.Text
+  -> Config
+  -> PerItemConfig
+  -> Anns
+  -> GHC.ParsedSource
+  -> Either [CommentPlanError] CommentPlan
+  -> Map AnnKey Anns
+  -> ([BrittanyError], TextL.Text)
+pPrintModulePrepared originalSource conf inlineConf anns parsedModule
+    preparedPlan groupedAnnotations =
+  case preparedPlan of
     Left planErrors ->
       ( fmap (ErrorCommentPlan . show) planErrors
       , maybe
@@ -436,7 +457,7 @@ pPrintModuleWithSource originalSource conf inlineConf anns parsedModule =
             $ MultiRWSS.withMultiReader anns
             $ MultiRWSS.withMultiReader conf
             $ MultiRWSS.withMultiReader inlineConf
-            $ MultiRWSS.withMultiReader (extractToplevelAnns parsedModule anns)
+            $ MultiRWSS.withMultiReader groupedAnnotations
             $ do
                 traceIfDumpConf "bridoc annotations raw" _dconf_dump_annotations
                   $ annsDoc anns
@@ -524,39 +545,47 @@ pPrintModuleAndCheckWithSource originalSource conf inlineConf anns parsedModule 
         Left{} -> [ErrorOutputCheck]
         Right (outputAnns, outputModule, _) ->
           semanticErrors parsedModule outputModule
-            ++ if omitCommentCheck
-              then []
-              else case
-                ( prepareCommentPlan parsedModule anns
-                , prepareCommentPlan outputModule outputAnns
-                ) of
-              (Left planErrors, _) -> fmap (ErrorCommentPlan . show) planErrors
-              (_, Left planErrors) -> fmap (ErrorCommentPlan . show) planErrors
-              (Right inputPlan, Right outputPlan) ->
-                let inputComments = commentPlanCommentTexts inputPlan
-                    outputComments = commentPlanCommentTexts outputPlan
-                    inputFingerprint =
-                      canonicalCommentGraph parsedModule inputPlan
-                    outputFingerprint =
-                      canonicalCommentGraph outputModule outputPlan
-                in [ ErrorUnusedComment
-                    $ "Comment missing from formatted output: " ++ show commentText
-                | commentText <- inputComments List.\\ outputComments
-                ]
-                  ++ [ ErrorCommentPlan
-                        $ "Comment order or multiplicity changed after formatting."
-                        ++ "\nInput comments: " ++ show inputComments
-                        ++ "\nOutput comments: " ++ show outputComments
-                     | inputComments /= outputComments
-                     ]
-                  ++ [ ErrorCommentPlan
-                        $ "Comment ownership, order, or role changed after formatting."
-                        ++ "\nInput: " ++ show inputFingerprint
-                        ++ "\nOutput: " ++ show outputFingerprint
-                     | inputFingerprint /= outputFingerprint
-                     ]
+            ++ commentValidationErrors omitCommentCheck parsedModule anns
+              outputModule outputAnns
       errs' = errs ++ checkErrors
   return (errs', output)
+
+commentValidationErrors
+  :: Bool
+  -> GHC.ParsedSource
+  -> Anns
+  -> GHC.ParsedSource
+  -> Anns
+  -> [BrittanyError]
+commentValidationErrors omitCommentCheck parsedModule anns outputModule outputAnns
+  | omitCommentCheck = []
+  | otherwise = case
+      ( prepareCommentPlan parsedModule anns
+      , prepareCommentPlan outputModule outputAnns
+      ) of
+    (Left planErrors, _) -> fmap (ErrorCommentPlan . show) planErrors
+    (_, Left planErrors) -> fmap (ErrorCommentPlan . show) planErrors
+    (Right inputPlan, Right outputPlan) ->
+      let inputComments = commentPlanCommentTexts inputPlan
+          outputComments = commentPlanCommentTexts outputPlan
+          inputFingerprint = canonicalCommentGraph parsedModule inputPlan
+          outputFingerprint = canonicalCommentGraph outputModule outputPlan
+      in [ ErrorUnusedComment
+          $ "Comment missing from formatted output: " ++ show commentText
+      | commentText <- inputComments List.\\ outputComments
+      ]
+        ++ [ ErrorCommentPlan
+              $ "Comment order or multiplicity changed after formatting."
+              ++ "\nInput comments: " ++ show inputComments
+              ++ "\nOutput comments: " ++ show outputComments
+           | inputComments /= outputComments
+           ]
+        ++ [ ErrorCommentPlan
+              $ "Comment ownership, order, or role changed after formatting."
+              ++ "\nInput: " ++ show inputFingerprint
+              ++ "\nOutput: " ++ show outputFingerprint
+           | inputFingerprint /= outputFingerprint
+           ]
 
 semanticErrors
   :: GHC.ParsedSource -> GHC.ParsedSource -> [BrittanyError]

@@ -123,6 +123,9 @@ log the size of the input, but _not_ the full input/output of requests.)
 
 # Development tips
 
+Performance work uses the reproducible, phase-aware benchmark harness described
+in [the performance benchmark guide](doc/performance-benchmarks.md).
+
 # Editor Integration
 
 #### Sublime text

@@ -33,6 +33,7 @@ import qualified LetStatementBoundarySpec
 import qualified Language.Haskell.Brittany.Main as Brittany
 import qualified OpaqueSyntaxSpec
 import qualified PatternSynonymBindingSpec
+import qualified PerformanceSpec
 import qualified PreambleSpacingSpec
 import qualified PreprocessorSpec
 import qualified PriorCommentSeparationSpec
@@ -133,6 +134,7 @@ main = Hspec.hspec $ do
   LetStatementBoundarySpec.spec projectRoot
   OpaqueSyntaxSpec.spec projectRoot
   PatternSynonymBindingSpec.spec projectRoot
+  PerformanceSpec.spec
   PreambleSpacingSpec.spec projectRoot
   TemplateHaskellFallbackSpec.spec projectRoot
   PreprocessorSpec.spec projectRoot
