@@ -808,7 +808,10 @@ layoutExprNative lexpr@(L _ expr) = do
         $ docPar (docLit $ Text.pack "if")
         $ layoutPatternBindFinal RequiredPatternAlignment Nothing binderDoc
           Nothing Nothing
-          (NonEmpty.toList clauseDocs) Nothing hasComments
+          (NonEmpty.toList clauseDocs)
+          (hasSingleBooleanGuard $ NonEmpty.toList cases)
+          Nothing
+          hasComments
     HsLet _ binds exp1 -> do
       expDoc1 <- docSharedWrapper layoutExpr' (toL exp1)
       -- We jump through some ugly hoops here to ensure proper sharing.

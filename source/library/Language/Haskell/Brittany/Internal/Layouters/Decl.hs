@@ -674,7 +674,7 @@ layoutBindWithComments declarationComments lbind@(L _ bind) = case bind of
     hasComments <- hasAnyCommentsBelow (toL lbind)
     formatted <- docWrapNode (toL lbind) $ layoutPatternBindFinal
       OptionalSiblingAlignment Nothing binderDoc (Just patDocs)
-      multilinePatDoc clauseDocs mWhereArg
+      multilinePatDoc clauseDocs (hasSingleBooleanGuard grhss) mWhereArg
       (hasComments || not (null separatorComments))
     Right <$> prependConsumedComments
       (separatorComments ++ handledClauseComments clauseDocs)
@@ -763,6 +763,7 @@ layoutIPBind lipbind@(L _ bind) = case bind of
         (Just ipName)
         Nothing
         [([], exprDoc, expr, [])]
+        False
         Nothing
         hasComments
     _ -> briDocByExactNoComment ImplicitParameterFallback (toL lipbind)
@@ -915,6 +916,10 @@ layoutGrhs declarationComments lgrhs@(L _ (GRHS _ guards body)) = do
       )
       trailingBodyComments
   return (guardDocs, bodyDoc, body, handledComments)
+
+hasSingleBooleanGuard :: [LGRHS GhcPs (LHsExpr GhcPs)] -> Bool
+hasSingleBooleanGuard [L _ (GRHS _ [L _ (BodyStmt _ _ _ _)] _)] = True
+hasSingleBooleanGuard _ = False
 
 sourceCommentFollowsNodeSameLine
   :: Located ast -> SourceComment -> Bool
@@ -1075,7 +1080,8 @@ layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
   prependConsumedComments
     (separatorComments ++ handledClauseComments clauseDocs)
     $ layoutPatternBindFinal alignmentScope alignmentToken binderWithComments
-      (Just patDoc) mMultilinePatDoc clauseDocs mWhereArg
+      (Just patDoc) mMultilinePatDoc clauseDocs
+      (hasSingleBooleanGuard grhss) mWhereArg
       (hasComments || not (null separatorComments))
 
 fixPatternBindIdentifier :: Match GhcPs (LHsExpr GhcPs) -> Text -> Text
@@ -1106,11 +1112,12 @@ layoutPatternBindFinal
   -> Maybe BriDocNumbered
   -> Maybe BriDocNumbered
   -> [([BriDocNumbered], BriDocNumbered, LHsExpr GhcPs, [SourceComment])]
+  -> Bool
   -> Maybe (AnnKey, [BriDocNumbered])
      -- ^ AnnKey for the node that contains the AnnWhere position annotation
   -> Bool
   -> ToBriDocM BriDocNumbered
-layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseDocs mWhereDocs hasComments
+layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseDocs hasSingleBodyGuard mWhereDocs hasComments
   = do
     let alignmentCandidates = case alignmentScope of
           RequiredPatternAlignment -> [StructuralAffinity $ Right ()]
@@ -1268,6 +1275,21 @@ layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilin
               $ return body
               ]
             ++ wherePartMultiLine
+          case (mPatDoc, guards) of
+            (Just patDoc, [guardDoc]) ->
+              addAlternativeCond (not hasComments && hasSingleBodyGuard)
+                $ docLines
+                $ [ docForceSingleline $ return patDoc
+                  , docEnsureIndent BrIndentRegular
+                  $ docSeq
+                      [ appSep $ docLit $ Text.pack "|"
+                      , appSep $ return guardDoc
+                      , appSep $ return binderDoc
+                      , return body
+                      ]
+                  ]
+                ++ wherePartMultiLine
+            _ -> return ()
           case mMultilinePatDoc of
             Nothing -> return ()
             Just patDoc ->
