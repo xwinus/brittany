@@ -22,6 +22,7 @@ import Data.Foldable (asum)
 import qualified Data.Generics as SYB
 import qualified Data.List as List
 import qualified Data.Map as Map
+import qualified Data.Ord as Ord
 import GHC
   ( GenLocated(L)
   , LEpaComment
@@ -932,7 +933,7 @@ redistributeInnerCommentsWithChildSkips spanMap skipKeys childSkipKeys anns =
       -- Children are annotations whose span is WITHIN the parent's span
       allChildren = [(k, start, end) | (k, (start, end)) <- Map.toList spanMap]
       assignments = List.concatMap (\(parentKey@(AnnKey _ cn), (pStart, pEnd, coms)) ->
-        let children = List.sortOn (\(_, s, _) -> s)
+        let children = List.sortOn (\(_, start, _) -> start)
               [ (k, s, e) | (k, s, e) <- allChildren
               , k /= parentKey
               , not (Map.member k childSkipKeys)
@@ -1001,12 +1002,16 @@ redistributeInnerCommentsWithChildSkips spanMap skipKeys childSkipKeys anns =
         Just comSpan ->
           let comPos = ss2pos comSpan
               -- Find the child whose end is closest to (but before/at) comPos.
-              candidates = List.sortOn (\(_, e) -> (fst comPos - fst e, snd comPos - snd e))
-                [(k, e) | (k, _, e) <- children, e <= comPos]
+              candidates = List.sortOn
+                (\(_, end) ->
+                  (fst comPos - fst end, snd comPos - snd end))
+                [(key, end) | (key, _, end) <- children, end <= comPos]
               -- Fallback: if no child ends before comment, assign as prior to
               -- the first child that starts after the comment.
-              afterCandidates = List.sortOn (\(_, s, _) -> s)
+              afterCandidates = List.sortOn (\(_, start, _) -> start)
                 [(k, s, e) | (k, s, e) <- children, s > comPos]
+              declarationAfterCandidates = List.sortOn childSourceOrder
+                afterCandidates
               -- Same-line candidates: comment on same line as a child's end
               -- Among same-end candidates, prefer the one with latest start (smallest span)
               sameLineCandidates0 = [(k, e) | (k, e) <- candidates, fst e == fst comPos]
@@ -1029,7 +1034,7 @@ redistributeInnerCommentsWithChildSkips spanMap skipKeys childSkipKeys anns =
               in Just (bestKey, False, [(com, dp)])
             [] | isDeclParent ->
               -- For decl-level parents, prefer assigning to next child as prior
-              case afterCandidates of
+              case declarationAfterCandidates of
                 ((bestKey, _bestStart, _) : _) ->
                   let dp = DP (1, snd comPos - snd _bestStart)
                   in Just (bestKey, True, [(com, dp)])
@@ -1038,6 +1043,7 @@ redistributeInnerCommentsWithChildSkips spanMap skipKeys childSkipKeys anns =
                     let dp = posToDP bestEnd comPos
                     in Just (bestKey, False, [(com, dp)])
                   [] -> Nothing
+
             [] ->
               -- For other parents, prefer assigning to previous child as following
               case candidates of
@@ -1049,6 +1055,12 @@ redistributeInnerCommentsWithChildSkips spanMap skipKeys childSkipKeys anns =
                     let dp = DP (1, snd comPos - snd _bestStart)
                     in Just (bestKey, True, [(com, dp)])
                   [] -> Nothing
+
+    childSourceOrder
+      :: (AnnKey, (Int, Int), (Int, Int))
+      -> ((Int, Int), Ord.Down (Int, Int), AnnConName)
+    childSourceOrder (AnnKey _ constructorName, start, end) =
+      (start, Ord.Down end, constructorName)
 
 -- | Extract annotations for IE (import/export) list container and items.
 -- Handles both import lists (ideclImportList) and export lists (hsmodExports).

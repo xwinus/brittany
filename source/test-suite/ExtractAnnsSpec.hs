@@ -59,6 +59,19 @@ spec = Hspec.describe "annotation extraction" $ do
                   , placementRole placement == SectionComment
                   ]
             plannedSections `Hspec.shouldBe` sectionComments
+  Hspec.it "prefers the enclosing constructor when child spans start together" $ do
+    parsed <- parseModule ["-haddock"] "ConstructorOwner.hs"
+      (const $ pure $ Right ()) constructorOwnerSource
+    case parsed of
+      Left parseError -> Hspec.expectationFailure parseError
+      Right (annotations, _, ()) -> do
+        let owners =
+              [ unConName constructorName
+              | (AnnKey _ constructorName, annotation) <- Map.toList annotations
+              , comment <- allAnnotationComments annotation
+              , commentContents comment == "-- | Documents the infix constructor."
+              ]
+        owners `Hspec.shouldBe` ["ConDeclH98"]
  where
   finalResultSource = unlines
     [ "module FinalResultHaddockAnnotation where"
@@ -81,6 +94,13 @@ spec = Hspec.describe "annotation extraction" $ do
     , "first = 1"
     , "second = 2"
     ]
+  constructorOwnerSource = unlines
+    [ "{-# LANGUAGE TypeOperators #-}"
+    , "module ConstructorOwner where"
+    , "data Mixed = Prefix Int"
+    , "  | -- | Documents the infix constructor."
+    , "    Int :*: Bool"
+    ]
 
 commentsFor
   :: (Annotation -> [(Comment, DeltaPos)])
@@ -99,5 +119,9 @@ allComments = map commentContents . allCommentValues
 allCommentValues :: Anns -> [Comment]
 allCommentValues annotations = do
   annotation <- Map.elems annotations
+  allAnnotationComments annotation
+
+allAnnotationComments :: Annotation -> [Comment]
+allAnnotationComments annotation =
   map fst (annPriorComments annotation ++ annFollowingComments annotation)
     ++ [comment | (AnnComment comment, _) <- annsDP annotation]

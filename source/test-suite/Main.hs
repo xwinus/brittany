@@ -21,6 +21,7 @@ import qualified Data.Set as Set
 import qualified DataDeclSingleConstructorSpec
 import qualified DelimiterLayoutSpec
 import qualified ExtractAnnsSpec
+import qualified ExactPrintCompatSpec
 import qualified ExactSourceFragmentSpec
 import qualified ExpressionCommentIndentationSpec
 import qualified FallbackSpec
@@ -113,6 +114,7 @@ main = Hspec.hspec $ do
   DataDeclSingleConstructorSpec.spec projectRoot
   DelimiterLayoutSpec.spec
   ExtractAnnsSpec.spec
+  ExactPrintCompatSpec.spec
   ExactSourceFragmentSpec.spec projectRoot
   ExpressionCommentIndentationSpec.spec
   CompatibilitySpec.spec projectRoot

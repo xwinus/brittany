@@ -9,10 +9,10 @@ module Language.Haskell.Brittany.Internal.ExactPrintCompat where
 
 import Control.Monad.Trans.State (State, StateT, runState, runStateT, state)
 import Data.Data (Data, toConstr, Typeable)
-import Data.Function (on)
 import qualified Data.Map as Map
 import Data.Maybe (listToMaybe)
 import GHC (GenLocated(L))
+import qualified GHC.Data.FastString as FastString
 import qualified GHC.Data.Strict as Strict
 import GHC.Types.SrcLoc (RealSrcSpan, SrcSpan(..))
 import qualified GHC.Types.SrcLoc as SrcLoc
@@ -75,7 +75,9 @@ annKeyCon :: AnnKey -> AnnConName
 annKeyCon (AnnKey _ c) = c
 
 instance Ord AnnKey where
-  compare = compare `on` show
+  compare (AnnKey leftSpans leftConstructor) (AnnKey rightSpans rightConstructor) =
+    compareSpanLists leftSpans rightSpans
+      <> compare leftConstructor rightConstructor
 
 data DeltaPos = DP !(Int, Int)
   deriving (Eq, Ord, Show)
@@ -91,7 +93,12 @@ data Comment = Comment
   deriving (Eq, Show)
 
 instance Ord Comment where
-  compare = compare `on` show
+  compare left right =
+    compare (commentOrigin left) (commentOrigin right)
+      <> compareSrcSpan
+        (commentIdentifier left)
+        (commentIdentifier right)
+      <> compare (commentContents left) (commentContents right)
 
 data KeywordId
   = AnnString [String]
@@ -112,9 +119,6 @@ data Annotation = Ann
   }
   deriving (Eq, Show)
 
-instance Ord Annotation where
-  compare = compare `on` show
-
 type Anns = Map.Map AnnKey Annotation
 
 emptyAnns :: Anns
@@ -132,6 +136,53 @@ mkNamedAnnKey name span = AnnKey [stripBufSpan span] (CN name)
 stripBufSpan :: SrcSpan -> SrcSpan
 stripBufSpan (RealSrcSpan r _) = RealSrcSpan r Strict.Nothing
 stripBufSpan s = s
+
+-- | Structural ordering for source spans. Unlike rendering-based ordering,
+-- this remains lawful if the 'Show' representation changes.
+compareSrcSpan :: SrcSpan -> SrcSpan -> Ordering
+compareSrcSpan (RealSrcSpan left leftBuffer) (RealSrcSpan right rightBuffer) =
+  compareRealSrcSpan left right <> compareStrictMaybe leftBuffer rightBuffer
+compareSrcSpan RealSrcSpan{} UnhelpfulSpan{} = LT
+compareSrcSpan UnhelpfulSpan{} RealSrcSpan{} = GT
+compareSrcSpan (UnhelpfulSpan left) (UnhelpfulSpan right) =
+  compareUnhelpfulSpanReason left right
+
+compareSpanLists :: [SrcSpan] -> [SrcSpan] -> Ordering
+compareSpanLists [] [] = EQ
+compareSpanLists [] (_ : _) = LT
+compareSpanLists (_ : _) [] = GT
+compareSpanLists (left : leftRest) (right : rightRest) =
+  compareSrcSpan left right <> compareSpanLists leftRest rightRest
+
+compareRealSrcSpan :: RealSrcSpan -> RealSrcSpan -> Ordering
+compareRealSrcSpan left right =
+  FastString.lexicalCompareFS
+    (SrcLoc.srcSpanFile left)
+    (SrcLoc.srcSpanFile right)
+    <> compare (SrcLoc.srcSpanStartLine left) (SrcLoc.srcSpanStartLine right)
+    <> compare (SrcLoc.srcSpanStartCol left) (SrcLoc.srcSpanStartCol right)
+    <> compare (SrcLoc.srcSpanEndLine left) (SrcLoc.srcSpanEndLine right)
+    <> compare (SrcLoc.srcSpanEndCol left) (SrcLoc.srcSpanEndCol right)
+
+compareStrictMaybe :: Ord a => Strict.Maybe a -> Strict.Maybe a -> Ordering
+compareStrictMaybe Strict.Nothing Strict.Nothing = EQ
+compareStrictMaybe Strict.Nothing Strict.Just{} = LT
+compareStrictMaybe Strict.Just{} Strict.Nothing = GT
+compareStrictMaybe (Strict.Just left) (Strict.Just right) = compare left right
+
+compareUnhelpfulSpanReason
+  :: SrcLoc.UnhelpfulSpanReason -> SrcLoc.UnhelpfulSpanReason -> Ordering
+compareUnhelpfulSpanReason left right = case (left, right) of
+  (SrcLoc.UnhelpfulOther leftText, SrcLoc.UnhelpfulOther rightText) ->
+    FastString.lexicalCompareFS leftText rightText
+  _ -> compare (unhelpfulSpanReasonRank left) (unhelpfulSpanReasonRank right)
+
+unhelpfulSpanReasonRank :: SrcLoc.UnhelpfulSpanReason -> Int
+unhelpfulSpanReasonRank SrcLoc.UnhelpfulNoLocationInfo = 0
+unhelpfulSpanReasonRank SrcLoc.UnhelpfulWiredIn = 1
+unhelpfulSpanReasonRank SrcLoc.UnhelpfulInteractive = 2
+unhelpfulSpanReasonRank SrcLoc.UnhelpfulGenerated = 3
+unhelpfulSpanReasonRank SrcLoc.UnhelpfulOther{} = 4
 
 -- | Convert SrcSpan to RealSrcSpan when possible (for use with realSrcSpanStart/End).
 srcSpanToRealSpan :: SrcSpan -> Maybe RealSrcSpan
