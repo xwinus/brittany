@@ -25,6 +25,7 @@ extra-doc-files:
   README.md
   doc/compatibility.md
   doc/fallbacks.md
+  doc/performance-benchmarks.md
   doc/implementation/*.md
 extra-source-files:
   cabal.project
@@ -151,6 +152,11 @@ library
     Language.Haskell.Brittany.Internal.Layouters.Type
     Language.Haskell.Brittany.Internal.Obfuscation
     Language.Haskell.Brittany.Internal.ParseModule
+    Language.Haskell.Brittany.Internal.Performance
+    Language.Haskell.Brittany.Internal.Performance.Fixtures
+    Language.Haskell.Brittany.Internal.Performance.Micro
+    Language.Haskell.Brittany.Internal.Performance.Pipeline
+    Language.Haskell.Brittany.Internal.Performance.Report
     Language.Haskell.Brittany.Internal.Prelude
     Language.Haskell.Brittany.Internal.PreludeUtils
     Language.Haskell.Brittany.Internal.SemanticFingerprint
@@ -231,6 +237,7 @@ test-suite brittany-test-suite
     LetStatementBoundarySpec
     OpaqueSyntaxSpec
     PatternSynonymBindingSpec
+    PerformanceSpec
     PreambleSpacingSpec
     PreprocessorSpec
     PriorCommentSeparationSpec
@@ -247,4 +254,16 @@ test-suite brittany-test-suite
     TopLevelSpacingSpec
     TypeOperatorRecordSpec
     TupleSemanticNameSpec
+  type: exitcode-stdio-1.0
+
+benchmark brittany-performance
+  import: executable
+
+  build-depends:
+    , process ^>= 1.6.26
+  hs-source-dirs: benchmark
+  main-is: Main.hs
+  other-modules:
+    Benchmark.Output
+    Benchmark.Scenario
   type: exitcode-stdio-1.0

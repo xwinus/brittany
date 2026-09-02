@@ -13,3 +13,5 @@ cabal.project.local*
 cabal.project.freeze
 .ghc.environment.*
 result
+/benchmark-*.json
+/benchmark-results.json
