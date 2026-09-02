@@ -81,6 +81,18 @@ spec = Hspec.describe "normalized source comment ownership" $ do
         Map.size (commentPlanSources plan) `Hspec.shouldBe` 1
         Map.size (commentPlanPlacements plan) `Hspec.shouldBe` 1
 
+  Hspec.it "orders comments by source position rather than annotation map order" $ do
+    let first = sourceCommentAt "Ordering.hs" 3 "-- first"
+        second = sourceCommentAt "Ordering.hs" 4 "-- second"
+        annotations = Map.fromList
+          [ (nodeKeyAt "LateOwner" 10, annotationWithPrior first)
+          , (nodeKeyAt "EarlyOwner" 2, annotationWithPrior second)
+          ]
+    case normalizeCommentPlan annotations of
+      Left planErrors -> Hspec.expectationFailure $ show planErrors
+      Right plan -> commentPlanCommentTexts plan `Hspec.shouldBe`
+        [Text.pack "-- first", Text.pack "-- second"]
+
   Hspec.it "rejects conflicting roles for the same owner and source key" $ do
     let comment = sourceCommentAt "Placement.hs" 3 "-- shared"
         annotation = (annotationWithPrior comment)

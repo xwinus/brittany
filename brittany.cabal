@@ -226,6 +226,7 @@ test-suite brittany-test-suite
     DataDeclSingleConstructorSpec
     DelimiterLayoutSpec
     ExtractAnnsSpec
+    ExactPrintCompatSpec
     ExactSourceFragmentSpec
     ExpressionCommentIndentationSpec
     FallbackSpec

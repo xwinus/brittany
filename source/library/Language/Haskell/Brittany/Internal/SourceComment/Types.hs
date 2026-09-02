@@ -8,6 +8,7 @@ import qualified Data.Data
 import GHC (RealSrcSpan, SrcSpan)
 import Language.Haskell.Brittany.Internal.ExactPrintCompat
   ( AnnKey
+  , compareSrcSpan
   , stripBufSpan
   )
 import Language.Haskell.Brittany.Internal.Prelude
@@ -16,11 +17,12 @@ newtype SourceCommentKey = SourceCommentKey SrcSpan
   deriving (Data.Data.Data, Show)
 
 instance Eq SourceCommentKey where
-  left == right = compare left right == EQ
+  SourceCommentKey left == SourceCommentKey right =
+    stripBufSpan left == stripBufSpan right
 
 instance Ord SourceCommentKey where
   compare (SourceCommentKey left) (SourceCommentKey right) =
-    compare (show $ stripBufSpan left) (show $ stripBufSpan right)
+    compareSrcSpan (stripBufSpan left) (stripBufSpan right)
 
 newtype NodeId = NodeId AnnKey
   deriving (Data.Data.Data, Eq, Ord, Show)
