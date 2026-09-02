@@ -30,7 +30,8 @@ The standard suite covers:
 - BriDoc alternative resolution, every simplification pass, and backend
   rendering as separate focused operations;
 - focused semantic and comment comparison;
-- declaration-count scaling at 50, 100, 200, and 400 declarations;
+- declaration-count scaling at 50, 100, 200, and 400 declarations for both
+  parsing and focused top-level grouping;
 - nesting-depth scaling at depths 5, 10, and 15;
 - independent layout-alternative count and depth workloads;
 - comment-count, independent delimiter count and depth, and
