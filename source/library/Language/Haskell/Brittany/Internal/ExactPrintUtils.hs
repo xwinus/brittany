@@ -276,6 +276,10 @@ extractToplevelAnns lmod anns = output
   output = groupMap (\k _ -> Map.findWithDefault modKey k declMap) anns
 
 
+-- | Assign annotation spans to ordinary, non-overlapping declarations in
+-- O(d log d + a log a) time, followed by an O(d + a) sweep. Overlapping
+-- declaration spans use the compatibility O(d * a) path, while generated and
+-- unhelpful spans remain unassigned for the caller's module-level fallback.
 declarationMapBySpan
   :: [(ExactPrint.AnnKey, SrcSpan)]
   -> [ExactPrint.AnnKey]

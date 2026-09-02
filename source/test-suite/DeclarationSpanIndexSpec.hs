@@ -9,6 +9,7 @@ import qualified GHC.Types.SrcLoc as SrcLoc
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as EP
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
   ( declarationMapBySpan
+  , extractToplevelAnns
   , quadraticDeclarationMapBySpan
   )
 import Language.Haskell.Brittany.Internal.ParseModule (parseModule)
@@ -117,6 +118,29 @@ spec = Hspec.describe "declaration span index" $ do
         indexed `Hspec.shouldBe`
           quadraticDeclarationMapBySpan declarations annotationKeys
 
+  Hspec.it "keeps unsupported spans in the module group without duplication" $ do
+    parsed <- parseModule [] "DeclarationSpanParsed.hs"
+      (const $ pure $ Right ()) parsedSource
+    case parsed of
+      Left parseError -> Hspec.expectationFailure parseError
+      Right (annotations, parsedModule, ()) ->
+        case Map.lookupMin annotations of
+          Nothing -> Hspec.expectationFailure "expected parsed annotations"
+          Just (_, sampleAnnotation) -> do
+            let unsupported = EP.AnnKey
+                  [SrcLoc.UnhelpfulSpan SrcLoc.UnhelpfulGenerated]
+                  (EP.CN "Unsupported")
+                augmented = Map.insert unsupported sampleAnnotation annotations
+                grouped = extractToplevelAnns parsedModule augmented
+                groupedAnnotations = Map.elems grouped
+                moduleKey = EP.mkAnnKey
+                  $ L (getLocA parsedModule) (unLoc parsedModule)
+            sum (Map.size <$> groupedAnnotations)
+              `Hspec.shouldBe` Map.size augmented
+            Map.unions groupedAnnotations `Hspec.shouldBe` augmented
+            (Map.lookup moduleKey grouped >>= Map.lookup unsupported)
+              `Hspec.shouldBe` Just sampleAnnotation
+
 declarationEntry :: EP.AnnKey -> (EP.AnnKey, SrcLoc.SrcSpan)
 declarationEntry annotationKey@(EP.AnnKey (sourceSpanValue : _) _) =
   (annotationKey, sourceSpanValue)
@@ -139,7 +163,10 @@ fixtureFile = FastString.mkFastString "DeclarationSpanIndexSpec.hs"
 parsedSource :: String
 parsedSource = unlines
   $ "module DeclarationSpanParsed where"
+  : "import Data.List (sort)"
   : ""
+  : "-- Before the first declaration."
   : [ "value" ++ show index ++ " = " ++ show index
     | index <- [1 :: Int .. 25]
     ]
+  ++ ["-- After the last declaration."]
