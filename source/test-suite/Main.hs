@@ -26,6 +26,7 @@ import qualified ExpressionCommentIndentationSpec
 import qualified FallbackSpec
 import qualified FallbackSweepSpec
 import qualified FixitySignatureSpec
+import qualified GuardLayoutSpec
 import qualified InstanceHeadSpec
 import qualified InfixContinuationAlignmentSpec
 import qualified LetStatementBoundarySpec
@@ -126,6 +127,7 @@ main = Hspec.hspec $ do
   FallbackSpec.spec projectRoot
   FallbackSweepSpec.spec
   FixitySignatureSpec.spec projectRoot
+  GuardLayoutSpec.spec
   InstanceHeadSpec.spec projectRoot
   InfixContinuationAlignmentSpec.spec
   LetStatementBoundarySpec.spec projectRoot
