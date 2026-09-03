@@ -86,6 +86,10 @@ scenarioNames = \case
     , "declarations-100-parse"
     , "declarations-200-parse"
     , "declarations-400-parse"
+    , "declarations-50-grouping"
+    , "declarations-100-grouping"
+    , "declarations-200-grouping"
+    , "declarations-400-grouping"
     , "nesting-5-format"
     , "nesting-10-format"
     , "nesting-15-format"
@@ -163,6 +167,10 @@ loadScenario projectRoot name = case name of
   "declarations-100-parse" -> declarations name 100
   "declarations-200-parse" -> declarations name 200
   "declarations-400-parse" -> declarations name 400
+  "declarations-50-grouping" -> declarationGrouping name 50
+  "declarations-100-grouping" -> declarationGrouping name 100
+  "declarations-200-grouping" -> declarationGrouping name 200
+  "declarations-400-grouping" -> declarationGrouping name 400
   "nesting-5-format" -> nesting name 5
   "nesting-10-format" -> nesting name 10
   "nesting-15-format" -> nesting name 15
@@ -202,6 +210,9 @@ loadScenario projectRoot name = case name of
     pure $ Right $ one scenarioName mode input
   declarations scenarioName count = pure $ Right
     $ one scenarioName ParseAndAnnotations $ declarationScalingInput count
+  declarationGrouping scenarioName count = pure $ Right
+    $ one scenarioName (FocusedOperation TopLevelGrouping)
+    $ declarationScalingInput count
   nesting scenarioName depth = pure $ Right
     $ one scenarioName FormatWithoutValidation $ nestingScalingInput depth
   focused phase input = pure $ Right $ one name (FocusedOperation phase) input

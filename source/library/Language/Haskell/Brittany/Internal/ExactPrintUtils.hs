@@ -16,6 +16,7 @@ import Data.Dynamic (Dynamic, fromDynamic, toDyn)
 import qualified Data.Foldable as Foldable
 import qualified Data.Generics as SYB
 import Data.HList.HList
+import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Maybe
 import qualified Data.Sequence as Seq
@@ -264,27 +265,90 @@ extractToplevelAnns lmod anns = output
         | (k, ExactPrint.Ann (Just captured) _ _ _ _ _) <- Map.toList anns
         ]
   declSpans =
-    [ (ExactPrint.mkAnnKey declaration, declarationSpan)
+    [ (ExactPrint.mkAnnKey declaration, SrcLoc.getLoc declaration)
     | declaration <- ldecls
-    , Just declarationSpan <-
-        [ExactPrint.srcSpanToRealSpan $ SrcLoc.getLoc declaration]
     ]
-  declMapBySpan = Map.fromList
-    [ (annotationKey, declarationKey)
-    | annotationKey <- Map.keys anns
-    , Just annotationSpan <- [ExactPrint.annKeyRealSpan annotationKey]
-    , (declarationKey, declarationSpan) <- declSpans
-    , containsSpan declarationSpan annotationSpan
-    ]
+  declMapBySpan = declarationMapBySpan declSpans $ Map.keys anns
   declMap = declMap1 `Map.union` declMap2 `Map.union` declMapBySpan
   -- Use getLocA for consistent SrcSpan-based keys with ExtractAnns (mkAnnKeyL)
   lmodSrc = L (getLocA lmod) (unLoc lmod)
   modKey = ExactPrint.mkAnnKey lmodSrc
   output = groupMap (\k _ -> Map.findWithDefault modKey k declMap) anns
 
-  containsSpan outer inner =
-    SrcLoc.realSrcSpanStart outer <= SrcLoc.realSrcSpanStart inner
-      && SrcLoc.realSrcSpanEnd inner <= SrcLoc.realSrcSpanEnd outer
+
+-- | Assign annotation spans to ordinary, non-overlapping declarations in
+-- O(d log d + a log a) time, followed by an O(d + a) sweep. Overlapping
+-- declaration spans use the compatibility O(d * a) path, while generated and
+-- unhelpful spans remain unassigned for the caller's module-level fallback.
+declarationMapBySpan
+  :: [(ExactPrint.AnnKey, SrcSpan)]
+  -> [ExactPrint.AnnKey]
+  -> Map ExactPrint.AnnKey ExactPrint.AnnKey
+declarationMapBySpan declarations annotationKeys
+  | declarationsAreStrictlySeparated orderedDeclarations =
+      Map.fromList $ matchOrderedSpans orderedDeclarations orderedAnnotations
+  | otherwise = quadraticDeclarationMapBySpan declarations annotationKeys
+ where
+  orderedDeclarations = List.sortBy compareSpanEntries
+    [ (declarationKey, declarationSpan)
+    | (declarationKey, sourceSpan) <- declarations
+    , Just declarationSpan <- [ExactPrint.srcSpanToRealSpan sourceSpan]
+    ]
+  orderedAnnotations = List.sortBy compareSpanEntries
+    [ (annotationKey, annotationSpan)
+    | annotationKey <- annotationKeys
+    , Just annotationSpan <- [ExactPrint.annKeyRealSpan annotationKey]
+    ]
+
+quadraticDeclarationMapBySpan
+  :: [(ExactPrint.AnnKey, SrcSpan)]
+  -> [ExactPrint.AnnKey]
+  -> Map ExactPrint.AnnKey ExactPrint.AnnKey
+quadraticDeclarationMapBySpan declarations annotationKeys = Map.fromList
+  [ (annotationKey, declarationKey)
+  | annotationKey <- annotationKeys
+  , Just annotationSpan <- [ExactPrint.annKeyRealSpan annotationKey]
+  , (declarationKey, sourceSpan) <- declarations
+  , Just declarationSpan <- [ExactPrint.srcSpanToRealSpan sourceSpan]
+  , containsRealSpan declarationSpan annotationSpan
+  ]
+
+matchOrderedSpans
+  :: [(ExactPrint.AnnKey, RealSrcSpan)]
+  -> [(ExactPrint.AnnKey, RealSrcSpan)]
+  -> [(ExactPrint.AnnKey, ExactPrint.AnnKey)]
+matchOrderedSpans [] _ = []
+matchOrderedSpans _ [] = []
+matchOrderedSpans declarations@((declarationKey, declarationSpan) : remainingDeclarations)
+    annotations@((annotationKey, annotationSpan) : remainingAnnotations)
+  | SrcLoc.realSrcSpanEnd declarationSpan
+      < SrcLoc.realSrcSpanStart annotationSpan =
+      matchOrderedSpans remainingDeclarations annotations
+  | SrcLoc.realSrcSpanStart annotationSpan
+      < SrcLoc.realSrcSpanStart declarationSpan =
+      matchOrderedSpans declarations remainingAnnotations
+  | containsRealSpan declarationSpan annotationSpan =
+      (annotationKey, declarationKey)
+        : matchOrderedSpans declarations remainingAnnotations
+  | otherwise = matchOrderedSpans declarations remainingAnnotations
+
+declarationsAreStrictlySeparated
+  :: [(ExactPrint.AnnKey, RealSrcSpan)] -> Bool
+declarationsAreStrictlySeparated declarations = and
+  [ SrcLoc.realSrcSpanEnd left < SrcLoc.realSrcSpanStart right
+  | ((_, left), (_, right)) <- zip declarations $ drop 1 declarations
+  ]
+
+compareSpanEntries
+  :: (key, RealSrcSpan) -> (key, RealSrcSpan) -> Ordering
+compareSpanEntries (_, left) (_, right) = ExactPrint.compareSrcSpan
+  (ExactPrint.realSpanToSrcSpan left)
+  (ExactPrint.realSpanToSrcSpan right)
+
+containsRealSpan :: RealSrcSpan -> RealSrcSpan -> Bool
+containsRealSpan outer inner =
+  SrcLoc.realSrcSpanStart outer <= SrcLoc.realSrcSpanStart inner
+    && SrcLoc.realSrcSpanEnd inner <= SrcLoc.realSrcSpanEnd outer
 
 groupMap :: (Ord k, Ord l) => (k -> a -> l) -> Map k a -> Map l (Map k a)
 groupMap f = Map.foldlWithKey'
