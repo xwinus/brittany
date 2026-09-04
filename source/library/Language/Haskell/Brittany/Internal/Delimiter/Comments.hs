@@ -53,9 +53,10 @@ extractBoundaryComments gap document@(nodeId, value) = case value of
   BDFPar indent line indented ->
     let (lineComments, line') = extractBoundaryComments gap line
         (indentedComments, indented') = extractBoundaryComments gap indented
-    in ( uniqueComments $ lineComments ++ indentedComments
-       , (nodeId, BDFPar indent line' indented')
-       )
+        comments = uniqueComments $ lineComments ++ indentedComments
+    in if null comments
+      then ([], document)
+      else (comments, (nodeId, BDFPar indent line' indented'))
   BDFAlt alternatives -> childrenNode BDFAlt alternatives
   BDFForwardLineMode child -> childNode BDFForwardLineMode child
   BDFAnnotationPrior mode key child ->
@@ -81,12 +82,15 @@ extractBoundaryComments gap document@(nodeId, value) = case value of
  where
   childNode constructor child =
     let (comments, child') = extractBoundaryComments gap child
-    in (comments, (nodeId, constructor child'))
+    in if null comments
+      then ([], document)
+      else (comments, (nodeId, constructor child'))
   childrenNode constructor children =
     let extracted = extractBoundaryComments gap <$> children
-    in ( uniqueComments $ List.concatMap fst extracted
-       , (nodeId, constructor $ snd <$> extracted)
-       )
+        comments = uniqueComments $ List.concatMap fst extracted
+    in if null comments
+      then ([], document)
+      else (comments, (nodeId, constructor $ snd <$> extracted))
 
 isBoundaryComment :: CommentBoundaryGap -> BriDocNumbered -> Bool
 isBoundaryComment gap (_, BDFComment planned) =

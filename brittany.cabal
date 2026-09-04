@@ -164,6 +164,7 @@ library
     Language.Haskell.Brittany.Internal.TransactionalWrite
     Language.Haskell.Brittany.Internal.SourceComment.Types
     Language.Haskell.Brittany.Internal.Transformations.Alt
+    Language.Haskell.Brittany.Internal.Transformations.Alt.Comments
     Language.Haskell.Brittany.Internal.Transformations.Columns
     Language.Haskell.Brittany.Internal.Transformations.Floating
     Language.Haskell.Brittany.Internal.Transformations.Indent
@@ -209,6 +210,8 @@ test-suite brittany-test-suite
   main-is: Main.hs
   other-modules:
     AlignmentPlannerSpec
+    AltCommentSpec
+    AnnotationIndexSpec
     ColumnAlignmentSpec
     TransactionalInplaceSpec
     CaseAlternativeCommentSpec
@@ -240,6 +243,7 @@ test-suite brittany-test-suite
     LetStatementBoundarySpec
     OpaqueSyntaxSpec
     PatternSynonymBindingSpec
+    ParserContextSpec
     PerformanceSpec
     PreambleSpacingSpec
     PreprocessorSpec

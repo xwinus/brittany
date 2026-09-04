@@ -227,54 +227,104 @@ optionalGroups
   -> Int
   -> [[AlignmentRow group]]
   -> [[[AlignmentRow group]]]
-optionalGroups configuredWidth paddingLimit units = case bestPlans of
-  plan : _ -> plan
-  [] -> []
+optionalGroups configuredWidth paddingLimit units
+  | singleGroupIsOptimal = [units]
+  | otherwise = case bestPlans of
+      plan : _ -> scoredPlanGroups plan
+      [] -> []
  where
   unitCount = length units
+  wholeCost = costOfUnits configuredWidth units
+  -- Overflow is the primary non-negative score and group count is secondary,
+  -- so a valid zero-overflow single group cannot be beaten.
+  singleGroupIsOptimal = unitCount == 1
+    || ( unitsConnected units
+      && not (candidateForcesUnaligned units)
+      && alignmentMaximumPadding wholeCost <= paddingLimit
+      && alignmentTotalOverflow wholeCost == 0
+       )
   bestPlans = [bestFrom index | index <- [0 .. unitCount]]
 
   bestFrom index
-    | index == unitCount = []
+    | index == unitCount = ScoredPlan [] emptyPlanScore
     | otherwise = selectBest
-        [ candidate : planAt (index + candidateLength)
+        [ prependCandidate candidate candidateCost
+            $ planAt (index + candidateLength)
         | candidateLength <- [1 .. unitCount - index]
         , let candidate = take candidateLength $ drop index units
+        , let candidateCost = costOfUnits configuredWidth candidate
         , candidateLength == 1
-            || (unitsConnected candidate && candidateWithinLimit candidate)
+            || ( unitsConnected candidate
+              && candidateWithinLimit candidate candidateCost
+               )
         ]
 
   planAt index = case drop index bestPlans of
     plan : _ -> plan
-    [] -> []
+    [] -> ScoredPlan [] emptyPlanScore
 
   selectBest (candidate : candidates) = foldl' chooseBetter candidate candidates
-  selectBest [] = []
+  selectBest [] = ScoredPlan [] emptyPlanScore
 
   chooseBetter left right
-    | compare (planScore left) (planScore right) == GT = right
+    | compare (scoredPlanScore left) (scoredPlanScore right) == GT = right
     | otherwise = left
 
-  candidateWithinLimit candidate =
+  candidateWithinLimit candidate candidateCost =
     not (candidateForcesUnaligned candidate)
-      && alignmentMaximumPadding (costOfUnits configuredWidth candidate)
+      && alignmentMaximumPadding candidateCost
         <= paddingLimit
 
   unitsConnected candidate = and
     $ zipWith visuallyConnectedUnits candidate (drop 1 candidate)
 
-  planScore groups =
-    ( sum $ alignmentTotalOverflow . costOfUnits configuredWidth <$> groups
-    , length groups
-    , maximum
-        $ 0 : (alignmentMaximumPadding . costOfUnits configuredWidth <$> groups)
-    , sum $ alignmentTotalPadding . costOfUnits configuredWidth <$> groups
-    , boundaryCost groups
-    , [ alignmentRowIdentity row
-      | group <- drop 1 groups
-      , row : _ <- [List.concat group]
-      ]
-    )
+  prependCandidate candidate candidateCost tailPlan = ScoredPlan
+    { scoredPlanGroups = candidate : tailGroups
+    , scoredPlanScore = PlanScore
+        { scoreTotalOverflow = alignmentTotalOverflow candidateCost
+            + scoreTotalOverflow tailScore
+        , scoreGroupCount = 1 + scoreGroupCount tailScore
+        , scoreMaximumPadding = max
+            (alignmentMaximumPadding candidateCost)
+            (scoreMaximumPadding tailScore)
+        , scoreTotalPadding = alignmentTotalPadding candidateCost
+            + scoreTotalPadding tailScore
+        , scoreBoundaryCost = nextBoundaryCost
+            + scoreBoundaryCost tailScore
+        , scoreBoundaryIdentities = nextBoundaryIdentity
+            ++ scoreBoundaryIdentities tailScore
+        }
+    }
+   where
+    tailGroups = scoredPlanGroups tailPlan
+    tailScore = scoredPlanScore tailPlan
+    nextRows = case tailGroups of
+      nextGroup : _ -> List.concat nextGroup
+      [] -> []
+    nextBoundaryCost = case nextRows of
+      nextRow : _ -> alignmentRowBreakCost nextRow
+      [] -> 0
+    nextBoundaryIdentity = case nextRows of
+      nextRow : _ -> [alignmentRowIdentity nextRow]
+      [] -> []
+
+data PlanScore = PlanScore
+  { scoreTotalOverflow :: Int
+  , scoreGroupCount :: Int
+  , scoreMaximumPadding :: Int
+  , scoreTotalPadding :: Int
+  , scoreBoundaryCost :: Int
+  , scoreBoundaryIdentities :: [Int]
+  }
+  deriving (Eq, Ord)
+
+data ScoredPlan group = ScoredPlan
+  { scoredPlanGroups :: [[[AlignmentRow group]]]
+  , scoredPlanScore :: PlanScore
+  }
+
+emptyPlanScore :: PlanScore
+emptyPlanScore = PlanScore 0 0 0 0 0 []
 
 boundaryCost :: [[[AlignmentRow group]]] -> Int
 boundaryCost groups = sum
