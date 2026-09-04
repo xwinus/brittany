@@ -113,6 +113,7 @@ library
   exposed-modules:
     Language.Haskell.Brittany
     Language.Haskell.Brittany.Internal.Alignment
+    Language.Haskell.Brittany.Internal.AnnotationIndex
     Language.Haskell.Brittany.Internal
     Language.Haskell.Brittany.Internal.Backend
     Language.Haskell.Brittany.Internal.BackendUtils

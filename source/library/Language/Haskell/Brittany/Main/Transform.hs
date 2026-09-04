@@ -35,6 +35,7 @@ import Language.Haskell.Brittany.Internal.Fallbacks
   , renderRenderNotice
   )
 import Language.Haskell.Brittany.Internal.Obfuscation
+import qualified Language.Haskell.Brittany.Internal.ParseModule as ParseModule
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Preprocessor (cppUnsupportedMessage)
@@ -112,19 +113,20 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
             then List.intercalate "\n" . fmap hackF . lines'
             else id
         inputString <- liftIO System.IO.getContents
-        parseRes <- liftIO $ parseModuleFromString
+        parseRes <- liftIO $ ParseModule.parseModuleWithMetricsAndContext Nothing
           ghcOptions "stdin" cppCheckFunc $ hackTransform inputString
         pure (parseRes, Text.pack inputString)
       Just path -> liftIO $ do
-        parseRes <- parseModule ghcOptions path cppCheckFunc
         inputText <- Text.IO.readFile path
+        parseRes <- ParseModule.parseModuleWithMetricsAndContext Nothing
+          ghcOptions path cppCheckFunc $ Text.unpack inputText
         pure (parseRes, inputText)
     case parseResult of
       Left parseError -> do
         putErrorLn "parse error:"
         putErrorLn parseError
         ExceptT.throwE 60
-      Right (anns, parsedSource, hasCPP) -> do
+      Right (anns, parsedSource, hasCPP, parserContext) -> do
         (inlineConf, perItemConf) <-
           case extractCommentConfigs anns $ getTopLevelDeclNameMap parsedSource of
             Left (configError, input) -> do
@@ -183,8 +185,9 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
               (errorsAndWarnings, rawOutput) <- if hasCPP || omitCheck
                 then pure $ pPrintModuleWithSource
                   (Just originalContents) moduleConf perItemConf anns parsedSource
-                else liftIO $ pPrintModuleAndCheckWithSource
-                  (Just originalContents) moduleConf perItemConf anns parsedSource
+                else liftIO $ pPrintModuleAndCheckWithSourceInContext
+                  parserContext (Just originalContents) moduleConf perItemConf anns
+                  parsedSource
               let
                 restoreInclude sourceLine = fromMaybe sourceLine
                   $ TextL.stripPrefix

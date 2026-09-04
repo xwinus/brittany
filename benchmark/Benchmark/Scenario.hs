@@ -278,14 +278,14 @@ runFormatterInput collector config mode input = do
   let source = benchmarkInputSource input
       ghcOptions = config & _conf_forward & _options_ghc & runIdentity
       metrics = Just collector
-  parseResult <- ParseModule.parseModuleWithMetrics metrics
+  parseResult <- ParseModule.parseModuleWithMetricsAndContext metrics
     ghcOptions
     (benchmarkInputName input)
     (const $ pure $ Right ())
     source
   case parseResult of
     Left parseError -> pure $ Left parseError
-    Right (annotations, parsedModule, _) -> do
+    Right (annotations, parsedModule, _, parserContext) -> do
       inlineResult <- measurePhase metrics InlineConfiguration
         $ evaluate
         $ extractCommentConfigs annotations
@@ -307,7 +307,8 @@ runFormatterInput collector config mode input = do
             let moduleConfig = cZipWith fromOptionIdentity config inlineConfig
                 originalSource = Just $ Text.pack source
             (errors, output) <- pPrintModuleAndCheckWithSourceMeasured metrics
-              originalSource moduleConfig perItemConfig annotations parsedModule
+              parserContext originalSource moduleConfig perItemConfig annotations
+              parsedModule
             _ <- evaluateOutput output
             pure $ Right $ length errors
 

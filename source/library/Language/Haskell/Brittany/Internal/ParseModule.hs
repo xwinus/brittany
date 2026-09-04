@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -Wno-implicit-prelude #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
 module Language.Haskell.Brittany.Internal.ParseModule where
 
@@ -8,12 +9,16 @@ import qualified Control.Monad as Monad
 import qualified Control.Monad.IO.Class as IO
 import qualified Control.Monad.Trans.Except as Except
 import qualified Data.Map as Map
+import Data.Kind (Type)
 import qualified GHC
 import qualified GHC.Driver.Session
 import qualified GHC.Paths as GHCPaths
 import qualified GHC.Types.SrcLoc
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (Anns)
-import Language.Haskell.Brittany.Internal.ExtractAnns (extractAnnsFromModule, recoverMissingComments)
+import Language.Haskell.Brittany.Internal.ExtractAnns
+  ( extractAnnsFromModule
+  , recoverMissingCommentsWithAnnotations
+  )
 import Language.Haskell.Brittany.Internal.Performance
   ( PerformanceCollector
   , PerformancePhase(..)
@@ -21,6 +26,11 @@ import Language.Haskell.Brittany.Internal.Performance
   , measurePhaseM
   )
 import qualified Language.Haskell.GHC.ExactPrint.Parsers as ExactPrint
+
+-- | Effective parser flags for a source file. Reusing this context for the
+-- formatted form of the same file avoids constructing a second GHC session.
+type ParserContext :: Type
+newtype ParserContext = ParserContext GHC.Driver.Session.DynFlags
 
 -- | Parses a Haskell module. Although this nominally requires IO, it is
 -- morally pure. It should have no observable effects.
@@ -46,6 +56,23 @@ parseModuleWithMetrics
   -> String
   -> io (Either String (Anns, GHC.ParsedSource, a))
 parseModuleWithMetrics metrics arguments1 filePath checkDynFlags string =
+  fmap dropParserContext
+    $ parseModuleWithMetricsAndContext metrics arguments1 filePath checkDynFlags
+      string
+ where
+  dropParserContext = fmap $ \(anns, parsedSource, result, _) ->
+    (anns, parsedSource, result)
+
+parseModuleWithMetricsAndContext
+  :: IO.MonadIO io
+  => Maybe PerformanceCollector
+  -> [String]
+  -> FilePath
+  -> (GHC.Driver.Session.DynFlags -> IO (Either String a))
+  -> String
+  -> io (Either String (Anns, GHC.ParsedSource, a, ParserContext))
+parseModuleWithMetricsAndContext metrics arguments1 filePath checkDynFlags
+    string =
   Except.runExceptT $ Except.ExceptT $ IO.liftIO $ do
     result <- measurePhase metrics GhcSession
       $ Exception.try
@@ -67,24 +94,54 @@ parseModuleWithMetrics metrics arguments1 filePath checkDynFlags string =
           case checkResult of
             Left e -> IO.liftIO $ Exception.throwIO $ Exception.ErrorCall e
             Right dynFlagsResult -> do
-              parseResult <- IO.liftIO $ measurePhase metrics SourceParsing
-                $ Exception.evaluate
-                $ ExactPrint.parseModuleFromStringInternal dflags1 filePath string
-              case parseResult of
-                Left _parseErr ->
-                  IO.liftIO
-                    $ Exception.throwIO
-                    $ Exception.ErrorCall
-                    $ "parse error"
-                Right parsedSource -> do
-                  parsedSource' <- IO.liftIO $ measurePhase metrics CommentRecovery
-                    $ Exception.evaluate
-                    $ recoverMissingComments string filePath parsedSource
-                  anns <- IO.liftIO $ measurePhase metrics AnnotationExtraction $ do
-                    let extracted = extractAnnsFromModule parsedSource'
-                    _ <- Exception.evaluate $ Map.size extracted
-                    pure extracted
-                  pure $ Right (anns, parsedSource', dynFlagsResult)
+              parsed <- IO.liftIO
+                $ parseWithDynFlags metrics dflags1 filePath string
+              pure $ fmap (\(anns, parsedSource) ->
+                (anns, parsedSource, dynFlagsResult, ParserContext dflags1)
+                ) parsed
     case result of
       Left (e :: Exception.SomeException) -> pure $ Left (show e)
       Right r -> pure r
+
+parseModuleInContextWithMetrics
+  :: IO.MonadIO io
+  => Maybe PerformanceCollector
+  -> ParserContext
+  -> FilePath
+  -> String
+  -> io (Either String (Anns, GHC.ParsedSource))
+parseModuleInContextWithMetrics metrics (ParserContext dflags) filePath string =
+  IO.liftIO $ do
+    result <- Exception.try $ parseWithDynFlags metrics dflags filePath string
+    case result of
+      Left (exception :: Exception.SomeException) -> pure $ Left $ show exception
+      Right parsed -> pure parsed
+
+parseWithDynFlags
+  :: Maybe PerformanceCollector
+  -> GHC.Driver.Session.DynFlags
+  -> FilePath
+  -> String
+  -> IO (Either String (Anns, GHC.ParsedSource))
+parseWithDynFlags metrics dflags filePath string = do
+  parseResult <- measurePhase metrics SourceParsing
+    $ Exception.evaluate
+    $ ExactPrint.parseModuleFromStringInternal dflags filePath string
+  case parseResult of
+    Left _parseError -> pure $ Left "parse error"
+    Right parsedSource -> do
+      initialAnns <- extractAnnotations parsedSource
+      (parsedSource', annotationsChanged) <- measurePhase metrics CommentRecovery
+        $ Exception.evaluate
+        $ recoverMissingCommentsWithAnnotations initialAnns string filePath
+          parsedSource
+      anns <- if annotationsChanged
+        then extractAnnotations parsedSource'
+        else pure initialAnns
+      pure $ Right (anns, parsedSource')
+ where
+  extractAnnotations parsedSource = measurePhase metrics AnnotationExtraction
+    $ do
+      let extracted = extractAnnsFromModule parsedSource
+      _ <- Exception.evaluate $ Map.size extracted
+      pure extracted

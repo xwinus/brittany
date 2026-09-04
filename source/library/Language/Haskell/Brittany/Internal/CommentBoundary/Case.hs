@@ -3,7 +3,10 @@
 {-# LANGUAGE StandaloneKindSignatures #-}
 
 module Language.Haskell.Brittany.Internal.CommentBoundary.Case
-  ( caseAlternativeBoundary
+  ( CaseBoundaryIndex
+  , buildCaseBoundaryIndex
+  , caseAlternativeBoundary
+  , caseAlternativeBoundaryFromIndex
   , materializeCaseComments
   ) where
 
@@ -34,16 +37,26 @@ data CaseRegion = CaseRegion
   , regionFirstMatchSpan  :: SrcLoc.RealSrcSpan
   }
 
+type CaseBoundaryIndex :: Type
+newtype CaseBoundaryIndex = CaseBoundaryIndex [(Int, CaseRegion)]
+
+buildCaseBoundaryIndex :: HsModule GhcPs -> CaseBoundaryIndex
+buildCaseBoundaryIndex = CaseBoundaryIndex . zip [0 ..] . caseRegions
+
 materializeCaseComments :: HsModule GhcPs -> Anns -> Anns
 materializeCaseComments module' annotations =
   foldl relocateComments annotations $ caseRegions module'
 
 caseAlternativeBoundary
   :: HsModule GhcPs -> SrcLoc.RealSrcSpan -> Maybe CommentBoundaryId
-caseAlternativeBoundary module' commentSpan = do
+caseAlternativeBoundary module' =
+  caseAlternativeBoundaryFromIndex $ buildCaseBoundaryIndex module'
+
+caseAlternativeBoundaryFromIndex
+  :: CaseBoundaryIndex -> SrcLoc.RealSrcSpan -> Maybe CommentBoundaryId
+caseAlternativeBoundaryFromIndex (CaseBoundaryIndex indexedRegions) commentSpan = do
   (index, _) <-
-    List.find (commentWithinRegion commentSpan . snd) $ zip [0 ..] $ caseRegions
-      module'
+    List.find (commentWithinRegion commentSpan . snd) indexedRegions
   pure $ CommentBoundaryId (CaseAlternativeBoundaryPath index) BeforeBoundary
 
 caseRegions :: HsModule GhcPs -> [CaseRegion]
