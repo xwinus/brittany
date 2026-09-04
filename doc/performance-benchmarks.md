@@ -77,6 +77,11 @@ with GHC 9.14.1, is retained as the initial comparison point:
 Treat these numbers as historical context only; use two reports produced on
 the same machine for decisions.
 
+The September 2026 annotation, parser-context, and comment-boundary comparison
+is recorded in [`performance-report-2026-09.md`](performance-report-2026-09.md).
+The corresponding generic traversal inventory is in
+[`annotation-traversals.md`](annotation-traversals.md).
+
 ## Metrics and phases
 
 Every scenario reports:
