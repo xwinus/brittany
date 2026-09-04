@@ -8,6 +8,8 @@ machine-readable reports are in
 [`benchmark/results/2026-09-baseline.json`](../benchmark/results/2026-09-baseline.json)
 and
 [`benchmark/results/2026-09-candidate.json`](../benchmark/results/2026-09-candidate.json).
+The follow-up batch-session result is in
+[`benchmark/results/2026-09-session.json`](../benchmark/results/2026-09-session.json).
 
 ## End-to-end results
 
@@ -64,22 +66,38 @@ show linear costs in the individual simplification and rendering passes;
 switching the default chooser to `SimpleQuick` remains unsupported by the
 profile.
 
+## Batch parser session
+
+The CLI and formatter-mode benchmark now create one scoped GHC session for a
+batch. Before every input, parsing restores the original `HscEnv` and derives
+fresh source pragmas and forwarded options. The formatted-output
+`ParserContext` remains per-file, so validation uses exactly the input's
+effective flags. No global state or cross-invocation cache is retained.
+
+| Scenario | CPU before | CPU after | Allocation before | Allocation after | GHC sessions before | GHC sessions after |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| five repetitions of one small module | 69.4 ms | 67.3 ms | 160 MB | 150 MB | 5 | 1 |
+| batch of ten small modules | 130 ms | 121 ms | 307 MB | 283 MB | 10 | 1 |
+
+For the ten-file batch, GHC-session setup itself fell from 30.7 ms and 100.6 MB
+to 0.7 ms and 2.9 MB. Large single-module scenarios remained within ordinary
+run-to-run noise, as expected.
+
 ## Correctness checks
 
-- The complete test suite passes: 1,087 examples, 0 failures.
+- The complete test suite passes: 1,092 examples, 0 failures.
 - New unit coverage exercises line-comment discovery in a shared alternative,
   the required-break case, empty/block-comment edge cases, and a 400-row
   zero-overflow alignment.
 - Boundary graph tests cover ordinary, duplicate, constructor, delimiter,
   expression, and malformed cases with three-pass idempotence checks.
 - Parser-context tests cover repeated parsing, different filenames, source
-  pragmas, forwarded GHC options, and recovery after a malformed parse.
+  pragmas, forwarded GHC options, multi-file session accounting, and recovery
+  after malformed input or an invalid option. They also verify that pragmas and
+  forwarded options do not leak between files.
 - The benchmark's full-safe mode retained output parsing, semantic validation,
   and comment validation.
 
-The parser context currently reuses effective flags for the input/output pair
-and can parse multiple buffers with that option set. The remaining #170 batch
-session work may additionally share GHC session initialization across unrelated
-input files, but must derive fresh per-file flags so LANGUAGE pragmas cannot
-leak. For #171, the next evidence-driven target is the remaining 3.46 GB real
-`Alt.hs` layout allocation, not the already-linear synthetic passes.
+The parser-context and batch-session work for #170 is complete. For #171, the
+next evidence-driven target is the remaining 3.46 GB real `Alt.hs` layout
+allocation, not the already-linear synthetic passes.

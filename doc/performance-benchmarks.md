@@ -62,7 +62,9 @@ Run only the focused operations with:
 Each scenario runs in a separate worker process with RTS statistics enabled.
 This isolates maximum residency and cold-start costs between scenarios. Warm
 and batch scenarios perform several formatting operations inside their one
-worker process.
+worker process. Formatter-mode batches also share one scoped GHC session while
+rebuilding effective flags for every source file; focused microbenchmarks keep
+their phase-specific setup.
 
 The issue baseline on master commit `c981fed`, measured on a MacBookPro18,3
 with GHC 9.14.1, is retained as the initial comparison point:
