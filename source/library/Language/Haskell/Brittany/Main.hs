@@ -25,6 +25,7 @@ import qualified Data.Semigroup as Semigroup
 import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.Config
 import Language.Haskell.Brittany.Internal.Config.Types
+import qualified Language.Haskell.Brittany.Internal.ParseModule as ParseModule
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.TransactionalWrite
@@ -36,6 +37,7 @@ import Language.Haskell.Brittany.Internal.Utils
 import Language.Haskell.Brittany.Main.Transform
   ( ChangeStatus(..)
   , coreIO
+  , coreIOInSession
   , shouldEmitOutput
   )
 import Paths_brittany
@@ -209,12 +211,16 @@ mainCmdParser helpDescription = do
     when (config & _conf_debug & _dconf_dump_config & confUnpack)
       $ trace (showConfigYaml config) $ pure ()
 
-    results <- case (writeMode, checkMode, sequence inputPaths) of
-      (Inplace, False, Just paths) ->
-        runTransactionalInplace putStrErrLn config suppressOutput paths
-      _ -> zipWithM
-        (coreIO putStrErrLn config suppressOutput checkMode)
-        inputPaths outputPaths
+    results <- ParseModule.withParserSession $ \parserSession ->
+      case (writeMode, checkMode, sequence inputPaths) of
+        (Inplace, False, Just paths) ->
+          runTransactionalInplace parserSession putStrErrLn config
+            suppressOutput paths
+        _ -> zipWithM
+          (coreIOInSession parserSession putStrErrLn config suppressOutput
+            checkMode
+          )
+          inputPaths outputPaths
     finishWithResults checkMode results
 
 finishWithResults :: Bool -> [Either Int ChangeStatus] -> IO ()
@@ -240,12 +246,13 @@ data InplacePlan = InplacePlan
   }
 
 runTransactionalInplace
-  :: (String -> IO ())
+  :: ParseModule.ParserSession
+  -> (String -> IO ())
   -> Config
   -> Bool
   -> [FilePath.FilePath]
   -> IO [Either Int ChangeStatus]
-runTransactionalInplace putErrorLine config suppressOutput paths =
+runTransactionalInplace parserSession putErrorLine config suppressOutput paths =
   handlePlanningFailure $ do
     plans <- planAll $ Data.List.Extra.nubOrd paths
     Exception.finally (complete plans) $ cleanupPlans plans
@@ -278,7 +285,7 @@ runTransactionalInplace putErrorLine config suppressOutput paths =
     let
       cleanupCandidate = cleanupPath candidate
       putFileError message = putErrorLine $ path ++ ": " ++ message
-    result <- coreIO putFileError config suppressOutput False
+    result <- coreIOInSession parserSession putFileError config suppressOutput False
       (Just path) (Just candidate)
       `Exception.onException` cleanupCandidate
     pure InplacePlan

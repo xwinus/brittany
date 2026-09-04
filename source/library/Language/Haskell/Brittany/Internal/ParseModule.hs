@@ -2,15 +2,26 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 
-module Language.Haskell.Brittany.Internal.ParseModule where
+module Language.Haskell.Brittany.Internal.ParseModule
+  ( ParserContext
+  , ParserSession
+  , parseModule
+  , parseModuleInContextWithMetrics
+  , parseModuleInSessionWithMetrics
+  , parseModuleWithMetrics
+  , parseModuleWithMetricsAndContext
+  , withParserSession
+  , withParserSessionWithMetrics
+  ) where
 
 import qualified Control.Exception as Exception
 import qualified Control.Monad as Monad
 import qualified Control.Monad.IO.Class as IO
-import qualified Control.Monad.Trans.Except as Except
 import qualified Data.Map as Map
 import Data.Kind (Type)
 import qualified GHC
+import qualified GHC.Driver.Env as DriverEnv
+import qualified GHC.Driver.Monad as DriverMonad
 import qualified GHC.Driver.Session
 import qualified GHC.Paths as GHCPaths
 import qualified GHC.Types.SrcLoc
@@ -31,6 +42,34 @@ import qualified Language.Haskell.GHC.ExactPrint.Parsers as ExactPrint
 -- formatted form of the same file avoids constructing a second GHC session.
 type ParserContext :: Type
 newtype ParserContext = ParserContext GHC.Driver.Session.DynFlags
+
+-- | One scoped, single-threaded GHC session. Each parse starts from the saved
+-- base environment so source pragmas, forwarded options, and failures cannot
+-- affect the next file in the batch.
+type ParserSession :: Type
+data ParserSession = ParserSession
+  { parserSessionHandle :: DriverMonad.Session
+  , parserSessionBaseEnvironment :: DriverEnv.HscEnv
+  }
+
+withParserSession :: (ParserSession -> IO a) -> IO a
+withParserSession = withParserSessionWithMetrics Nothing
+
+withParserSessionWithMetrics
+  :: Maybe PerformanceCollector
+  -> (ParserSession -> IO a)
+  -> IO a
+withParserSessionWithMetrics metrics action = do
+  parserSession <- measurePhase metrics GhcSession
+    $ GHC.runGhc (Just GHCPaths.libdir)
+    $ do
+      session <- DriverMonad.Ghc pure
+      baseEnvironment <- GHC.getSession
+      pure ParserSession
+        { parserSessionHandle = session
+        , parserSessionBaseEnvironment = baseEnvironment
+        }
+  action parserSession
 
 -- | Parses a Haskell module. Although this nominally requires IO, it is
 -- morally pure. It should have no observable effects.
@@ -72,36 +111,50 @@ parseModuleWithMetricsAndContext
   -> String
   -> io (Either String (Anns, GHC.ParsedSource, a, ParserContext))
 parseModuleWithMetricsAndContext metrics arguments1 filePath checkDynFlags
-    string =
-  Except.runExceptT $ Except.ExceptT $ IO.liftIO $ do
-    result <- measurePhase metrics GhcSession
-      $ Exception.try
-        $ GHC.runGhc (Just GHCPaths.libdir)
-        $ do
-          (dflags0, logger) <- measurePhaseM metrics GhcSessionSetup $ do
-            dflags <- ExactPrint.initDynFlagsPure filePath string
-            currentLogger <- GHC.getLogger
-            pure (dflags, currentLogger)
-          (dflags1, leftovers1, _) <- measurePhaseM metrics DynamicFlagParsing
-            $ GHC.parseDynamicFlags logger dflags0
-              $ fmap GHC.Types.SrcLoc.noLoc arguments1
-          Monad.unless (null leftovers1)
-            $ IO.liftIO
-            $ Exception.throwIO
-            $ Exception.ErrorCall
-            $ "leftovers: " <> show (fmap GHC.Types.SrcLoc.unLoc leftovers1)
-          checkResult <- IO.liftIO $ checkDynFlags dflags1
-          case checkResult of
-            Left e -> IO.liftIO $ Exception.throwIO $ Exception.ErrorCall e
-            Right dynFlagsResult -> do
-              parsed <- IO.liftIO
-                $ parseWithDynFlags metrics dflags1 filePath string
-              pure $ fmap (\(anns, parsedSource) ->
-                (anns, parsedSource, dynFlagsResult, ParserContext dflags1)
-                ) parsed
-    case result of
-      Left (e :: Exception.SomeException) -> pure $ Left (show e)
-      Right r -> pure r
+    string = IO.liftIO $ withParserSessionWithMetrics metrics $ \session ->
+  parseModuleInSessionWithMetrics metrics session arguments1 filePath
+    checkDynFlags string
+
+parseModuleInSessionWithMetrics
+  :: Maybe PerformanceCollector
+  -> ParserSession
+  -> [String]
+  -> FilePath
+  -> (GHC.Driver.Session.DynFlags -> IO (Either String a))
+  -> String
+  -> IO (Either String (Anns, GHC.ParsedSource, a, ParserContext))
+parseModuleInSessionWithMetrics metrics session arguments1 filePath
+    checkDynFlags string = do
+  result <- Exception.try $ DriverMonad.reflectGhc parseInSession
+    $ parserSessionHandle session
+  case result of
+    Left (exception :: Exception.SomeException) -> pure $ Left $ show exception
+    Right parsed -> pure parsed
+ where
+  parseInSession = do
+    GHC.setSession $ parserSessionBaseEnvironment session
+    (dflags0, logger) <- measurePhaseM metrics GhcSessionSetup $ do
+      dflags <- ExactPrint.initDynFlagsPure filePath string
+      currentLogger <- GHC.getLogger
+      pure (dflags, currentLogger)
+    (dflags1, leftovers1, _) <- measurePhaseM metrics DynamicFlagParsing
+      $ GHC.parseDynamicFlags logger dflags0
+        $ fmap GHC.Types.SrcLoc.noLoc arguments1
+    Monad.unless (null leftovers1)
+      $ IO.liftIO
+      $ Exception.throwIO
+      $ Exception.ErrorCall
+      $ "leftovers: " <> show (fmap GHC.Types.SrcLoc.unLoc leftovers1)
+    checkResult <- IO.liftIO $ checkDynFlags dflags1
+    case checkResult of
+      Left message -> IO.liftIO
+        $ Exception.throwIO
+        $ Exception.ErrorCall message
+      Right dynFlagsResult -> do
+        parsed <- IO.liftIO $ parseWithDynFlags metrics dflags1 filePath string
+        pure $ fmap (\(anns, parsedSource) ->
+          (anns, parsedSource, dynFlagsResult, ParserContext dflags1)
+          ) parsed
 
 parseModuleInContextWithMetrics
   :: IO.MonadIO io

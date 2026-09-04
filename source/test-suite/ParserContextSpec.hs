@@ -1,7 +1,16 @@
 module ParserContextSpec (spec) where
 
 import Data.Either (isLeft, isRight)
+import qualified GHC.Driver.Session as GHC
+import qualified GHC.LanguageExtensions.Type as GHC
 import qualified Language.Haskell.Brittany.Internal.ParseModule as ParseModule
+import Language.Haskell.Brittany.Internal.Performance
+  ( PerformanceCollector
+  , PerformancePhase(..)
+  , newPerformanceCollector
+  , phaseSamplePhase
+  , readPerformanceSamples
+  )
 import qualified Test.Hspec as Hspec
 
 spec :: Hspec.Spec
@@ -59,6 +68,61 @@ spec = Hspec.describe "parser context reuse" $ do
           "module ParserContextRecovery where\nvalue = 3\n"
         recovered `Hspec.shouldSatisfy` isRight
 
+  Hspec.it "parses several files in one scoped session" $ do
+    ParseModule.withParserSession $ \session -> do
+      first <- parseInSession session [] "BatchFirst.hs"
+        "module BatchFirst where\nvalue = 1\n"
+      second <- parseInSession session [] "BatchSecond.hs"
+        "module BatchSecond where\nvalue = 2\n"
+      first `Hspec.shouldSatisfy` isRight
+      second `Hspec.shouldSatisfy` isRight
+
+  Hspec.it "records one GHC session for a multi-file batch" $ do
+    collector <- newPerformanceCollector
+    ParseModule.withParserSessionWithMetrics (Just collector) $ \session -> do
+      _ <- parseInMeasuredSession collector session "MeasuredFirst.hs"
+      _ <- parseInMeasuredSession collector session "MeasuredSecond.hs"
+      pure ()
+    phases <- fmap phaseSamplePhase <$> readPerformanceSamples collector
+    length (filter (== GhcSession) phases) `Hspec.shouldBe` 1
+    length (filter (== GhcSessionSetup) phases) `Hspec.shouldBe` 2
+    length (filter (== DynamicFlagParsing) phases) `Hspec.shouldBe` 2
+
+  Hspec.it "does not leak source language pragmas between files" $ do
+    ParseModule.withParserSession $ \session -> do
+      withPragma <- unboxedTuplesEnabled session [] "WithPragma.hs" $ unlines
+        [ "{-# LANGUAGE UnboxedTuples #-}"
+        , "module WithPragma where"
+        , "value = (# 1, 2 #)"
+        ]
+      withoutPragma <- unboxedTuplesEnabled session [] "WithoutPragma.hs" $ unlines
+        [ "module WithoutPragma where"
+        , "value = 2"
+        ]
+      recovered <- parseInSession session [] "AfterPragma.hs"
+        "module AfterPragma where\nvalue = 3\n"
+      withPragma `Hspec.shouldBe` Right True
+      withoutPragma `Hspec.shouldBe` Right False
+      recovered `Hspec.shouldSatisfy` isRight
+
+  Hspec.it "does not leak forwarded options between files" $ do
+    ParseModule.withParserSession $ \session -> do
+      enabled <- unboxedTuplesEnabled session ["-XUnboxedTuples"]
+        "OptionEnabled.hs" "module OptionEnabled where\nvalue = 1\n"
+      disabled <- unboxedTuplesEnabled session [] "OptionDisabled.hs"
+        "module OptionDisabled where\nvalue = 2\n"
+      enabled `Hspec.shouldBe` Right True
+      disabled `Hspec.shouldBe` Right False
+
+  Hspec.it "recovers after an invalid option in the shared session" $ do
+    ParseModule.withParserSession $ \session -> do
+      invalid <- parseInSession session ["-XNotARealExtension"] "InvalidOption.hs"
+        "module InvalidOption where\nvalue = 1\n"
+      recovered <- parseInSession session [] "ValidAfterOption.hs"
+        "module ValidAfterOption where\nvalue = 2\n"
+      invalid `Hspec.shouldSatisfy` isLeft
+      recovered `Hspec.shouldSatisfy` isRight
+
 parseWithContext
   :: FilePath
   -> String
@@ -75,3 +139,35 @@ parseInContext
   -> IO (Either String ())
 parseInContext context filename source = fmap (fmap $ const ())
   $ ParseModule.parseModuleInContextWithMetrics Nothing context filename source
+
+parseInSession
+  :: ParseModule.ParserSession
+  -> [String]
+  -> FilePath
+  -> String
+  -> IO (Either String ())
+parseInSession session options filename source = fmap (fmap $ const ())
+  $ ParseModule.parseModuleInSessionWithMetrics Nothing session options filename
+    (const $ pure $ Right ()) source
+
+unboxedTuplesEnabled
+  :: ParseModule.ParserSession
+  -> [String]
+  -> FilePath
+  -> String
+  -> IO (Either String Bool)
+unboxedTuplesEnabled session options filename source = fmap (fmap extractResult)
+  $ ParseModule.parseModuleInSessionWithMetrics Nothing session options filename
+    (pure . Right . GHC.xopt GHC.UnboxedTuples) source
+ where
+  extractResult (_, _, enabled, _) = enabled
+
+parseInMeasuredSession
+  :: PerformanceCollector
+  -> ParseModule.ParserSession
+  -> FilePath
+  -> IO (Either String ())
+parseInMeasuredSession collector session filename = fmap (fmap $ const ())
+  $ ParseModule.parseModuleInSessionWithMetrics (Just collector) session []
+    filename (const $ pure $ Right ())
+    ("module " ++ takeWhile (/= '.') filename ++ " where\nvalue = 1\n")
