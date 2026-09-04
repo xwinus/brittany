@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
 module Language.Haskell.Brittany.Internal.CommentBoundary
   ( canonicalCommentGraph
@@ -10,6 +11,7 @@ module Language.Haskell.Brittany.Internal.CommentBoundary
 import qualified Data.Char                               as Char
 import qualified Data.Generics                           as Generics
 import qualified Data.List                               as List
+import           Data.Kind                               ( Type )
 import qualified Data.Map                                as Map
 import qualified Data.Maybe                              as Maybe
 import qualified Data.Set                                as Set
@@ -38,11 +40,15 @@ import           Language.Haskell.Brittany.Internal.ConstructorComments
                                                           ( normalizeConstructorComments
                                                           )
 import           Language.Haskell.Brittany.Internal.CommentBoundary.Case
-                                                          ( caseAlternativeBoundary
+                                                          ( CaseBoundaryIndex
+                                                          , buildCaseBoundaryIndex
+                                                          , caseAlternativeBoundaryFromIndex
                                                           , materializeCaseComments
                                                           )
 import           Language.Haskell.Brittany.Internal.CommentBoundary.Delimiter
-                                                          ( delimiterBoundary
+                                                          ( DelimiterBoundaryIndex
+                                                          , buildDelimiterBoundaryIndex
+                                                          , delimiterBoundaryFromIndex
                                                           )
 import           Language.Haskell.Brittany.Internal.ExactPrintCompat
 import           Language.Haskell.Brittany.Internal.Prelude
@@ -218,7 +224,7 @@ canonicalCommentGraph (L _ module') plan = canonicalizeRuns
                      (Map.findWithDefault
                        (boundaryFor
                          module'
-                         expressionOwners
+                         boundaryIndex
                          sourceComment
                          placement
                        )
@@ -231,18 +237,32 @@ canonicalCommentGraph (L _ module') plan = canonicalizeRuns
   | (sourceComment, placement) <- orderedComments plan
   ]
  where
-  expressionOwners = expressionOwnerIndices module'
+  boundaryIndex = buildBoundaryIndex module'
 
 attachCommentBoundaries :: ParsedSource -> CommentPlan -> CommentPlan
 attachCommentBoundaries (L _ module') plan = plan
   { commentPlanBoundaries = Map.fromList
-      [ (key, boundaryFor module' expressionOwners sourceComment placement)
+      [ (key, boundaryFor module' boundaryIndex sourceComment placement)
       | (key, sourceComment) <- Map.toList $ commentPlanSources plan
       , Just placement <- [Map.lookup key $ commentPlanPlacements plan]
       ]
   }
  where
-  expressionOwners = expressionOwnerIndices module'
+  boundaryIndex = buildBoundaryIndex module'
+
+type BoundaryIndex :: Type
+data BoundaryIndex = BoundaryIndex
+  { boundaryCaseIndex :: CaseBoundaryIndex
+  , boundaryDelimiterIndex :: DelimiterBoundaryIndex
+  , boundaryExpressionOwners :: Map NodeId Int
+  }
+
+buildBoundaryIndex :: HsModule GhcPs -> BoundaryIndex
+buildBoundaryIndex module' = BoundaryIndex
+  { boundaryCaseIndex = buildCaseBoundaryIndex module'
+  , boundaryDelimiterIndex = buildDelimiterBoundaryIndex module'
+  , boundaryExpressionOwners = expressionOwnerIndices module'
+  }
 
 canonicalizeRuns :: [CanonicalComment] -> [CanonicalComment]
 canonicalizeRuns = List.concatMap canonicalizeRun . List.groupBy sameBoundary
@@ -279,16 +299,18 @@ acceptsPostDoc boundary =
 
 boundaryFor
   :: HsModule GhcPs
-  -> Map NodeId Int
+  -> BoundaryIndex
   -> SourceComment
   -> CommentPlacement
   -> CommentBoundaryId
-boundaryFor module' expressionOwners sourceComment placement =
+boundaryFor module' boundaryIndex sourceComment placement =
   fromMaybe moduleBoundary
-    $   caseAlternativeBoundary module' commentSpan
-    <|> delimiterBoundary module' commentSpan
+    $   caseAlternativeBoundaryFromIndex
+          (boundaryCaseIndex boundaryIndex) commentSpan
+    <|> delimiterBoundaryFromIndex
+          (boundaryDelimiterIndex boundaryIndex) commentSpan
     <|> constructorBoundary declarations commentSpan
-    <|> expressionBoundary expressionOwners placement
+    <|> expressionBoundary (boundaryExpressionOwners boundaryIndex) placement
     <|> declarationBoundary declarations commentSpan
     <|> importBoundary (hsmodImports module') commentSpan
  where

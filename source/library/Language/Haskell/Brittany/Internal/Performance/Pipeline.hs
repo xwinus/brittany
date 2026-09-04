@@ -12,7 +12,7 @@ import qualified Data.Text as Text
 import qualified Data.Text.Lazy as TextL
 import qualified GHC
 import Language.Haskell.Brittany.Internal
-  ( commentValidationErrors
+  ( commentValidationErrorsWithInputPlan
   , pPrintModulePrepared
   , semanticErrors
   )
@@ -30,6 +30,7 @@ import Language.Haskell.Brittany.Internal.SourceComment.Types
       , commentPlanPlacements
       , commentPlanSources
       )
+  , CommentPlanError
   )
 import Language.Haskell.Brittany.Internal.Types
   ( BrittanyError(..)
@@ -45,7 +46,22 @@ pPrintModuleWithSourceMeasured
   -> GHC.ParsedSource
   -> IO ([BrittanyError], TextL.Text)
 pPrintModuleWithSourceMeasured metrics originalSource conf inlineConf anns
-    parsedModule = do
+    parsedModule = snd <$> pPrintModuleWithSourceMeasuredPrepared metrics
+      originalSource conf inlineConf anns parsedModule
+
+pPrintModuleWithSourceMeasuredPrepared
+  :: Maybe PerformanceCollector
+  -> Maybe Text.Text
+  -> Config
+  -> PerItemConfig
+  -> Anns
+  -> GHC.ParsedSource
+  -> IO
+       ( Either [CommentPlanError] CommentPlan
+       , ([BrittanyError], TextL.Text)
+       )
+pPrintModuleWithSourceMeasuredPrepared metrics originalSource conf inlineConf
+    anns parsedModule = do
   preparedPlan <- measurePhase metrics CommentPlanning $ do
     let result = prepareCommentPlan parsedModule anns
         forcePlan = case result of
@@ -62,36 +78,37 @@ pPrintModuleWithSourceMeasured metrics originalSource conf inlineConf anns
           annotationCount = sum $ Map.size <$> Map.elems grouped
       _ <- Exception.evaluate annotationCount
       pure grouped
-  measurePhase metrics LayoutAndRendering $ do
+  formatted <- measurePhase metrics LayoutAndRendering $ do
     let result@(errors, output) = pPrintModulePrepared originalSource conf
           inlineConf anns parsedModule preparedPlan groupedAnnotations
     _ <- Exception.evaluate $ length errors
     _ <- Exception.evaluate $ TextL.length output
     pure result
+  pure (preparedPlan, formatted)
 
 pPrintModuleAndCheckWithSourceMeasured
   :: Maybe PerformanceCollector
+  -> ParseModule.ParserContext
   -> Maybe Text.Text
   -> Config
   -> PerItemConfig
   -> Anns
   -> GHC.ParsedSource
   -> IO ([BrittanyError], TextL.Text)
-pPrintModuleAndCheckWithSourceMeasured metrics originalSource conf inlineConf
-    anns parsedModule = do
-  (formatErrors, output) <- pPrintModuleWithSourceMeasured metrics originalSource
-    conf inlineConf anns parsedModule
+pPrintModuleAndCheckWithSourceMeasured metrics parserContext originalSource conf
+    inlineConf anns parsedModule = do
+  (inputPlan, (formatErrors, output)) <-
+    pPrintModuleWithSourceMeasuredPrepared metrics originalSource conf inlineConf
+      anns parsedModule
   measurePhase metrics OutputValidation $ do
-    let ghcOptions = conf & _conf_forward & _options_ghc & runIdentity
     parseResult <- measurePhase metrics OutputParsing
-      $ ParseModule.parseModuleWithMetrics metrics
-          ghcOptions
+      $ ParseModule.parseModuleInContextWithMetrics metrics
+          parserContext
           "output"
-          (\_ -> return $ Right ())
           (TextL.unpack output)
     validationErrors <- case parseResult of
       Left{} -> pure [ErrorOutputCheck]
-      Right (outputAnns, outputModule, _) -> do
+      Right (outputAnns, outputModule) -> do
         semanticValidationErrors <- measurePhase metrics SemanticValidation $ do
           let errors = semanticErrors parsedModule outputModule
           _ <- Exception.evaluate $ length errors
@@ -101,8 +118,8 @@ pPrintModuleAndCheckWithSourceMeasured metrics originalSource conf inlineConf
               .> _econf_omit_unused_comment_check
               .> confUnpack
         commentErrors <- measurePhase metrics CommentValidation $ do
-          let errors = commentValidationErrors omitCommentCheck parsedModule anns
-                outputModule outputAnns
+          let errors = commentValidationErrorsWithInputPlan omitCommentCheck
+                parsedModule inputPlan outputModule outputAnns
           _ <- Exception.evaluate $ length errors
           pure errors
         pure $ semanticValidationErrors ++ commentErrors

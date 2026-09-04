@@ -8,8 +8,10 @@
 -- nested expr/bind/stmt nodes, building the Map AnnKey Annotation format
 -- expected by layouters.
 module Language.Haskell.Brittany.Internal.ExtractAnns
-  ( extractAnnsFromModule
+  ( buildModuleAnnotationIndex
+  , extractAnnsFromModule
   , recoverMissingComments
+  , recoverMissingCommentsWithAnnotations
   ) where
 
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
@@ -88,6 +90,7 @@ import qualified GHC.Data.Strict
 import qualified GHC.Parser.Lexer
 import GHC.Types.SrcLoc (EpaLocation'(..), RealSrcSpan, SrcSpan(..))
 import qualified GHC.Types.SrcLoc as SrcLoc
+import qualified Language.Haskell.Brittany.Internal.AnnotationIndex as AnnotationIndex
 import Language.Haskell.Brittany.Internal.ExactPrintCompat
 import Language.Haskell.Brittany.Internal.CommentBoundary
   ( materializeCommentBoundaries )
@@ -102,25 +105,47 @@ import qualified Language.Haskell.GHC.ExactPrint.Utils as EPUtils
 -- This scans the source for line comments, compares with comments already
 -- in the parsed AST, and adds missing ones to the module annotation.
 recoverMissingComments :: String -> String -> ParsedSource -> ParsedSource
-recoverMissingComments src fp lmod@(L l p) =
+recoverMissingComments src fp lmod = fst
+  $ recoverMissingCommentsWithAnnotations
+    (extractAnnsFromModule lmod)
+    src
+    fp
+    lmod
+
+-- | Recover missing source comments using annotations already extracted from
+-- the parsed module. The boolean result indicates that the AST changed and
+-- its annotations must be rebuilt.
+recoverMissingCommentsWithAnnotations
+  :: Anns
+  -> String
+  -> String
+  -> ParsedSource
+  -> (ParsedSource, Bool)
+recoverMissingCommentsWithAnnotations initialAnnotations src fp
+    lmod@(L l p) =
   let quasiQuoteSpans = collectQuasiQuoteContentSpans lmod
       sourceComments = filter (not . isInsideQuasiQuote quasiQuoteSpans . fst)
         $ scanLineComments fp src
-      astComments = collectExtractedComments $ extractAnnsFromModule lmod
+      astComments = collectExtractedComments initialAnnotations
       missing =
         [ comment
         | comment@(position, _) <- sourceComments
         , not (any (`containsPosition` position) astComments)
         ]
-  in if null missing then lmod
+  in if null missing then (lmod, False)
      else
        let modAnn = hsmodAnn (hsmodExt p)
        in case modAnn of
          EpAnn anc an cs ->
            let newComments = map mkLEpaComment' missing
                cs' = EPUtils.workInComments cs newComments
-           in L l (p { hsmodExt = (hsmodExt p) { hsmodAnn = EpAnn anc an cs' }})
-         _ -> lmod
+           in ( L l
+                  (p { hsmodExt =
+                    (hsmodExt p) { hsmodAnn = EpAnn anc an cs' }
+                  })
+              , True
+              )
+         _ -> (lmod, False)
   where
     isInsideQuasiQuote :: [RealSrcSpan] -> (Int, Int) -> Bool
     isInsideQuasiQuote spans position = any
@@ -273,7 +298,8 @@ extractAnnsFromModule lmod =
         Nothing -> Map.empty
         Just llies -> extractIEListAnns ExportIEList llies
       declAnns = extractDeclAnns (hsmodDecls mod')
-      nestedAnns = extractNestedEpAnns (hsmodDecls mod')
+      annotationIndex = buildModuleAnnotationIndex lmod'
+      nestedAnns = extractNestedEpAnns annotationIndex
       -- Step 6: Apply remaining comment patches to import/decl annotations
       patchAnns recomputeDeclPriors anns = Map.mapWithKey (\k ann ->
         let priorPatch = Map.findWithDefault [] k childPriorPatches
@@ -313,7 +339,7 @@ extractAnnsFromModule lmod =
       -- processed by extractNestedEpAnns's redistribution pass).
       merged = modAnns <> importAnns' <> exportAnns <> declAnns' <> nestedAnns
       -- Build span map: nested spans + top-level decl spans
-      nestedSpans = extractNestedSpanMap (hsmodDecls mod')
+      nestedSpans = extractNestedSpanMap annotationIndex
       declSpans = Map.fromList [(k, (s, e)) | (k, s, e) <- allTargets]
       fullSpanMap = nestedSpans <> declSpans
       -- Only process declAnns' keys with inner comments, and only those
@@ -654,120 +680,127 @@ extractDeclAnns decls =
             }
       in (nextPos, (AnnComment bComment, dp))
 
--- | Extract span map for all nested nodes. Used for inner comment
--- redistribution across the full annotation map.
-extractNestedSpanMap :: [LHsDecl GhcPs] -> Map.Map AnnKey ((Int, Int), (Int, Int))
-extractNestedSpanMap decls =
-  let raw = SYB.everything (++) extractAll decls
-  in Map.fromList [(k, (ss2pos sp, ss2posEnd sp)) | (k, sp, _) <- raw]
-  where
-    extractAll :: SYB.GenericQ [(AnnKey, RealSrcSpan, EpAnnComments)]
-    extractAll =
-      (const []
-        `SYB.extQ` (extractFromLocatedWithLoc :: LHsExpr GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
-        `SYB.extQ` (extractFromLocated :: LHsDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
-        `SYB.extQ` (extractFromLocatedWithLoc :: LHsBind GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
-        `SYB.extQ` (extractFromLocatedWithLoc :: LMatch GhcPs (LHsExpr GhcPs) -> [(AnnKey, RealSrcSpan, EpAnnComments)])
-        `SYB.extQ` (extractFromLocated :: LGRHS GhcPs (LHsExpr GhcPs) -> [(AnnKey, RealSrcSpan, EpAnnComments)])
-        `SYB.extQ` (extractFromLocatedWithLoc :: ExprLStmt GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
-        `SYB.extQ` (extractFromLocatedWithLoc :: LHsType GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
-        `SYB.extQ` (extractFromLocatedWithLoc :: LHsSigType GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
-        `SYB.extQ` (extractFromLocatedWithLoc :: LPat GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
-        `SYB.extQ` (extractFromLocatedWithLoc :: LConDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
-        `SYB.extQ` (extractFromLocatedWithLoc :: LHsDerivingClause GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
-        `SYB.extQ` (extractFromLocatedWithLoc :: LTyFamInstDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
-        `SYB.extQ` (extractFromLocatedWithLoc :: LDataFamInstDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)])
-      )
+-- | Build the reusable nested-node index with one generic traversal. The
+-- previous implementation walked the same declaration tree separately for
+-- node annotations, span lookup, and expression overrides.
+buildModuleAnnotationIndex :: ParsedSource -> AnnotationIndex.AnnotationIndex
+buildModuleAnnotationIndex (L _ module') = buildNestedAnnotationIndex
+  $ hsmodDecls module'
+
+buildNestedAnnotationIndex
+  :: [LHsDecl GhcPs]
+  -> AnnotationIndex.AnnotationIndex
+buildNestedAnnotationIndex = AnnotationIndex.buildAnnotationIndex query
+ where
+  query :: SYB.GenericQ AnnotationIndex.AnnotationIndex
+  query = const mempty
+    `SYB.extQ` indexExpression
+    `SYB.extQ` indexDeclaration
+    `SYB.extQ` indexBinding
+    `SYB.extQ` indexMatch
+    `SYB.extQ` indexGuardedRhs
+    `SYB.extQ` indexStatement
+    `SYB.extQ` indexType
+    `SYB.extQ` indexSignatureType
+    `SYB.extQ` indexPattern
+    `SYB.extQ` indexConstructor
+    `SYB.extQ` indexDerivingClause
+    `SYB.extQ` indexRecordField
+    `SYB.extQ` indexRecordFields
+    `SYB.extQ` indexTypeFamilyInstance
+    `SYB.extQ` indexDataFamilyInstance
+    `SYB.extQ` indexLocalBindings
+    `SYB.extQ` indexMatchGroup
+
+  indexExpression :: LHsExpr GhcPs -> AnnotationIndex.AnnotationIndex
+  indexExpression expression@(L location value) =
+    AnnotationIndex.fromNodes (extractFromLocatedWithLoc expression)
+      <> AnnotationIndex.fromOverrides (case value of
+        HsIf annotations condition thenExpression elseExpression ->
+          extractHsIfAnns expression location annotations condition
+            thenExpression elseExpression
+        HsDo _ _ (L statementLocation statementValues) ->
+          extractHsDoAnns expression location statementLocation statementValues
+        _ -> [])
+  indexDeclaration :: LHsDecl GhcPs -> AnnotationIndex.AnnotationIndex
+  indexDeclaration = AnnotationIndex.fromNodes . extractFromLocated
+  indexBinding :: LHsBind GhcPs -> AnnotationIndex.AnnotationIndex
+  indexBinding = AnnotationIndex.fromNodes . extractFromLocatedWithLoc
+  indexMatch
+    :: LMatch GhcPs (LHsExpr GhcPs) -> AnnotationIndex.AnnotationIndex
+  indexMatch = AnnotationIndex.fromNodes . extractFromLocated
+  indexGuardedRhs
+    :: LGRHS GhcPs (LHsExpr GhcPs) -> AnnotationIndex.AnnotationIndex
+  indexGuardedRhs guardedRhs@(L _ (GRHS annotations _ body)) =
+    AnnotationIndex.fromNodes (extractFromLocated guardedRhs)
+      <> AnnotationIndex.fromOverrides
+        (extractGRHSAnns guardedRhs annotations body)
+  indexStatement :: ExprLStmt GhcPs -> AnnotationIndex.AnnotationIndex
+  indexStatement = AnnotationIndex.fromNodes . extractFromLocatedWithLoc
+  indexType :: LHsType GhcPs -> AnnotationIndex.AnnotationIndex
+  indexType = AnnotationIndex.fromNodes . extractFromLocatedWithLoc
+  indexSignatureType :: LHsSigType GhcPs -> AnnotationIndex.AnnotationIndex
+  indexSignatureType = AnnotationIndex.fromNodes . extractFromLocatedWithLoc
+  indexPattern :: LPat GhcPs -> AnnotationIndex.AnnotationIndex
+  indexPattern = AnnotationIndex.fromNodes . extractFromLocatedWithLoc
+  indexConstructor :: LConDecl GhcPs -> AnnotationIndex.AnnotationIndex
+  indexConstructor = AnnotationIndex.fromNodes . extractFromLocatedWithLoc
+  indexDerivingClause
+    :: LHsDerivingClause GhcPs -> AnnotationIndex.AnnotationIndex
+  indexDerivingClause = AnnotationIndex.fromNodes . extractFromLocatedWithLoc
+  indexRecordField
+    :: LHsConDeclRecField GhcPs -> AnnotationIndex.AnnotationIndex
+  indexRecordField = AnnotationIndex.fromAnnotationOnlyNodes
+    . extractFromLocatedWithLoc
+  indexRecordFields
+    :: GenLocated (EpAnn (AnnList ())) [LHsConDeclRecField GhcPs]
+    -> AnnotationIndex.AnnotationIndex
+  indexRecordFields = AnnotationIndex.fromAnnotationOnlyNodes
+    . extractFromLocatedWithLoc
+  indexTypeFamilyInstance
+    :: LTyFamInstDecl GhcPs -> AnnotationIndex.AnnotationIndex
+  indexTypeFamilyInstance = AnnotationIndex.fromNodes . extractFromLocatedWithLoc
+  indexDataFamilyInstance
+    :: LDataFamInstDecl GhcPs -> AnnotationIndex.AnnotationIndex
+  indexDataFamilyInstance = AnnotationIndex.fromNodes . extractFromLocatedWithLoc
+  indexLocalBindings
+    :: HsLocalBindsLR GhcPs GhcPs -> AnnotationIndex.AnnotationIndex
+  indexLocalBindings (HsValBinds (EpAnn anchor _ annotationComments) _) =
+    case anchor of
+      EpaSpan (RealSrcSpan sourceSpan _) -> AnnotationIndex.fromAnnotationOnlyNodes
+        [( AnnKey [realSpanToSrcSpan sourceSpan] $ CN "HsValBinds"
+         , sourceSpan
+         , annotationComments
+         )]
+      _ -> mempty
+  indexLocalBindings _ = mempty
+  indexMatchGroup
+    :: MatchGroup GhcPs (LHsExpr GhcPs) -> AnnotationIndex.AnnotationIndex
+  indexMatchGroup (MG _ (L (EpAnn anchor _ annotationComments) _)) =
+    if null
+      (priorComments annotationComments
+        ++ getFollowingComments annotationComments)
+      then mempty
+      else case anchor of
+        EpaSpan (RealSrcSpan sourceSpan _) -> AnnotationIndex.fromAnnotationOnlyNodes
+          [( AnnKey [realSpanToSrcSpan sourceSpan] $ CN "MatchGroup"
+           , sourceSpan
+           , annotationComments
+           )]
+        _ -> mempty
+
+-- | Extract span lookup data without traversing the AST again.
+extractNestedSpanMap
+  :: AnnotationIndex.AnnotationIndex
+  -> Map.Map AnnKey ((Int, Int), (Int, Int))
+extractNestedSpanMap = AnnotationIndex.indexSpanMap ss2pos ss2posEnd
 
 -- | Traverse decls and nested AST (exprs, binds, stmts, etc.) to extract
 -- EpAnn from every annotated node. Enables hasAnyCommentsBelow and comment
 -- preservation for layout decisions.
-extractNestedEpAnns :: [LHsDecl GhcPs] -> Anns
-extractNestedEpAnns decls =
-  let -- Base extraction for all nodes (including HsIf/HsCase via location annotation)
-      extractLHsExpr :: LHsExpr GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractLHsExpr = extractFromLocatedWithLoc
-      extractLHsDecl :: LHsDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractLHsDecl = extractFromLocated
-      extractLHsBind :: LHsBind GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractLHsBind = extractFromLocatedWithLoc
-      extractLMatch :: LMatch GhcPs (LHsExpr GhcPs) -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractLMatch = extractFromLocated
-      extractLGRHS :: LGRHS GhcPs (LHsExpr GhcPs) -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractLGRHS = extractFromLocated
-      extractLStmt :: ExprLStmt GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractLStmt = extractFromLocatedWithLoc
-      extractLHsType :: LHsType GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractLHsType = extractFromLocatedWithLoc
-      extractLHsSigType :: LHsSigType GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractLHsSigType = extractFromLocatedWithLoc
-      extractLPat :: LPat GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractLPat = extractFromLocatedWithLoc
-      extractLConDecl :: LConDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractLConDecl = extractFromLocatedWithLoc
-      extractLHsDerivingClause
-        :: LHsDerivingClause GhcPs
-        -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractLHsDerivingClause = extractFromLocatedWithLoc
-      extractLConDeclRecField
-        :: LHsConDeclRecField GhcPs
-        -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractLConDeclRecField = extractFromLocatedWithLoc
-      extractLConDeclFields
-        :: GenLocated
-          (EpAnn (AnnList ()))
-          [LHsConDeclRecField GhcPs]
-        -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractLConDeclFields = extractFromLocatedWithLoc
-      extractLTyFamInst :: LTyFamInstDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractLTyFamInst = extractFromLocatedWithLoc
-      extractLDataFamInst :: LDataFamInstDecl GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractLDataFamInst = extractFromLocatedWithLoc
-      -- Extract from HsLocalBindsLR extension field (EpAnn (AnnList ()))
-      -- which receives comments from redistributeIntraDeclComments
-      extractHsLocalBinds :: HsLocalBindsLR GhcPs GhcPs -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractHsLocalBinds (HsValBinds (EpAnn anc _ cs) _) =
-        case anc of
-          EpaSpan (RealSrcSpan rss _) ->
-            let key = AnnKey [realSpanToSrcSpan rss] (CN "HsValBinds")
-            in [(key, rss, cs)]
-          _ -> []
-      extractHsLocalBinds _ = []
-      -- Extract comments from MatchGroup's mg_alts wrapper (SrcSpanAnnLW).
-      -- ghc-exactprint may place comments on this AnnList (EpToken "where")
-      -- annotation which none of the standard extractors handle.
-      extractMatchGroup :: MatchGroup GhcPs (LHsExpr GhcPs) -> [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extractMatchGroup (MG _ (L (EpAnn anc _ cs) _)) =
-        let coms = priorComments cs ++ getFollowingComments cs
-        in if null coms then []
-           else case anc of
-             EpaSpan (RealSrcSpan rss _) ->
-               let key = AnnKey [realSpanToSrcSpan rss] (CN "MatchGroup")
-               in [(key, rss, cs)]
-             _ -> []
-      extractMatchGroup _ = []
-      extract :: SYB.GenericQ [(AnnKey, RealSrcSpan, EpAnnComments)]
-      extract =
-        (const []
-          `SYB.extQ` extractLHsExpr
-          `SYB.extQ` extractLHsDecl
-          `SYB.extQ` extractLHsBind
-          `SYB.extQ` extractLMatch
-          `SYB.extQ` extractLGRHS
-          `SYB.extQ` extractLStmt
-          `SYB.extQ` extractLHsType
-          `SYB.extQ` extractLHsSigType
-          `SYB.extQ` extractLPat
-          `SYB.extQ` extractLConDecl
-          `SYB.extQ` extractLHsDerivingClause
-          `SYB.extQ` extractLConDeclRecField
-          `SYB.extQ` extractLConDeclFields
-          `SYB.extQ` extractLTyFamInst
-          `SYB.extQ` extractLDataFamInst
-          `SYB.extQ` extractHsLocalBinds
-          `SYB.extQ` extractMatchGroup
-        )
-      raw = SYB.everything (++) extract decls
+extractNestedEpAnns :: AnnotationIndex.AnnotationIndex -> Anns
+extractNestedEpAnns annotationIndex =
+  let raw = AnnotationIndex.indexNodes annotationIndex
       sorted = List.sortOn (\(_, sp, _) -> (SrcLoc.srcSpanStartLine sp, SrcLoc.srcSpanStartCol sp)) raw
       -- Build nested annotations with trailing comment redistribution:
       -- Comments on the same line as the previous node's end get moved from
@@ -793,23 +826,7 @@ extractNestedEpAnns decls =
       isWrappedNodeType (AnnKey _ cn) = unConName cn `elem`
         ["GRHS", "Match", "ValD", "SigD", "TyClD", "InstD", "DerivD"]
       redistributedAnns = redistributeInnerComments spanMap skipKeys baseAnns
-      -- Override pass: for compound expressions (HsIf, etc.), redistribute
-      -- inner comments to child expression annotations (as prior comments)
-      -- so BDAnnotationPrior emits them before the correct subexpression.
-      overrideExpr :: LHsExpr GhcPs -> [(AnnKey, Annotation)]
-      overrideExpr lexpr@(L loc expr) = case expr of
-        HsIf xIf condExpr thenExpr elseExpr ->
-          extractHsIfAnns lexpr loc xIf condExpr thenExpr elseExpr
-        HsDo _ _ lstmts@(L stmtLoc stmts) ->
-          extractHsDoAnns lexpr loc stmtLoc stmts
-        _ -> []
-      overrideGRHS :: LGRHS GhcPs (LHsExpr GhcPs) -> [(AnnKey, Annotation)]
-      overrideGRHS lgrhs@(L _loc (GRHS xgrhs _guards body)) =
-        extractGRHSAnns lgrhs xgrhs body
-      overrideGRHS _ = []
-      overrideExtract :: SYB.GenericQ [(AnnKey, Annotation)]
-      overrideExtract = const [] `SYB.extQ` overrideExpr `SYB.extQ` overrideGRHS
-      overrideAnns = Map.fromList $ SYB.everything (++) overrideExtract decls
+      overrideAnns = Map.fromList $ AnnotationIndex.indexOverrides annotationIndex
   in overrideAnns <> redistributedAnns  -- overrideAnns wins for duplicate keys
   where
     buildNestedAccum (prevEnd, prevKey) (key, ancSpan, cs) =

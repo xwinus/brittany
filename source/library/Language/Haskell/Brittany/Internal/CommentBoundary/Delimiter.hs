@@ -1,13 +1,18 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
 module Language.Haskell.Brittany.Internal.CommentBoundary.Delimiter
-  ( delimiterBoundary
+  ( DelimiterBoundaryIndex
+  , buildDelimiterBoundaryIndex
+  , delimiterBoundary
+  , delimiterBoundaryFromIndex
   ) where
 
 import qualified Data.Generics as Generics
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
+import Data.Kind (Type)
 import GHC (GenLocated(L), unLoc)
 import GHC.Hs
 import qualified GHC.Types.SrcLoc as SrcLoc
@@ -15,23 +20,38 @@ import Language.Haskell.Brittany.Internal.ExactPrintCompat (srcSpanToRealSpan)
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.SourceComment.Types
 
+type DelimiterRegion :: Type
 data DelimiterRegion = DelimiterRegion
   { regionSpan :: SrcLoc.RealSrcSpan
   , regionChildren :: [SrcLoc.RealSrcSpan]
   }
 
+type DelimiterBoundaryIndex :: Type
+newtype DelimiterBoundaryIndex = DelimiterBoundaryIndex
+  [(Int, DelimiterRegion)]
+
+buildDelimiterBoundaryIndex :: HsModule GhcPs -> DelimiterBoundaryIndex
+buildDelimiterBoundaryIndex module' = DelimiterBoundaryIndex
+  $ zip [0 ..]
+  $ List.sortOn regionOrder
+  $ delimiterRegions module'
+
 delimiterBoundary
   :: HsModule GhcPs
   -> SrcLoc.RealSrcSpan
   -> Maybe CommentBoundaryId
-delimiterBoundary module' commentSpan = do
+delimiterBoundary module' =
+  delimiterBoundaryFromIndex $ buildDelimiterBoundaryIndex module'
+
+delimiterBoundaryFromIndex
+  :: DelimiterBoundaryIndex
+  -> SrcLoc.RealSrcSpan
+  -> Maybe CommentBoundaryId
+delimiterBoundaryFromIndex (DelimiterBoundaryIndex indexedRegions) commentSpan = do
   (index, matchingRegion) <- smallestContainingRegion commentSpan indexedRegions
   pure $ CommentBoundaryId
     (DelimiterBoundaryPath index)
     (regionGap commentSpan matchingRegion)
- where
-  regions = List.sortOn regionOrder $ delimiterRegions module'
-  indexedRegions = zip [0 ..] regions
 
 delimiterRegions :: HsModule GhcPs -> [DelimiterRegion]
 delimiterRegions = Generics.everything (++) query

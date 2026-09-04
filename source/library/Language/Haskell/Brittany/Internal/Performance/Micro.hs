@@ -17,6 +17,7 @@ import qualified Data.Text as Text
 import qualified Data.Text.Lazy as TextL
 import qualified Data.Text.Lazy.Builder as Text.Builder
 import qualified GHC
+import qualified Language.Haskell.Brittany.Internal.AnnotationIndex as AnnotationIndex
 import Language.Haskell.Brittany.Internal
   ( commentValidationErrors
   , semanticErrors
@@ -26,7 +27,10 @@ import Language.Haskell.Brittany.Internal.CommentPlan (prepareCommentPlan)
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintCompat
 import Language.Haskell.Brittany.Internal.ExactPrintUtils (extractToplevelAnns)
-import Language.Haskell.Brittany.Internal.ExtractAnns (extractAnnsFromModule)
+import Language.Haskell.Brittany.Internal.ExtractAnns
+  ( buildModuleAnnotationIndex
+  , extractAnnsFromModule
+  )
 import qualified Language.Haskell.Brittany.Internal.ParseModule as ParseModule
 import Language.Haskell.Brittany.Internal.Performance
 import Language.Haskell.Brittany.Internal.Performance.Fixtures
@@ -55,9 +59,11 @@ runFocusedOperation collector config phase input = case phase of
   AnnotationExtraction -> withParsed $ \_ parsedModule -> measured $ do
     let annotations = extractAnnsFromModule parsedModule
     Exception.evaluate $ Map.size annotations
-  AnnotationIndexConstruction -> withParsed $ \annotations _ -> measured $ do
-    let annotationIndex = Map.fromList $ zip (Map.keys annotations) [1 :: Int ..]
-    Exception.evaluate $ Map.foldl' (+) 0 annotationIndex
+  AnnotationIndexConstruction -> withParsed $ \_ parsedModule -> measured $ do
+    let annotationIndex = buildModuleAnnotationIndex parsedModule
+    Exception.evaluate
+      $ AnnotationIndex.indexNodeCount annotationIndex
+      + AnnotationIndex.indexOverrideCount annotationIndex
   CommentPlanning -> withParsed $ \annotations parsedModule -> measured $ do
     let planResult = prepareCommentPlan parsedModule annotations
     Exception.evaluate $ forceCommentPlan planResult

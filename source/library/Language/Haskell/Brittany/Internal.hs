@@ -10,7 +10,9 @@ module Language.Haskell.Brittany.Internal
   , pPrintModulePrepared
   , pPrintModuleAndCheck
   , pPrintModuleAndCheckWithSource
+  , pPrintModuleAndCheckWithSourceInContext
   , commentValidationErrors
+  , commentValidationErrorsWithInputPlan
   , semanticErrors
    -- re-export from utils:
   , parseModule
@@ -77,6 +79,7 @@ import Language.Haskell.Brittany.Internal.Layouters.Module
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Preprocessor (cppUnsupportedMessage)
+import qualified Language.Haskell.Brittany.Internal.ParseModule as ParseModule
 import Language.Haskell.Brittany.Internal.SemanticFingerprint
   ( SemanticDifference(..)
   , SemanticProjectionError(..)
@@ -288,7 +291,7 @@ parsePrintModule configWithDebugs inputText = runExceptT $ do
   let config_pp = config & _conf_preprocessor
   let cppMode = config_pp & _ppconf_CPPMode & confUnpack
   let hackAroundIncludes = config_pp & _ppconf_hackAroundIncludes & confUnpack
-  (anns, parsedSource, hasCPP) <- do
+  (anns, parsedSource, hasCPP, parserContext) <- do
     let
       hackF s =
         if "#include" `isPrefixOf` s then "-- BRITANY_INCLUDE_HACK " ++ s else s
@@ -303,7 +306,7 @@ parsePrintModule configWithDebugs inputText = runExceptT $ do
           CPPModeWarn -> return $ Right True
           CPPModeNowarn -> return $ Right True
         else return $ Right False
-    parseResult <- lift $ parseModuleFromString
+    parseResult <- lift $ ParseModule.parseModuleWithMetricsAndContext Nothing
       ghcOptions
       "stdin"
       cppCheckFunc
@@ -336,7 +339,8 @@ parsePrintModule configWithDebugs inputText = runExceptT $ do
               anns
               parsedSource
           else lift
-            $ pPrintModuleAndCheckWithSource
+            $ pPrintModuleAndCheckWithSourceInContext
+              parserContext
               (Just inputText)
               moduleConfig
               perItemConf
@@ -419,12 +423,21 @@ pPrintModuleWithSource
   -> GHC.ParsedSource
   -> ([BrittanyError], TextL.Text)
 pPrintModuleWithSource originalSource conf inlineConf anns parsedModule =
+  let (preparedPlan, groupedAnnotations) = prepareModuleForPrinting
+        parsedModule anns
+  in pPrintModulePrepared originalSource conf inlineConf anns parsedModule
+    preparedPlan groupedAnnotations
+
+prepareModuleForPrinting
+  :: GHC.ParsedSource
+  -> Anns
+  -> (Either [CommentPlanError] CommentPlan, Map AnnKey Anns)
+prepareModuleForPrinting parsedModule anns =
   let preparedPlan = prepareCommentPlan parsedModule anns
       groupedAnnotations = case preparedPlan of
         Left{} -> Map.empty
         Right{} -> extractToplevelAnns parsedModule anns
-  in pPrintModulePrepared originalSource conf inlineConf anns parsedModule
-    preparedPlan groupedAnnotations
+  in (preparedPlan, groupedAnnotations)
 
 pPrintModulePrepared
   :: Maybe Text.Text
@@ -529,13 +542,50 @@ pPrintModuleAndCheckWithSource
   -> IO ([BrittanyError], TextL.Text)
 pPrintModuleAndCheckWithSource originalSource conf inlineConf anns parsedModule = do
   let ghcOptions = conf & _conf_forward & _options_ghc & runIdentity
-  let (errs, output) =
-        pPrintModuleWithSource originalSource conf inlineConf anns parsedModule
-  parseResult <- parseModuleFromString
+  let (preparedPlan, groupedAnnotations) = prepareModuleForPrinting
+        parsedModule anns
+      (errs, output) = pPrintModulePrepared originalSource conf inlineConf anns
+        parsedModule preparedPlan groupedAnnotations
+  parsed <- parseModuleFromString
     ghcOptions
     "output"
     (\_ -> return $ Right ())
     (TextL.unpack output)
+  let parseResult = fmap (\(outputAnns, outputModule, _) ->
+        (outputAnns, outputModule)
+        ) parsed
+  pure $ validateFormattedOutput conf preparedPlan parsedModule errs output
+    parseResult
+
+pPrintModuleAndCheckWithSourceInContext
+  :: ParseModule.ParserContext
+  -> Maybe Text.Text
+  -> Config
+  -> PerItemConfig
+  -> Anns
+  -> GHC.ParsedSource
+  -> IO ([BrittanyError], TextL.Text)
+pPrintModuleAndCheckWithSourceInContext parserContext originalSource conf
+    inlineConf anns parsedModule = do
+  let (preparedPlan, groupedAnnotations) = prepareModuleForPrinting
+        parsedModule anns
+      (errs, output) = pPrintModulePrepared originalSource conf inlineConf anns
+        parsedModule preparedPlan groupedAnnotations
+  parseResult <- ParseModule.parseModuleInContextWithMetrics Nothing parserContext
+    "output"
+    (TextL.unpack output)
+  pure $ validateFormattedOutput conf preparedPlan parsedModule errs output
+    parseResult
+
+validateFormattedOutput
+  :: Config
+  -> Either [CommentPlanError] CommentPlan
+  -> GHC.ParsedSource
+  -> [BrittanyError]
+  -> TextL.Text
+  -> Either String (Anns, GHC.ParsedSource)
+  -> ([BrittanyError], TextL.Text)
+validateFormattedOutput conf inputPlan parsedModule errs output parseResult =
   let omitCommentCheck =
         conf
           & _conf_errorHandling
@@ -543,12 +593,12 @@ pPrintModuleAndCheckWithSource originalSource conf inlineConf anns parsedModule 
           .> confUnpack
       checkErrors = case parseResult of
         Left{} -> [ErrorOutputCheck]
-        Right (outputAnns, outputModule, _) ->
+        Right (outputAnns, outputModule) ->
           semanticErrors parsedModule outputModule
-            ++ commentValidationErrors omitCommentCheck parsedModule anns
-              outputModule outputAnns
+            ++ commentValidationErrorsWithInputPlan omitCommentCheck parsedModule
+              inputPlan outputModule outputAnns
       errs' = errs ++ checkErrors
-  return (errs', output)
+  in (errs', output)
 
 commentValidationErrors
   :: Bool
@@ -557,12 +607,25 @@ commentValidationErrors
   -> GHC.ParsedSource
   -> Anns
   -> [BrittanyError]
-commentValidationErrors omitCommentCheck parsedModule anns outputModule outputAnns
+commentValidationErrors omitCommentCheck parsedModule anns outputModule outputAnns =
+  commentValidationErrorsWithInputPlan omitCommentCheck
+    parsedModule
+    (prepareCommentPlan parsedModule anns)
+    outputModule
+    outputAnns
+
+commentValidationErrorsWithInputPlan
+  :: Bool
+  -> GHC.ParsedSource
+  -> Either [CommentPlanError] CommentPlan
+  -> GHC.ParsedSource
+  -> Anns
+  -> [BrittanyError]
+commentValidationErrorsWithInputPlan omitCommentCheck parsedModule cachedInputPlan
+    outputModule outputAnns
   | omitCommentCheck = []
   | otherwise = case
-      ( prepareCommentPlan parsedModule anns
-      , prepareCommentPlan outputModule outputAnns
-      ) of
+      (cachedInputPlan, prepareCommentPlan outputModule outputAnns) of
     (Left planErrors, _) -> fmap (ErrorCommentPlan . show) planErrors
     (_, Left planErrors) -> fmap (ErrorCommentPlan . show) planErrors
     (Right inputPlan, Right outputPlan) ->
@@ -610,14 +673,14 @@ semanticErrors inputModule outputModule =
 parsePrintModuleTests :: Config -> String -> Text -> IO (Either String Text)
 parsePrintModuleTests conf filename input = do
   let inputStr = Text.unpack input
-  parseResult <- parseModuleFromString
+  parseResult <- ParseModule.parseModuleWithMetricsAndContext Nothing
     (conf & _conf_forward & _options_ghc & runIdentity)
     filename
     (const . pure $ Right ())
     inputStr
   case parseResult of
     Left err -> return $ Left err
-    Right (anns, parsedModule, _) -> runExceptT $ do
+    Right (anns, parsedModule, _, parserContext) -> runExceptT $ do
       (inlineConf, perItemConf) <-
         case extractCommentConfigs anns (getTopLevelDeclNameMap parsedModule) of
           Left err -> throwE $ "error in inline config: " ++ show err
@@ -638,7 +701,8 @@ parsePrintModuleTests conf filename input = do
             anns
             parsedModule
         else lift
-          $ pPrintModuleAndCheckWithSource
+          $ pPrintModuleAndCheckWithSourceInContext
+            parserContext
             (Just input)
             moduleConf
             perItemConf

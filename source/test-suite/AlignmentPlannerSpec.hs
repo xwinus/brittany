@@ -115,6 +115,11 @@ spec = Hspec.describe "alignment planner" $ do
     planAlignment 30 [optionalRow 4 1, optionalRow 6 2]
       `Hspec.shouldBe` Left (ImpossibleAlignmentPartition 4 6)
 
+  Hspec.it "keeps a large zero-overflow alignment in one group" $ do
+    let rows = [optionalRow identity $ 10 + identity `mod` 3 | identity <- [0 .. 399]]
+    alignmentPlanBreaks <$> planAlignmentWithin 30 120 rows
+      `Hspec.shouldBe` Right []
+
 optionalRow :: Int -> Int -> AlignmentRow String
 optionalRow identity width = contentRow identity width width
 

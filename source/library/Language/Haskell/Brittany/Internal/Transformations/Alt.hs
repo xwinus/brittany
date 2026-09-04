@@ -13,7 +13,6 @@ import qualified Control.Monad.Memo as Memo
 import qualified Control.Monad.Trans.MultiRWS.Strict as MultiRWSS
 import Data.HList.ContainsType
 import qualified Data.List.Extra
-import qualified Data.Maybe as Maybe
 import qualified Data.Semigroup as Semigroup
 import qualified Data.Text as Text
 import qualified GHC.OldList as List
@@ -23,6 +22,7 @@ import Language.Haskell.Brittany.Internal.Delimiter.Types
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.SourceComment.Types
+import Language.Haskell.Brittany.Internal.Transformations.Alt.Comments
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Utils
 
@@ -65,59 +65,6 @@ forceCommentLineBreak spacing = spacing
       )
   }
 
-sequenceRequiresCommentLineBreak :: [BriDocNumbered] -> Bool
-sequenceRequiresCommentLineBreak = \case
-  [] -> False
-  child : rest ->
-    (endsWithLineComment child && any hasLayoutContent rest)
-      || sequenceRequiresCommentLineBreak rest
-
-endsWithLineComment :: BriDocNumbered -> Bool
-endsWithLineComment (_, document) = case document of
-  BDFComment planned -> sourceCommentSyntax (plannedCommentSource planned)
-    == LineComment
-    && ( placementLineRelation (plannedCommentPlacement planned) == InlineComment
-      || commentBoundaryGap (plannedCommentBoundary planned) == BeforeCloseBoundary
-      )
-  BDFSeq children -> maybe False endsWithLineComment $ lastLayoutChild children
-  BDFCols _ children -> maybe False endsWithLineComment
-    $ lastLayoutChild children
-  BDFAddBaseY _ child -> endsWithLineComment child
-  BDFBaseYPushCur child -> endsWithLineComment child
-  BDFBaseYPop child -> endsWithLineComment child
-  BDFIndentLevelPushCur child -> endsWithLineComment child
-  BDFIndentLevelPop child -> endsWithLineComment child
-  BDFPar _ line indented -> endsWithLineComment indented
-    || not (hasLayoutContent indented) && endsWithLineComment line
-  BDFAlt alternatives -> any endsWithLineComment alternatives
-  BDFForwardLineMode child -> endsWithLineComment child
-  BDFAnnotationPrior _ _ child -> endsWithLineComment child
-  BDFAnnotationKW _ _ child -> endsWithLineComment child
-  BDFAnnotationRest _ child -> endsWithLineComment child
-  BDFMoveToKWDP _ _ _ child -> endsWithLineComment child
-  BDFLines children -> maybe False endsWithLineComment
-    $ lastLayoutChild children
-  BDFEnsureIndent _ child -> endsWithLineComment child
-  BDFForceMultiline child -> endsWithLineComment child
-  BDFForceSingleline child -> endsWithLineComment child
-  BDFColumnsLimit _ child -> endsWithLineComment child
-  BDFNonBottomSpacing _ child -> endsWithLineComment child
-  BDFSetParSpacing child -> endsWithLineComment child
-  BDFForceParSpacing child -> endsWithLineComment child
-  BDFDebug _ child -> endsWithLineComment child
-  _ -> False
-
-lastLayoutChild :: [BriDocNumbered] -> Maybe BriDocNumbered
-lastLayoutChild = Maybe.listToMaybe . reverse . filter hasLayoutContent
-
-hasLayoutContent :: BriDocNumbered -> Bool
-hasLayoutContent (_, document) = case document of
-  BDFEmpty -> False
-  BDFSeparator -> False
-  BDFSeq children -> any hasLayoutContent children
-  BDFCols _ children -> any hasLayoutContent children
-  _ -> True
-
 altLineModeRefresh :: AltLineModeState -> AltLineModeState
 altLineModeRefresh AltLineModeStateNone = AltLineModeStateNone
 altLineModeRefresh AltLineModeStateForceML{} = AltLineModeStateForceML False
@@ -150,7 +97,19 @@ transformAlts
      )
   => BriDocNumbered
   -> MultiRWSS.MultiRWS r w s BriDoc
-transformAlts =
+transformAlts document = transformAltsWithComments
+  (containsLineComment document)
+  document
+
+transformAltsWithComments
+  :: forall r w s
+   . ( Data.HList.ContainsType.ContainsType Config r
+     , Data.HList.ContainsType.ContainsType (Seq String) w
+     )
+  => Bool
+  -> BriDocNumbered
+  -> MultiRWSS.MultiRWS r w s BriDoc
+transformAltsWithComments hasLineComments =
   MultiRWSS.withMultiStateA (AltCurPos 0 0 0 AltLineModeStateNone)
     . Memo.startEvalMemoT
     . fmap unwrapBriDocNumbered
@@ -361,7 +320,7 @@ transformAlts =
     case altChooser of
       AltChooserSimpleQuick -> return $ head alts
       AltChooserShallowBest -> do
-        spacings <- alts `forM` getSpacing
+        spacings <- alts `forM` getSpacingWithComments hasLineComments
         acp <- mGet
         let
           lineCheck LineModeInvalid = False
@@ -383,7 +342,7 @@ transformAlts =
               )
           $ zip [1 ..] options
       AltChooserBoundedSearch limit -> do
-        spacings <- alts `forM` getSpacings limit
+        spacings <- alts `forM` getSpacingsWithComments hasLineComments limit
         acp <- mGet
         let lineCheck (VerticalSpacing _ paragraph _) =
               case _acp_forceMLFlag acp of
@@ -412,7 +371,7 @@ transformAlts =
        )
     => BriDocNumbered
     -> m ()
-  processSpacingSimple bd = getSpacing bd >>= \case
+  processSpacingSimple bd = getSpacingWithComments hasLineComments bd >>= \case
     LineModeInvalid -> error "processSpacingSimple inv"
     LineModeValid (VerticalSpacing i VerticalSpacingParNone _) -> do
       acp <- mGet
@@ -474,7 +433,17 @@ getSpacing
    . (MonadMultiReader Config m, MonadMultiWriter (Seq String) m)
   => BriDocNumbered
   -> m (LineModeValidity VerticalSpacing)
-getSpacing !bridoc = rec bridoc
+getSpacing bridoc = getSpacingWithComments
+  (containsLineComment bridoc)
+  bridoc
+
+getSpacingWithComments
+  :: forall m
+   . (MonadMultiReader Config m, MonadMultiWriter (Seq String) m)
+  => Bool
+  -> BriDocNumbered
+  -> m (LineModeValidity VerticalSpacing)
+getSpacingWithComments hasLineComments !bridoc = rec bridoc
  where
   rec :: BriDocNumbered -> m (LineModeValidity VerticalSpacing)
   rec (brDcId, brDc) = do
@@ -493,12 +462,12 @@ getSpacing !bridoc = rec bridoc
       BDFComment comment -> return $ LineModeValid $ commentSpacing comment
       BDFSeq list -> do
         spacing <- sumVs <$> rec `mapM` list
-        pure $ if sequenceRequiresCommentLineBreak list
+        pure $ if sequenceRequiresCommentLineBreak hasLineComments list
           then forceCommentLineBreak <$> spacing
           else spacing
       BDFCols _sig list -> do
         spacing <- sumVs <$> rec `mapM` list
-        pure $ if sequenceRequiresCommentLineBreak list
+        pure $ if sequenceRequiresCommentLineBreak hasLineComments list
           then forceCommentLineBreak <$> spacing
           else spacing
       BDFSeparator ->
@@ -717,7 +686,20 @@ getSpacings
   => Int
   -> BriDocNumbered
   -> Memo.MemoT Int [VerticalSpacing] m [VerticalSpacing]
-getSpacings limit bridoc = preFilterLimit <$> rec bridoc
+getSpacings limit bridoc = getSpacingsWithComments
+  (containsLineComment bridoc)
+  limit
+  bridoc
+
+getSpacingsWithComments
+  :: forall m
+   . (MonadMultiReader Config m, MonadMultiWriter (Seq String) m)
+  => Bool
+  -> Int
+  -> BriDocNumbered
+  -> Memo.MemoT Int [VerticalSpacing] m [VerticalSpacing]
+getSpacingsWithComments hasLineComments limit bridoc =
+  preFilterLimit <$> rec bridoc
  where
     -- when we do `take K . filter someCondition` on a list of spacings, we
     -- need to first (also) limit the size of the input list, otherwise a
@@ -810,12 +792,12 @@ getSpacings limit bridoc = preFilterLimit <$> rec bridoc
       BDFComment comment -> return [commentSpacing comment]
       BDFSeq list -> do
         spacings <- fmap sumVs . mapM filterAndLimit <$> rec `mapM` list
-        pure $ if sequenceRequiresCommentLineBreak list
+        pure $ if sequenceRequiresCommentLineBreak hasLineComments list
           then forceCommentLineBreak <$> spacings
           else spacings
       BDFCols _sig list -> do
         spacings <- fmap sumVs . mapM filterAndLimit <$> rec `mapM` list
-        pure $ if sequenceRequiresCommentLineBreak list
+        pure $ if sequenceRequiresCommentLineBreak hasLineComments list
           then forceCommentLineBreak <$> spacings
           else spacings
       BDFSeparator -> return $ [VerticalSpacing 1 VerticalSpacingParNone False]

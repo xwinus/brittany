@@ -1,6 +1,8 @@
 {-# LANGUAGE StandaloneKindSignatures #-}
 
 import qualified AlignmentPlannerSpec
+import qualified AltCommentSpec
+import qualified AnnotationIndexSpec
 import qualified ColumnAlignmentSpec
 import qualified Control.Monad as Monad
 import qualified CaseAlternativeCommentSpec
@@ -35,6 +37,7 @@ import qualified LetStatementBoundarySpec
 import qualified Language.Haskell.Brittany.Main as Brittany
 import qualified OpaqueSyntaxSpec
 import qualified PatternSynonymBindingSpec
+import qualified ParserContextSpec
 import qualified PerformanceSpec
 import qualified PreambleSpacingSpec
 import qualified PreprocessorSpec
@@ -103,6 +106,8 @@ main = Hspec.hspec $ do
 
   RegressionSpec.spec projectRoot
   AlignmentPlannerSpec.spec
+  AltCommentSpec.spec
+  AnnotationIndexSpec.spec
   ColumnAlignmentSpec.spec
   CanonicalSemanticModelSpec.spec
   CaseAlternativeCommentSpec.spec projectRoot
@@ -138,6 +143,7 @@ main = Hspec.hspec $ do
   LetStatementBoundarySpec.spec projectRoot
   OpaqueSyntaxSpec.spec projectRoot
   PatternSynonymBindingSpec.spec projectRoot
+  ParserContextSpec.spec
   PerformanceSpec.spec
   PreambleSpacingSpec.spec projectRoot
   TemplateHaskellFallbackSpec.spec projectRoot
