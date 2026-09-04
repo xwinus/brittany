@@ -237,8 +237,8 @@ runScenario configPath spec@ScenarioSpec
       collector <- newPerformanceCollector
       performGC
       before <- captureRuntimeSnapshot
-      execution <- try $ concat <$> replicateM specIterations
-        (forM specInputs $ runInput collector config specMode)
+      execution <- try $ runInputs collector config specMode specIterations
+        specInputs
       performGC
       after <- captureRuntimeSnapshot
       samples <- readPerformanceSamples collector
@@ -257,28 +257,32 @@ runScenario configPath spec@ScenarioSpec
         , scenarioPhases = phases
         }
 
-runInput
+runInputs
   :: PerformanceCollector
   -> Config
   -> BenchmarkMode
-  -> BenchmarkInput
-  -> IO (Either String Int)
-runInput collector config mode input = do
-  case mode of
-    FocusedOperation phase -> runFocusedOperation collector config phase input
-    _ -> runFormatterInput collector config mode input
+  -> Int
+  -> [BenchmarkInput]
+  -> IO [Either String Int]
+runInputs collector config mode iterations inputs = case mode of
+  FocusedOperation phase -> concat <$> replicateM iterations
+    (forM inputs $ runFocusedOperation collector config phase)
+  _ -> ParseModule.withParserSessionWithMetrics (Just collector)
+    $ \parserSession -> concat <$> replicateM iterations
+    (forM inputs $ runFormatterInput parserSession collector config mode)
 
 runFormatterInput
-  :: PerformanceCollector
+  :: ParseModule.ParserSession
+  -> PerformanceCollector
   -> Config
   -> BenchmarkMode
   -> BenchmarkInput
   -> IO (Either String Int)
-runFormatterInput collector config mode input = do
+runFormatterInput parserSession collector config mode input = do
   let source = benchmarkInputSource input
       ghcOptions = config & _conf_forward & _options_ghc & runIdentity
       metrics = Just collector
-  parseResult <- ParseModule.parseModuleWithMetricsAndContext metrics
+  parseResult <- ParseModule.parseModuleInSessionWithMetrics metrics parserSession
     ghcOptions
     (benchmarkInputName input)
     (const $ pure $ Right ())

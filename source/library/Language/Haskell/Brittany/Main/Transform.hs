@@ -6,6 +6,7 @@
 module Language.Haskell.Brittany.Main.Transform
   ( ChangeStatus(..)
   , coreIO
+  , coreIOInSession
   , shouldEmitOutput
   ) where
 
@@ -75,6 +76,21 @@ coreIO
   -> Maybe FilePath.FilePath
   -> IO (Either Int ChangeStatus)
 coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
+  ParseModule.withParserSession $ \parserSession ->
+    coreIOInSession parserSession putErrorLnIO config suppressOutput checkMode
+      inputPathM outputPathM
+
+coreIOInSession
+  :: ParseModule.ParserSession
+  -> (String -> IO ())
+  -> Config
+  -> Bool
+  -> Bool
+  -> Maybe FilePath.FilePath
+  -> Maybe FilePath.FilePath
+  -> IO (Either Int ChangeStatus)
+coreIOInSession parserSession putErrorLnIO config suppressOutput checkMode
+    inputPathM outputPathM =
   ExceptT.runExceptT $ do
     let putErrorLn = liftIO . putErrorLnIO :: String -> ExceptT.ExceptT e IO ()
     let ghcOptions = config & _conf_forward & _options_ghc & runIdentity
@@ -113,13 +129,13 @@ coreIO putErrorLnIO config suppressOutput checkMode inputPathM outputPathM =
             then List.intercalate "\n" . fmap hackF . lines'
             else id
         inputString <- liftIO System.IO.getContents
-        parseRes <- liftIO $ ParseModule.parseModuleWithMetricsAndContext Nothing
-          ghcOptions "stdin" cppCheckFunc $ hackTransform inputString
+        parseRes <- liftIO $ ParseModule.parseModuleInSessionWithMetrics Nothing
+          parserSession ghcOptions "stdin" cppCheckFunc $ hackTransform inputString
         pure (parseRes, Text.pack inputString)
       Just path -> liftIO $ do
         inputText <- Text.IO.readFile path
-        parseRes <- ParseModule.parseModuleWithMetricsAndContext Nothing
-          ghcOptions path cppCheckFunc $ Text.unpack inputText
+        parseRes <- ParseModule.parseModuleInSessionWithMetrics Nothing
+          parserSession ghcOptions path cppCheckFunc $ Text.unpack inputText
         pure (parseRes, inputText)
     case parseResult of
       Left parseError -> do
