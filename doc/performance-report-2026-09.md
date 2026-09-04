@@ -76,8 +76,8 @@ effective flags. No global state or cross-invocation cache is retained.
 
 | Scenario | CPU before | CPU after | Allocation before | Allocation after | GHC sessions before | GHC sessions after |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| five repetitions of one small module | 69.4 ms | 67.3 ms | 160 MB | 150 MB | 5 | 1 |
-| batch of ten small modules | 130 ms | 121 ms | 307 MB | 283 MB | 10 | 1 |
+| five repetitions of one small module | 69.4 ms | 69.8 ms | 160 MB | 150 MB | 5 | 1 |
+| batch of ten small modules | 130 ms | 117 ms | 307 MB | 283 MB | 10 | 1 |
 
 For the ten-file batch, GHC-session setup itself fell from 30.7 ms and 100.6 MB
 to 0.7 ms and 2.9 MB. Large single-module scenarios remained within ordinary
