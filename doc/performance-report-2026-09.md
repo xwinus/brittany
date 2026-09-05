@@ -101,8 +101,8 @@ case still returns the original subtree.
 
 | Scenario | CPU before | CPU after | Change | Allocation before | Allocation after | Change | Residency before | Residency after |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `Alt.hs` format, no validation | 1.408 s | 1.263 s | -10.3% | 4.105 GB | 3.267 GB | -20.4% | 41.6 MB | 41.6 MB |
-| `Alt.hs` full safe format | 1.798 s | 1.644 s | -8.6% | 5.172 GB | 4.334 GB | -16.2% | 41.6 MB | 41.6 MB |
+| `Alt.hs` format, no validation | 1.416 s | 1.296 s | -8.5% | 4.105 GB | 3.267 GB | -20.4% | 41.6 MB | 41.6 MB |
+| `Alt.hs` full safe format | 1.779 s | 1.673 s | -6.0% | 5.172 GB | 4.334 GB | -16.2% | 41.6 MB | 41.6 MB |
 
 Detailed diagnostics now report BriDoc construction, comment lowering,
 alternative resolution, every simplifier, backend rendering, and planned
@@ -112,9 +112,9 @@ widths. On the nesting-depth-15 fixture, the measured phase costs were:
 
 | Phase | CPU | Allocation |
 | --- | ---: | ---: |
-| BriDoc construction | 2.42 ms | 4.03 MB |
-| Comment lowering | 0.26 ms | 0.40 MB |
-| Alternative resolution | 5.09 ms | 0.29 MB |
+| BriDoc construction | 2.40 ms | 4.03 MB |
+| Comment lowering | 0.27 ms | 0.40 MB |
+| Alternative resolution | 0.66 ms | 0.29 MB |
 | All four simplifiers | 0.62 ms | 3.95 MB |
 | Backend rendering | 0.01 ms | 0.01 MB |
 | Planned-comment validation | 0.02 ms | 0.09 MB |
