@@ -950,13 +950,10 @@ ppModule metrics originalSource
     let exactprintOnly = config' & _conf_roundtrip_exactprint_only & confUnpack
     toLocal config' filteredAnns exactSource $ do
       (bd, rawNodeCount) <- if exactprintOnly
-        then profileBriDocConstruction metrics snd
-          $ briDocMToPPMWithNodeCount
+        then briDocMToPPMProfiled metrics
           $ briDocByExactNoComment ExactPrintOnlyFallback decl'
         else do
-          (r, errs, debugs, nodeCount) <- profileBriDocConstruction metrics
-            (\(_, _, _, count) -> count)
-            $ briDocMToPPMInner
+          (r, errs, debugs, nodeCount) <- briDocMToPPMInnerProfiled metrics
               $ layoutDeclWithExactText
                 exactDeclText hasSourceComments declarationSourceComments decl'
           let errs' = case unLoc decl' of
@@ -978,8 +975,7 @@ ppModule metrics originalSource
           mTell errs'
           if all isRenderNotice errs'
             then pure (r, nodeCount)
-            else profileBriDocConstruction metrics snd
-              $ briDocMToPPMWithNodeCount
+            else briDocMToPPMProfiled metrics
               $ briDocByExactNoComment WholeModuleFallback decl'
       layoutBriDoc metrics rawNodeCount bd
 
@@ -1111,8 +1107,7 @@ ppPreamble metrics lmod@(L loc m@HsModule{}) = do
 
   if canReformatPreamble
     then toLocal config filteredAnns'' exactSource $ withTransformedAnns lmod $ do
-      (briDoc, rawNodeCount) <- profileBriDocConstruction metrics snd
-        $ briDocMToPPMWithNodeCount
+      (briDoc, rawNodeCount) <- briDocMToPPMProfiled metrics
         $ layoutModuleWithExactText exactSource lmod
       layoutBriDoc metrics rawNodeCount briDoc
     else do
@@ -1134,15 +1129,30 @@ _bindHead = \case
 
 
 
-profileBriDocConstruction
-  :: Functor monad
-  => Maybe PerformanceCollector
-  -> (value -> Int)
-  -> monad value
-  -> monad value
-profileBriDocConstruction metrics nodeCount = fmap
-  $ profileValueWithCounter (detailedBriDocMetrics metrics)
-    BriDocConstruction RawBriDocNodes nodeCount
+briDocMToPPMProfiled
+  :: Maybe PerformanceCollector
+  -> ToBriDocM value
+  -> PPMLocal (value, Int)
+briDocMToPPMProfiled metrics action = case detailedBriDocMetrics metrics of
+  Nothing -> (\value -> (value, 0)) <$> briDocMToPPM action
+  Just collector -> fmap
+    (profileValueWithCounter (Just collector)
+      BriDocConstruction RawBriDocNodes snd)
+    $ briDocMToPPMWithNodeCount action
+
+briDocMToPPMInnerProfiled
+  :: Maybe PerformanceCollector
+  -> ToBriDocM value
+  -> PPMLocal (value, [BrittanyError], Seq String, Int)
+briDocMToPPMInnerProfiled metrics action = case detailedBriDocMetrics metrics of
+  Nothing -> do
+    (value, errors, debugMessages) <- briDocMToPPMInner action
+    pure (value, errors, debugMessages, 0)
+  Just collector -> fmap
+    (profileValueWithCounter (Just collector)
+      BriDocConstruction RawBriDocNodes
+      (\(_, _, _, nodeCount) -> nodeCount))
+    $ briDocMToPPMInnerWithNodeCount action
 
 detailedBriDocMetrics
   :: Maybe PerformanceCollector -> Maybe PerformanceCollector
