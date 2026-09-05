@@ -10,6 +10,14 @@ import qualified Test.Hspec as Hspec
 spec :: FilePath -> Hspec.Spec
 spec projectRoot = Hspec.describe "Haddock-commented type signatures" $ do
   formattingExampleAt 2 projectRoot
+    "keeps a final class signature post-doc inside the class"
+    "ClassFinalPostDocInput.hs"
+    "ClassFinalPostDocExpected.hs"
+  formattingExampleAt 2 projectRoot
+    "preserves the next declaration's leading documentation"
+    "ClassFinalPostDocEdgeInput.hs"
+    "ClassFinalPostDocEdgeExpected.hs"
+  formattingExampleAt 2 projectRoot
     "formats a Headroom-style signature at configured indentation"
     "SignaturePostDocInput.hs"
     "SignaturePostDocExpected.hs"
@@ -24,6 +32,9 @@ spec projectRoot = Hspec.describe "Haddock-commented type signatures" $ do
   parseFailureExample projectRoot
     "rejects malformed documented signatures without changing input"
     "SignaturePostDocInvalid.hs"
+  parseFailureExample projectRoot
+    "rejects a malformed final class signature without changing input"
+    "ClassFinalPostDocInvalid.hs"
 
 formattingExampleAt
   :: Int -> FilePath -> String -> FilePath -> FilePath -> Hspec.SpecWith ()

@@ -180,6 +180,7 @@ library
     Language.Haskell.Brittany.Internal.ConstructorComments
     Language.Haskell.Brittany.Internal.CommentBoundary.Case
     Language.Haskell.Brittany.Internal.ExpressionComments
+    Language.Haskell.Brittany.Internal.ExtractAnns.PostDocs
     Language.Haskell.Brittany.Internal.Layouters.DataDecl.Boundary
     Language.Haskell.Brittany.Internal.Layouters.DataDecl.Deriving
     Language.Haskell.Brittany.Internal.Layouters.DataDecl.Support
