@@ -234,7 +234,11 @@ runScenario configPath spec@ScenarioSpec
   case configResult of
     Nothing -> pure $ configurationFailure spec configPath
     Just config -> do
-      collector <- newPerformanceCollector
+      -- Forcing the full lazy Alt.hs BriDoc graph would perturb the workload.
+      -- Cost-centre profiling covers that scenario; deterministic fixtures
+      -- retain detailed structural measurements.
+      collector <- newPerformanceCollectorWithBriDocStructure
+        $ specName `notElem` ["alt-format", "alt-full"]
       performGC
       before <- captureRuntimeSnapshot
       execution <- try $ runInputs collector config specMode specIterations
@@ -242,8 +246,10 @@ runScenario configPath spec@ScenarioSpec
       performGC
       after <- captureRuntimeSnapshot
       samples <- readPerformanceSamples collector
+      counterSamples <- readPerformanceCounters collector
       let runtime = runtimeMetricsDifference before after
           phases = completePhaseAggregates $ aggregatePhaseSamples samples
+          counters = aggregatePerformanceCounters counterSamples
           (outcome, formatterErrors) = classifyOutcome
             specExpectsFailure execution
       pure ScenarioResult
@@ -255,6 +261,7 @@ runScenario configPath spec@ScenarioSpec
         , scenarioFormatterErrors = formatterErrors
         , scenarioRuntime = runtime
         , scenarioPhases = phases
+        , scenarioCounters = counters
         }
 
 runInputs
@@ -377,6 +384,7 @@ configurationFailure ScenarioSpec
       , scenarioRuntime = RuntimeMetrics 0 0 Nothing Nothing Nothing Nothing
           Nothing Nothing Nothing
       , scenarioPhases = completePhaseAggregates []
+      , scenarioCounters = []
       }
 
 failedScenarioResult :: ScenarioSpec -> String -> ScenarioResult
@@ -395,4 +403,5 @@ failedScenarioResult ScenarioSpec
       , scenarioRuntime = RuntimeMetrics 0 0 Nothing Nothing Nothing Nothing
           Nothing Nothing Nothing
       , scenarioPhases = completePhaseAggregates []
+      , scenarioCounters = []
       }

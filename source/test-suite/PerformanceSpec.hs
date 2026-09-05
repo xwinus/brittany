@@ -44,6 +44,32 @@ spec = do
     it "does not require RTS statistics when collection is disabled" $ do
       measurePhase Nothing SourceParsing (pure (42 :: Int)) `shouldReturn` 42
 
+    it "aggregates counter totals and maximum values" $ do
+      collector <- newPerformanceCollector
+      recordPerformanceCounter collector RawBriDocNodes 4
+      recordPerformanceCounter collector RawBriDocNodes 3
+      recordPerformanceCounter collector BriDocAlternativeDepth 2
+      recordPerformanceCounter collector BriDocAlternativeDepth 5
+      counters <- aggregatePerformanceCounters
+        <$> readPerformanceCounters collector
+      counters `shouldBe`
+        [ CounterAggregate RawBriDocNodes 7
+        , CounterAggregate BriDocAlternativeDepth 5
+        ]
+
+    it "keeps an empty counter collection empty" $ do
+      aggregatePerformanceCounters [] `shouldBe` []
+
+    it "can disable structure-forcing BriDoc diagnostics" $ do
+      collector <- newPerformanceCollectorWithBriDocStructure False
+      performanceCollectorProfilesBriDocStructure collector `shouldBe` False
+
+    it "rejects unknown performance counters in JSON" $ do
+      let decoded = Aeson.eitherDecode
+            (ByteStringL.pack unknownCounterScenario)
+            :: Either String ScenarioResult
+      decoded `shouldSatisfy` isLeft
+
   describe "performance fixtures" $ do
     it "generates the requested number of similarly shaped declarations" $ do
       let input = declarationScalingInput 3
@@ -151,4 +177,14 @@ sampleScenario outcome = ScenarioResult
       (Just 6) (Just 1) (Just 5) (Just 0.75)
   , scenarioPhases = completePhaseAggregates
       [PhaseAggregate SourceParsing 1 0 4 3 (Just 2)]
+  , scenarioCounters = [CounterAggregate RawBriDocNodes 7]
   }
+
+unknownCounterScenario :: String
+unknownCounterScenario =
+  "{\"name\":\"sample\",\"mode\":\"parse-and-annotations\","
+    ++ "\"iterations\":1,\"input\":{\"name\":\"sample\","
+    ++ "\"origin\":\"generated\",\"bytes\":0,\"lines\":0},"
+    ++ "\"outcome\":{\"status\":\"succeeded\"},\"formatterErrors\":0,"
+    ++ "\"runtime\":{\"elapsedNs\":0,\"cpuNs\":0},\"phases\":[],"
+    ++ "\"counters\":[{\"name\":\"unknown\",\"value\":1}]}"

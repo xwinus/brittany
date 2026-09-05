@@ -8,6 +8,7 @@ module Language.Haskell.Brittany.Internal
   , pPrintModule
   , pPrintModuleWithSource
   , pPrintModulePrepared
+  , pPrintModulePreparedMeasured
   , pPrintModuleAndCheck
   , pPrintModuleAndCheckWithSource
   , pPrintModuleAndCheckWithSourceInContext
@@ -80,6 +81,18 @@ import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Preprocessor (cppUnsupportedMessage)
 import qualified Language.Haskell.Brittany.Internal.ParseModule as ParseModule
+import Language.Haskell.Brittany.Internal.Performance
+  ( PerformanceCollector
+  , PerformanceCounter(..)
+  , PerformancePhase(..)
+  , performanceCollectorProfilesBriDocStructure
+  )
+import Language.Haskell.Brittany.Internal.Performance.BriDoc
+  ( profileBriDoc
+  , profileNumberedBriDoc
+  , profileValue
+  , profileValueWithCounter
+  )
 import Language.Haskell.Brittany.Internal.SemanticFingerprint
   ( SemanticDifference(..)
   , SemanticProjectionError(..)
@@ -448,7 +461,19 @@ pPrintModulePrepared
   -> Either [CommentPlanError] CommentPlan
   -> Map AnnKey Anns
   -> ([BrittanyError], TextL.Text)
-pPrintModulePrepared originalSource conf inlineConf anns parsedModule
+pPrintModulePrepared = pPrintModulePreparedMeasured Nothing
+
+pPrintModulePreparedMeasured
+  :: Maybe PerformanceCollector
+  -> Maybe Text.Text
+  -> Config
+  -> PerItemConfig
+  -> Anns
+  -> GHC.ParsedSource
+  -> Either [CommentPlanError] CommentPlan
+  -> Map AnnKey Anns
+  -> ([BrittanyError], TextL.Text)
+pPrintModulePreparedMeasured metrics originalSource conf inlineConf anns parsedModule
     preparedPlan groupedAnnotations =
   case preparedPlan of
     Left planErrors ->
@@ -474,7 +499,7 @@ pPrintModulePrepared originalSource conf inlineConf anns parsedModule
             $ do
                 traceIfDumpConf "bridoc annotations raw" _dconf_dump_annotations
                   $ annsDoc anns
-                ppModule originalSource parsedModule
+                ppModule metrics originalSource parsedModule
         tracer = if Seq.null debugStrings
           then id
           else
@@ -799,8 +824,13 @@ toLocal conf anns source m = do
   MultiRWSS.mGetRawW >>= \w -> MultiRWSS.mPutRawW (w `mappend` write)
   pure x
 
-ppModule :: Maybe Text.Text -> GenLocated SrcSpan (HsModule GhcPs) -> PPM ()
-ppModule originalSource lmod@(L _loc _m@(HsModule _ _name _exports imports decls)) = do
+ppModule
+  :: Maybe PerformanceCollector
+  -> Maybe Text.Text
+  -> GenLocated SrcSpan (HsModule GhcPs)
+  -> PPM ()
+ppModule metrics originalSource
+    lmod@(L _loc _m@(HsModule _ _name _exports imports decls)) = do
   let exactSource = fromMaybe (Text.pack $ ExactPrint.exactPrint lmod) originalSource
   let sourceCommentPositions = collectCommentPositions lmod
   annGroups <- mAsk
@@ -820,7 +850,7 @@ ppModule originalSource lmod@(L _loc _m@(HsModule _ _name _exports imports decls
           }
     pure $ fmap (clearComments . overAnnsDP (filter $ isEof . fst)) annMap
 
-  (post, preambleEndsLine) <- ppPreamble lmod
+  (post, preambleEndsLine) <- ppPreamble metrics lmod
   let toL x = L (getLocA x) (unLoc x)
   let annotationFor key = Map.lookup key annGroups >>= Map.lookup key
   let importUnit limport =
@@ -919,12 +949,11 @@ ppModule originalSource lmod@(L _loc _m@(HsModule _ _name _exports imports decls
 
     let exactprintOnly = config' & _conf_roundtrip_exactprint_only & confUnpack
     toLocal config' filteredAnns exactSource $ do
-      bd <- if exactprintOnly
-        then briDocMToPPM
+      (bd, rawNodeCount) <- if exactprintOnly
+        then briDocMToPPMProfiled metrics
           $ briDocByExactNoComment ExactPrintOnlyFallback decl'
         else do
-          (r, errs, debugs) <-
-            briDocMToPPMInner
+          (r, errs, debugs, nodeCount) <- briDocMToPPMInnerProfiled metrics
               $ layoutDeclWithExactText
                 exactDeclText hasSourceComments declarationSourceComments decl'
           let errs' = case unLoc decl' of
@@ -945,10 +974,10 @@ ppModule originalSource lmod@(L _loc _m@(HsModule _ _name _exports imports decls
           mTell debugs
           mTell errs'
           if all isRenderNotice errs'
-            then pure r
-            else briDocMToPPM
+            then pure (r, nodeCount)
+            else briDocMToPPMProfiled metrics
               $ briDocByExactNoComment WholeModuleFallback decl'
-      layoutBriDoc bd
+      layoutBriDoc metrics rawNodeCount bd
 
   let
     finalComments = filter
@@ -986,9 +1015,10 @@ getDeclBindingNames ldecl = case unLoc ldecl of
 -- Prints the information associated with the module annotation
 -- This includes the imports
 ppPreamble
-  :: GenLocated SrcSpan (HsModule GhcPs)
+  :: Maybe PerformanceCollector
+  -> GenLocated SrcSpan (HsModule GhcPs)
   -> PPM ([(KeywordId, EP.DeltaPos)], Bool)
-ppPreamble lmod@(L loc m@HsModule{}) = do
+ppPreamble metrics lmod@(L loc m@HsModule{}) = do
   annGroups <- mAsk
   let filteredAnns =
         Map.findWithDefault Map.empty (mkAnnKey (toL lmod)) annGroups
@@ -1077,8 +1107,9 @@ ppPreamble lmod@(L loc m@HsModule{}) = do
 
   if canReformatPreamble
     then toLocal config filteredAnns'' exactSource $ withTransformedAnns lmod $ do
-      briDoc <- briDocMToPPM $ layoutModuleWithExactText exactSource lmod
-      layoutBriDoc briDoc
+      (briDoc, rawNodeCount) <- briDocMToPPMProfiled metrics
+        $ layoutModuleWithExactText exactSource lmod
+      layoutBriDoc metrics rawNodeCount briDoc
     else do
       let emptyModule = L loc m { hsmodDecls = [] }
       MultiRWSS.withMultiReader filteredAnns'' $ processDefault emptyModule
@@ -1098,16 +1129,53 @@ _bindHead = \case
 
 
 
-layoutBriDoc :: BriDocNumbered -> PPMLocal ()
-layoutBriDoc briDoc = do
+briDocMToPPMProfiled
+  :: Maybe PerformanceCollector
+  -> ToBriDocM value
+  -> PPMLocal (value, Int)
+briDocMToPPMProfiled metrics action = case detailedBriDocMetrics metrics of
+  Nothing -> (\value -> (value, 0)) <$> briDocMToPPM action
+  Just collector -> fmap
+    (profileValueWithCounter (Just collector)
+      BriDocConstruction RawBriDocNodes snd)
+    $ briDocMToPPMWithNodeCount action
+
+briDocMToPPMInnerProfiled
+  :: Maybe PerformanceCollector
+  -> ToBriDocM value
+  -> PPMLocal (value, [BrittanyError], Seq String, Int)
+briDocMToPPMInnerProfiled metrics action = case detailedBriDocMetrics metrics of
+  Nothing -> do
+    (value, errors, debugMessages) <- briDocMToPPMInner action
+    pure (value, errors, debugMessages, 0)
+  Just collector -> fmap
+    (profileValueWithCounter (Just collector)
+      BriDocConstruction RawBriDocNodes
+      (\(_, _, _, nodeCount) -> nodeCount))
+    $ briDocMToPPMInnerWithNodeCount action
+
+detailedBriDocMetrics
+  :: Maybe PerformanceCollector -> Maybe PerformanceCollector
+detailedBriDocMetrics = \case
+  Just collector
+    | performanceCollectorProfilesBriDocStructure collector -> Just collector
+  _ -> Nothing
+
+layoutBriDoc
+  :: Maybe PerformanceCollector -> Int -> BriDocNumbered -> PPMLocal ()
+layoutBriDoc metrics _rawNodeCount briDoc = do
   annotations :: Anns <- mAsk
   commentPlan :: CommentPlan <- mAsk
-  let lowered = lowerPlannedComments annotations commentPlan briDoc
+  let detailedMetrics = detailedBriDocMetrics metrics
+      lowered = profileValue detailedMetrics CommentLowering
+        (either length $ const 0)
+        $ lowerPlannedComments annotations commentPlan briDoc
   briDocWithComments <- case lowered of
     Left errors -> do
       mTell $ fmap (ErrorCommentPlan . show) errors
       pure (0, BDFEmpty)
-    Right document -> pure document
+    Right document -> pure $ profileNumberedBriDoc detailedMetrics
+      PostCommentLoweringBriDocNodes document
   -- first step: transform the briDoc.
   briDoc' <- MultiRWSS.withMultiStateS BDEmpty $ do
     -- Note that briDoc is BriDocNumbered, but state type is BriDoc.
@@ -1117,29 +1185,44 @@ layoutBriDoc briDoc = do
       $ unwrapBriDocNumbered
       $ briDocWithComments
     -- bridoc transformation: remove alts
-    transformAlts briDocWithComments >>= mSet
+    transformAltsMeasured detailedMetrics briDocWithComments
+      >>= profileBriDoc detailedMetrics AlternativeResolution
+        PostAlternativeBriDocNodes
+      .> mSet
     mGet
       >>= briDocToDoc
       .> traceIfDumpConf "bridoc post-alt" _dconf_dump_bridoc_simpl_alt
     -- bridoc transformation: float stuff in
-    mGet >>= transformSimplifyFloating .> mSet
+    mGet
+      >>= transformSimplifyFloating
+      .> profileBriDoc detailedMetrics SimplifyFloating PostFloatingBriDocNodes
+      .> mSet
     mGet
       >>= briDocToDoc
       .> traceIfDumpConf
            "bridoc post-floating"
            _dconf_dump_bridoc_simpl_floating
     -- bridoc transformation: par removal
-    mGet >>= transformSimplifyPar .> mSet
+    mGet
+      >>= transformSimplifyPar
+      .> profileBriDoc detailedMetrics SimplifyPar PostParBriDocNodes
+      .> mSet
     mGet
       >>= briDocToDoc
       .> traceIfDumpConf "bridoc post-par" _dconf_dump_bridoc_simpl_par
     -- bridoc transformation: float stuff in
-    mGet >>= transformSimplifyColumns .> mSet
+    mGet
+      >>= transformSimplifyColumns
+      .> profileBriDoc detailedMetrics SimplifyColumns PostColumnsBriDocNodes
+      .> mSet
     mGet
       >>= briDocToDoc
       .> traceIfDumpConf "bridoc post-columns" _dconf_dump_bridoc_simpl_columns
     -- bridoc transformation: indent
-    mGet >>= transformSimplifyIndent .> mSet
+    mGet
+      >>= transformSimplifyIndent
+      .> profileBriDoc detailedMetrics SimplifyIndent PostIndentBriDocNodes
+      .> mSet
     mGet
       >>= briDocToDoc
       .> traceIfDumpConf "bridoc post-indent" _dconf_dump_bridoc_simpl_indent
@@ -1168,9 +1251,19 @@ layoutBriDoc briDoc = do
       , _lstate_commentNewlines = 0
       }
 
-  state' <- MultiRWSS.withMultiStateS state $ layoutBriDocM briDoc'
+  renderedState <- MultiRWSS.withMultiStateS state $ layoutBriDocM briDoc'
+  let state' = profileValue detailedMetrics BackendRendering forceLayoutState
+        renderedState
+      forceLayoutState layoutState =
+        length (_lstate_baseYs layoutState)
+          + length (_lstate_indLevels layoutState)
+          + Map.size (_lstate_comments layoutState)
+          + Set.size (_lstate_emittedComments layoutState)
 
-  case validatePlannedCommentNodes briDoc' of
+  let plannedValidation = profileValue detailedMetrics PlannedCommentValidation
+        (either length (const 0))
+        (validatePlannedCommentNodes briDoc')
+  case plannedValidation of
     Left errors -> mTell $ fmap (ErrorCommentPlan . show) errors
     Right () -> pure ()
 

@@ -19,12 +19,14 @@ import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.Delimiter (delimiterLayoutDocuments)
 import Language.Haskell.Brittany.Internal.Delimiter.Types
+import Language.Haskell.Brittany.Internal.Performance
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.Transformations.Alt.Comments
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Utils
+import System.IO.Unsafe (unsafePerformIO)
 
 
 
@@ -98,6 +100,20 @@ transformAlts
   => BriDocNumbered
   -> MultiRWSS.MultiRWS r w s BriDoc
 transformAlts document = transformAltsWithComments
+  Nothing
+  (containsLineComment document)
+  document
+
+transformAltsMeasured
+  :: forall r w s
+   . ( Data.HList.ContainsType.ContainsType Config r
+     , Data.HList.ContainsType.ContainsType (Seq String) w
+     )
+  => Maybe PerformanceCollector
+  -> BriDocNumbered
+  -> MultiRWSS.MultiRWS r w s BriDoc
+transformAltsMeasured metrics document = transformAltsWithComments
+  metrics
   (containsLineComment document)
   document
 
@@ -106,10 +122,11 @@ transformAltsWithComments
    . ( Data.HList.ContainsType.ContainsType Config r
      , Data.HList.ContainsType.ContainsType (Seq String) w
      )
-  => Bool
+  => Maybe PerformanceCollector
+  -> Bool
   -> BriDocNumbered
   -> MultiRWSS.MultiRWS r w s BriDoc
-transformAltsWithComments hasLineComments =
+transformAltsWithComments metrics hasLineComments =
   MultiRWSS.withMultiStateA (AltCurPos 0 0 0 AltLineModeStateNone)
     . Memo.startEvalMemoT
     . fmap unwrapBriDocNumbered
@@ -320,7 +337,7 @@ transformAltsWithComments hasLineComments =
     case altChooser of
       AltChooserSimpleQuick -> return $ head alts
       AltChooserShallowBest -> do
-        spacings <- alts `forM` getSpacingWithComments hasLineComments
+        spacings <- alts `forM` getSpacingWithComments metrics hasLineComments
         acp <- mGet
         let
           lineCheck LineModeInvalid = False
@@ -342,7 +359,8 @@ transformAltsWithComments hasLineComments =
               )
           $ zip [1 ..] options
       AltChooserBoundedSearch limit -> do
-        spacings <- alts `forM` getSpacingsWithComments hasLineComments limit
+        spacings <- alts `forM`
+          getSpacingsWithComments metrics hasLineComments limit
         acp <- mGet
         let lineCheck (VerticalSpacing _ paragraph _) =
               case _acp_forceMLFlag acp of
@@ -371,7 +389,8 @@ transformAltsWithComments hasLineComments =
        )
     => BriDocNumbered
     -> m ()
-  processSpacingSimple bd = getSpacingWithComments hasLineComments bd >>= \case
+  processSpacingSimple bd =
+    getSpacingWithComments metrics hasLineComments bd >>= \case
     LineModeInvalid -> error "processSpacingSimple inv"
     LineModeValid (VerticalSpacing i VerticalSpacingParNone _) -> do
       acp <- mGet
@@ -434,16 +453,20 @@ getSpacing
   => BriDocNumbered
   -> m (LineModeValidity VerticalSpacing)
 getSpacing bridoc = getSpacingWithComments
+  Nothing
   (containsLineComment bridoc)
   bridoc
 
 getSpacingWithComments
   :: forall m
    . (MonadMultiReader Config m, MonadMultiWriter (Seq String) m)
-  => Bool
+  => Maybe PerformanceCollector
+  -> Bool
   -> BriDocNumbered
   -> m (LineModeValidity VerticalSpacing)
-getSpacingWithComments hasLineComments !bridoc = rec bridoc
+getSpacingWithComments metrics hasLineComments !bridoc = do
+  let !_ = recordCounterPure metrics GetSpacingCalls 1
+  rec bridoc
  where
   rec :: BriDocNumbered -> m (LineModeValidity VerticalSpacing)
   rec (brDcId, brDc) = do
@@ -678,6 +701,13 @@ getSpacingWithComments hasLineComments !bridoc = rec bridoc
     VerticalSpacingParNone -> 0
     VerticalSpacingParAlways i -> i
 
+recordCounterPure
+  :: Maybe PerformanceCollector -> PerformanceCounter -> Int -> ()
+recordCounterPure Nothing _ _ = ()
+recordCounterPure (Just collector) counter value = unsafePerformIO
+  $ recordPerformanceCounter collector counter value
+{-# NOINLINE recordCounterPure #-}
+
 data SpecialCompare = Unequal | Smaller | Bigger
 
 getSpacings
@@ -687,6 +717,7 @@ getSpacings
   -> BriDocNumbered
   -> Memo.MemoT Int [VerticalSpacing] m [VerticalSpacing]
 getSpacings limit bridoc = getSpacingsWithComments
+  Nothing
   (containsLineComment bridoc)
   limit
   bridoc
@@ -694,11 +725,13 @@ getSpacings limit bridoc = getSpacingsWithComments
 getSpacingsWithComments
   :: forall m
    . (MonadMultiReader Config m, MonadMultiWriter (Seq String) m)
-  => Bool
+  => Maybe PerformanceCollector
+  -> Bool
   -> Int
   -> BriDocNumbered
   -> Memo.MemoT Int [VerticalSpacing] m [VerticalSpacing]
-getSpacingsWithComments hasLineComments limit bridoc =
+getSpacingsWithComments metrics hasLineComments limit bridoc = do
+  let !_ = recordCounterPure metrics GetSpacingsCalls 1
   preFilterLimit <$> rec bridoc
  where
     -- when we do `take K . filter someCondition` on a list of spacings, we
@@ -711,7 +744,12 @@ getSpacingsWithComments hasLineComments limit bridoc =
   memoWithKey :: Memo.MonadMemo k v m1 => k -> m1 v -> m1 v
   memoWithKey k v = Memo.memo (const v) k
   rec :: BriDocNumbered -> Memo.MemoT Int [VerticalSpacing] m [VerticalSpacing]
-  rec (brDcId, brdc) = memoWithKey brDcId $ do
+  rec (brDcId, brdc) =
+    let !_ = recordCounterPure metrics GetSpacingsMemoHits 1
+    in memoWithKey brDcId $
+      let !_ = recordCounterPure metrics GetSpacingsMemoHits (-1)
+      in recNode brDcId brdc
+  recNode brDcId brdc = do
     config <- mAsk
     let colMax = config & _conf_layout & _lconfig_cols & confUnpack
     let
@@ -751,11 +789,11 @@ getSpacingsWithComments hasLineComments limit bridoc =
         -- applied whenever in a parent the combination of spacings from
         -- its children might cause excess of the upper bound.
       filterAndLimit :: [VerticalSpacing] -> [VerticalSpacing]
-      filterAndLimit =
-        take limit
+      filterAndLimit values =
+        let result = take limit
                        -- prune so we always consider a constant
                        -- amount of spacings per node of the BriDoc.
-          . specialNub
+                     . specialNub
                        -- In the end we want to know if there is at least
                        -- one valid spacing for any alternative.
                        -- If there are duplicates in the list, then these
@@ -777,11 +815,17 @@ getSpacingsWithComments hasLineComments limit bridoc =
                        -- layouts when we can than take non-optimal layouts
                        -- just to be consistent with other cases where
                        -- we'd choose non-optimal layouts.
-          . filter hasOkColCount
+                     . filter hasOkColCount
+                     . preFilterLimit
+                     $ values
+            !_ = recordCounterPure metrics
+              MaximumSpacingWidthBeforePruning (length values)
+            !_ = recordCounterPure metrics
+              MaximumSpacingWidthAfterPruning (length result)
+        in result
                        -- throw out any spacings (i.e. children) that
                        -- already use more columns than available in
                        -- total.
-          . preFilterLimit
     result <- case brdc of
       -- BDWrapAnnKey _annKey bd -> rec bd
       BDFEmpty -> return $ [VerticalSpacing 0 VerticalSpacingParNone False]

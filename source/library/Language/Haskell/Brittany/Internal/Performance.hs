@@ -6,6 +6,8 @@
 
 module Language.Haskell.Brittany.Internal.Performance
   ( PerformancePhase(..)
+  , PerformanceCounter(..)
+  , CounterAggregate(..)
   , PhaseStatus(..)
   , PhaseSample(..)
   , PhaseAggregate(..)
@@ -13,13 +15,19 @@ module Language.Haskell.Brittany.Internal.Performance
   , RuntimeMetrics(..)
   , PerformanceCollector
   , newPerformanceCollector
+  , newPerformanceCollectorWithBriDocStructure
+  , performanceCollectorProfilesBriDocStructure
   , readPerformanceSamples
+  , readPerformanceCounters
+  , recordPerformanceCounter
+  , aggregatePerformanceCounters
   , measurePhase
   , measurePhaseM
   , aggregatePhaseSamples
   , captureRuntimeSnapshot
   , runtimeMetricsDifference
   , performancePhaseName
+  , performanceCounterName
   ) where
 
 import Control.Exception (SomeException, throwIO, try)
@@ -50,12 +58,15 @@ data PerformancePhase
   | CommentPlanning
   | TopLevelGrouping
   | LayoutAndRendering
+  | BriDocConstruction
+  | CommentLowering
   | AlternativeResolution
   | SimplifyFloating
   | SimplifyPar
   | SimplifyColumns
   | SimplifyIndent
   | BackendRendering
+  | PlannedCommentValidation
   | OutputValidation
   | OutputParsing
   | SemanticValidation
@@ -89,8 +100,39 @@ data PhaseAggregate = PhaseAggregate
   }
   deriving (Eq, Show)
 
+type PerformanceCounter :: Kind.Type
+data PerformanceCounter
+  = RawBriDocNodes
+  | PostCommentLoweringBriDocNodes
+  | PostAlternativeBriDocNodes
+  | PostFloatingBriDocNodes
+  | PostParBriDocNodes
+  | PostColumnsBriDocNodes
+  | PostIndentBriDocNodes
+  | BriDocAlternatives
+  | BriDocAlternativeDepth
+  | BriDocDelimiterGroups
+  | BriDocGeneratedVariants
+  | GetSpacingCalls
+  | GetSpacingsCalls
+  | GetSpacingsMemoHits
+  | MaximumSpacingWidthBeforePruning
+  | MaximumSpacingWidthAfterPruning
+  deriving (Bounded, Enum, Eq, Ord, Show)
+
+type CounterAggregate :: Kind.Type
+data CounterAggregate = CounterAggregate
+  { counterAggregateCounter :: PerformanceCounter
+  , counterAggregateValue :: Int
+  }
+  deriving (Eq, Show)
+
 type PerformanceCollector :: Kind.Type
-newtype PerformanceCollector = PerformanceCollector (IORef [PhaseSample])
+data PerformanceCollector = PerformanceCollector
+  { collectorPhaseSamples :: IORef [PhaseSample]
+  , collectorCounterSamples :: IORef [(PerformanceCounter, Int)]
+  , collectorProfilesBriDocStructure :: Bool
+  }
 
 type RuntimeSnapshot :: Kind.Type
 data RuntimeSnapshot = RuntimeSnapshot
@@ -120,11 +162,47 @@ data RuntimeMetrics = RuntimeMetrics
   deriving (Eq, Show)
 
 newPerformanceCollector :: IO PerformanceCollector
-newPerformanceCollector = PerformanceCollector <$> newIORef []
+newPerformanceCollector = newPerformanceCollectorWithBriDocStructure True
+
+newPerformanceCollectorWithBriDocStructure :: Bool -> IO PerformanceCollector
+newPerformanceCollectorWithBriDocStructure profileBriDocStructure =
+  PerformanceCollector
+  <$> newIORef []
+  <*> newIORef []
+  <*> pure profileBriDocStructure
+
+performanceCollectorProfilesBriDocStructure
+  :: PerformanceCollector -> Bool
+performanceCollectorProfilesBriDocStructure = collectorProfilesBriDocStructure
 
 readPerformanceSamples :: PerformanceCollector -> IO [PhaseSample]
-readPerformanceSamples (PerformanceCollector samplesRef) =
+readPerformanceSamples PerformanceCollector{collectorPhaseSamples = samplesRef} =
   reverse <$> readIORef samplesRef
+
+readPerformanceCounters
+  :: PerformanceCollector -> IO [(PerformanceCounter, Int)]
+readPerformanceCounters PerformanceCollector
+    {collectorCounterSamples = samplesRef} = reverse <$> readIORef samplesRef
+
+recordPerformanceCounter
+  :: PerformanceCollector -> PerformanceCounter -> Int -> IO ()
+recordPerformanceCounter PerformanceCollector
+    {collectorCounterSamples = samplesRef} counter value =
+  atomicModifyIORef' samplesRef $ \samples -> ((counter, value) : samples, ())
+
+aggregatePerformanceCounters
+  :: [(PerformanceCounter, Int)] -> [CounterAggregate]
+aggregatePerformanceCounters = fmap (uncurry CounterAggregate)
+  . Map.toAscList
+  . List.foldl' insertCounter Map.empty
+ where
+  insertCounter counters (counter, value) = Map.insertWith
+    (if isMaximumCounter counter then max else (+)) counter value counters
+  isMaximumCounter counter = counter `elem`
+    [ BriDocAlternativeDepth
+    , MaximumSpacingWidthBeforePruning
+    , MaximumSpacingWidthAfterPruning
+    ]
 
 measurePhase
   :: Maybe PerformanceCollector
@@ -216,16 +294,38 @@ performancePhaseName = \case
   CommentPlanning -> "comment-planning"
   TopLevelGrouping -> "top-level-grouping"
   LayoutAndRendering -> "layout-and-rendering"
+  BriDocConstruction -> "bridoc-construction"
+  CommentLowering -> "comment-lowering"
   AlternativeResolution -> "alternative-resolution"
   SimplifyFloating -> "simplify-floating"
   SimplifyPar -> "simplify-par"
   SimplifyColumns -> "simplify-columns"
   SimplifyIndent -> "simplify-indent"
   BackendRendering -> "backend-rendering"
+  PlannedCommentValidation -> "planned-comment-validation"
   OutputValidation -> "output-validation"
   OutputParsing -> "output-parsing"
   SemanticValidation -> "semantic-validation"
   CommentValidation -> "comment-validation"
+
+performanceCounterName :: PerformanceCounter -> String
+performanceCounterName = \case
+  RawBriDocNodes -> "raw-bridoc-nodes"
+  PostCommentLoweringBriDocNodes -> "post-comment-lowering-bridoc-nodes"
+  PostAlternativeBriDocNodes -> "post-alternative-bridoc-nodes"
+  PostFloatingBriDocNodes -> "post-floating-bridoc-nodes"
+  PostParBriDocNodes -> "post-par-bridoc-nodes"
+  PostColumnsBriDocNodes -> "post-columns-bridoc-nodes"
+  PostIndentBriDocNodes -> "post-indent-bridoc-nodes"
+  BriDocAlternatives -> "bridoc-alternatives"
+  BriDocAlternativeDepth -> "bridoc-alternative-depth"
+  BriDocDelimiterGroups -> "bridoc-delimiter-groups"
+  BriDocGeneratedVariants -> "bridoc-generated-variants"
+  GetSpacingCalls -> "get-spacing-calls"
+  GetSpacingsCalls -> "get-spacings-calls"
+  GetSpacingsMemoHits -> "get-spacings-memo-hits"
+  MaximumSpacingWidthBeforePruning -> "maximum-spacing-width-before-pruning"
+  MaximumSpacingWidthAfterPruning -> "maximum-spacing-width-after-pruning"
 
 captureRuntimeSnapshot :: IO RuntimeSnapshot
 captureRuntimeSnapshot = do
@@ -297,5 +397,5 @@ saturatingDifference newer older
   | otherwise = 0
 
 recordSample :: PerformanceCollector -> PhaseSample -> IO ()
-recordSample (PerformanceCollector samplesRef) sample =
+recordSample PerformanceCollector{collectorPhaseSamples = samplesRef} sample =
   atomicModifyIORef' samplesRef $ \samples -> (sample : samples, ())

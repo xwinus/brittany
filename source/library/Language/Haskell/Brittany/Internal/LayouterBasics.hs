@@ -1032,6 +1032,13 @@ briDocMToPPM m = do
   mTell errs
   return x
 
+briDocMToPPMWithNodeCount :: ToBriDocM a -> PPMLocal (a, Int)
+briDocMToPPMWithNodeCount m = do
+  (x, errs, debugs, nodeCount) <- briDocMToPPMInnerWithNodeCount m
+  mTell debugs
+  mTell errs
+  pure (x, nodeCount)
+
 briDocMToPPMInner :: ToBriDocM a -> PPMLocal (a, [BrittanyError], Seq String)
 briDocMToPPMInner m = do
   readers <- MultiRWSS.mGetRawR
@@ -1045,6 +1052,23 @@ briDocMToPPMInner m = do
         $ MultiRWSS.withMultiWriterAW
         $ m
   pure (x, errs, debugs)
+
+briDocMToPPMInnerWithNodeCount
+  :: ToBriDocM a -> PPMLocal (a, [BrittanyError], Seq String, Int)
+briDocMToPPMInnerWithNodeCount m = do
+  readers <- MultiRWSS.mGetRawR
+  let
+    (((x, errs), debugs), NodeAllocIndex nextNodeIndex) = runIdentity
+      $ MultiRWSS.runMultiRWSTNil
+      $ MultiRWSS.withMultiStateA (NodeAllocIndex 1)
+      $ do
+          result <- MultiRWSS.withMultiReaders readers
+            $ MultiRWSS.withMultiWriterAW
+            $ MultiRWSS.withMultiWriterAW
+            $ m
+          allocationIndex <- mGet
+          pure (result, allocationIndex)
+  pure (x, errs, debugs, nextNodeIndex - 1)
 
 docSharedWrapper :: Monad m => (x -> m y) -> x -> m (m y)
 docSharedWrapper f x = return <$> f x
