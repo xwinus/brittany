@@ -13,7 +13,7 @@ import qualified Data.Text.Lazy as TextL
 import qualified GHC
 import Language.Haskell.Brittany.Internal
   ( commentValidationErrorsWithInputPlan
-  , pPrintModulePrepared
+  , pPrintModulePreparedMeasured
   , semanticErrors
   )
 import Language.Haskell.Brittany.Internal.CommentPlan (prepareCommentPlan)
@@ -79,8 +79,9 @@ pPrintModuleWithSourceMeasuredPrepared metrics originalSource conf inlineConf
       _ <- Exception.evaluate annotationCount
       pure grouped
   formatted <- measurePhase metrics LayoutAndRendering $ do
-    let result@(errors, output) = pPrintModulePrepared originalSource conf
-          inlineConf anns parsedModule preparedPlan groupedAnnotations
+    let result@(errors, output) = pPrintModulePreparedMeasured metrics
+          originalSource conf inlineConf anns parsedModule preparedPlan
+          groupedAnnotations
     _ <- Exception.evaluate $ length errors
     _ <- Exception.evaluate $ TextL.length output
     pure result

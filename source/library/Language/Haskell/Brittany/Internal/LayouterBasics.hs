@@ -1027,24 +1027,35 @@ spacifyDocs ds = fmap appSep (List.init ds) ++ [List.last ds]
 
 briDocMToPPM :: ToBriDocM a -> PPMLocal a
 briDocMToPPM m = do
-  (x, errs, debugs) <- briDocMToPPMInner m
+  (x, errs, debugs, _) <- briDocMToPPMInner m
   mTell debugs
   mTell errs
   return x
 
-briDocMToPPMInner :: ToBriDocM a -> PPMLocal (a, [BrittanyError], Seq String)
+briDocMToPPMWithNodeCount :: ToBriDocM a -> PPMLocal (a, Int)
+briDocMToPPMWithNodeCount m = do
+  (x, errs, debugs, nodeCount) <- briDocMToPPMInner m
+  mTell debugs
+  mTell errs
+  pure (x, nodeCount)
+
+briDocMToPPMInner
+  :: ToBriDocM a -> PPMLocal (a, [BrittanyError], Seq String, Int)
 briDocMToPPMInner m = do
   readers <- MultiRWSS.mGetRawR
   let
-    ((x, errs), debugs) =
+    (((x, errs), debugs), NodeAllocIndex nextNodeIndex) =
       runIdentity
         $ MultiRWSS.runMultiRWSTNil
         $ MultiRWSS.withMultiStateA (NodeAllocIndex 1)
-        $ MultiRWSS.withMultiReaders readers
-        $ MultiRWSS.withMultiWriterAW
-        $ MultiRWSS.withMultiWriterAW
-        $ m
-  pure (x, errs, debugs)
+        $ do
+            result <- MultiRWSS.withMultiReaders readers
+              $ MultiRWSS.withMultiWriterAW
+              $ MultiRWSS.withMultiWriterAW
+              $ m
+            allocationIndex <- mGet
+            pure (result, allocationIndex)
+  pure (x, errs, debugs, nextNodeIndex - 1)
 
 docSharedWrapper :: Monad m => (x -> m y) -> x -> m (m y)
 docSharedWrapper f x = return <$> f x

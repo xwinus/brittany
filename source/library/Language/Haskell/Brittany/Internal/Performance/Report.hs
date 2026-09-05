@@ -24,6 +24,7 @@ import Data.Aeson
   , withObject
   , (.:)
   , (.:?)
+  , (.!=)
   , (.=)
   )
 import Data.Aeson.Types (Parser)
@@ -96,6 +97,7 @@ data ScenarioResult = ScenarioResult
   , scenarioFormatterErrors :: Int
   , scenarioRuntime :: RuntimeMetrics
   , scenarioPhases :: [PhaseAggregate]
+  , scenarioCounters :: [CounterAggregate]
   }
   deriving (Eq, Show)
 
@@ -236,6 +238,7 @@ instance ToJSON ScenarioResult where
     , "formatterErrors" .= scenarioFormatterErrors result
     , "runtime" .= runtimeMetricsValue (scenarioRuntime result)
     , "phases" .= fmap phaseAggregateValue (scenarioPhases result)
+    , "counters" .= fmap counterAggregateJson (scenarioCounters result)
     ]
 
 instance FromJSON ScenarioResult where
@@ -249,6 +252,7 @@ instance FromJSON ScenarioResult where
       <*> value .: "formatterErrors"
       <*> (value .: "runtime" >>= parseRuntimeMetrics)
       <*> (value .: "phases" >>= traverse parsePhaseAggregate)
+      <*> ((value .:? "counters" .!= []) >>= traverse parseCounterAggregate)
 
 instance ToJSON BenchmarkReport where
   toJSON report = object
@@ -357,3 +361,19 @@ parsePhaseAggregate = withObject "PhaseAggregate" $ \value -> do
     <*> value .: "elapsedNs"
     <*> value .: "cpuNs"
     <*> value .:? "allocatedBytes"
+
+counterAggregateJson :: CounterAggregate -> Value
+counterAggregateJson aggregate = object
+  [ "name" .= performanceCounterName (counterAggregateCounter aggregate)
+  , "value" .= counterAggregateValue aggregate
+  ]
+
+parseCounterAggregate :: Value -> Parser CounterAggregate
+parseCounterAggregate = withObject "CounterAggregate" $ \value -> do
+  name <- value .: "name"
+  counter <- maybe (Base.fail $ "unknown performance counter: " ++ name) pure
+    $ Base.lookup name
+      [ (performanceCounterName candidate, candidate)
+      | candidate <- [minBound .. maxBound]
+      ]
+  CounterAggregate counter <$> value .: "value"
