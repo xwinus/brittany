@@ -1,7 +1,7 @@
 # Performance optimization report, September 2026
 
-This report compares commit `29f6c0e` with the working-tree implementation of
-issue #169 and the completed slices of #170 and #171. Both versions were built
+This report compares commit `29f6c0e` with the completed implementations of
+issues #169, #170, and #171. All versions were built
 with GHC 9.14.1 and Cabal's default optimized `-O1` profile on the same machine.
 Each scenario ran in its own process with RTS statistics enabled. The complete
 machine-readable reports are in
@@ -10,6 +10,8 @@ and
 [`benchmark/results/2026-09-candidate.json`](../benchmark/results/2026-09-candidate.json).
 The follow-up batch-session result is in
 [`benchmark/results/2026-09-session.json`](../benchmark/results/2026-09-session.json).
+The final BriDoc candidate is in
+[`benchmark/results/2026-09-bridoc.json`](../benchmark/results/2026-09-bridoc.json).
 
 ## End-to-end results
 
@@ -83,9 +85,57 @@ For the ten-file batch, GHC-session setup itself fell from 30.7 ms and 100.6 MB
 to 0.7 ms and 2.9 MB. Large single-module scenarios remained within ordinary
 run-to-run noise, as expected.
 
+## BriDoc pipeline follow-up
+
+The #171 re-profile first compared the same instrumented build before and after
+the optimization. Cost-centre profiling of `Alt.hs` attributed the largest
+remaining avoidable allocation to `extractBoundaryComments`: shared BriDoc
+subtrees were traversed once per reference and comment results were deduplicated
+quadratically. The profiling run allocated 5.07 GB before the change and 3.58 GB
+after it; delimiter boundary extraction disappeared from the leading cost
+centres.
+
+The implementation now memoizes boundary extraction by stable BriDoc node ID
+and performs stable-order comment deduplication with a `Set`. The common no-op
+case still returns the original subtree.
+
+| Scenario | CPU before | CPU after | Change | Allocation before | Allocation after | Change | Residency before | Residency after |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `Alt.hs` format, no validation | 1.408 s | 1.263 s | -10.3% | 4.105 GB | 3.267 GB | -20.4% | 41.6 MB | 41.6 MB |
+| `Alt.hs` full safe format | 1.798 s | 1.644 s | -8.6% | 5.172 GB | 4.334 GB | -16.2% | 41.6 MB | 41.6 MB |
+
+Detailed diagnostics now report BriDoc construction, comment lowering,
+alternative resolution, every simplifier, backend rendering, and planned
+comment validation. They also report raw and post-phase node counts,
+alternative and delimiter structure, spacing calls and memo hits, and pruning
+widths. On the nesting-depth-15 fixture, the measured phase costs were:
+
+| Phase | CPU | Allocation |
+| --- | ---: | ---: |
+| BriDoc construction | 2.42 ms | 4.03 MB |
+| Comment lowering | 0.26 ms | 0.40 MB |
+| Alternative resolution | 5.09 ms | 0.29 MB |
+| All four simplifiers | 0.62 ms | 3.95 MB |
+| Backend rendering | 0.01 ms | 0.01 MB |
+| Planned-comment validation | 0.02 ms | 0.09 MB |
+
+The same fixture retained 2,948 raw nodes, 236 alternatives at maximum depth
+17, and 716 nodes after the final simplifier. It made 236 `getSpacings` calls,
+including 225 memo hits, and pruned a maximum spacing width from 9 to 3. The
+delimiter-count-25 fixture retained 26 groups and 52 generated variants. These
+structural and search counters were identical before and after the optimization,
+as expected for a traversal-only change.
+
+Forcing every intermediate value of the self-hosted `Alt.hs` graph changes its
+lazy memory behaviour, so the benchmark deliberately disables detailed BriDoc
+diagnostics for `alt-format` and `alt-full`. Those scenarios retain
+representative end-to-end RTS metrics and cost-centre profiling; deterministic
+quick and scaling fixtures retain the detailed counters. Normal formatter
+entrypoints pass no collector and incur no diagnostics.
+
 ## Correctness checks
 
-- The complete test suite passes: 1,092 examples, 0 failures.
+- The complete test suite passes: 1,099 examples, 0 failures.
 - New unit coverage exercises line-comment discovery in a shared alternative,
   the required-break case, empty/block-comment edge cases, and a 400-row
   zero-overflow alignment.
@@ -98,6 +148,7 @@ run-to-run noise, as expected.
 - The benchmark's full-safe mode retained output parsing, semantic validation,
   and comment validation.
 
-The parser-context and batch-session work for #170 is complete. For #171, the
-next evidence-driven target is the remaining 3.46 GB real `Alt.hs` layout
-allocation, not the already-linear synthetic passes.
+The parser-context, batch-session, and BriDoc allocation work for #170 and #171
+is complete. The remaining layout allocation is distributed across the inherited
+multi-pass pipeline; no further architectural change is justified by the
+current synthetic phase profile.

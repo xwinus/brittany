@@ -101,9 +101,19 @@ The phase report contains stable names for GHC session setup, flag parsing,
 source parsing, missing-comment recovery, annotation extraction, inline
 configuration, comment planning, top-level grouping, layout and rendering,
 `AnnKey` operations, annotation-index construction, alternative resolution,
-the floating/par/columns/indent simplifiers, backend rendering, output parsing,
+native BriDoc construction, comment lowering, the floating/par/columns/indent
+simplifiers, backend rendering, planned-comment validation, output parsing,
 semantic validation, and comment validation. All known phases are present even
 when a scenario does not execute them.
+
+Formatter scenarios with detailed diagnostics also report raw and post-phase
+BriDoc node counts, alternative count and depth, delimiter groups and generated
+variants, spacing calls and memo hits, and maximum spacing-list widths before
+and after pruning. The `Alt.hs` formatting scenarios intentionally omit these
+detailed counters because forcing every intermediate node would change the lazy
+graph's residency and runtime. Use their end-to-end RTS metrics and a
+cost-centre build for real-module attribution; use quick and scaling fixtures
+for stable structural comparisons.
 
 Phase timings are inclusive, so a parent phase includes its nested phases.
 They must not be added together to derive the scenario total. Phase allocation
