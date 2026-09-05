@@ -76,7 +76,19 @@ mainWith :: String -> [String] -> IO ()
 mainWith programName arguments =
   Environment.withProgName programName
     . Environment.withArgs arguments
-    $ mainFromCmdParserWithHelpDesc mainCmdParser
+    $ case runCmdParserWithHelpDesc
+        (Just programName) (InputArgs arguments) mainCmdParser of
+      (description, Left parsingError) -> do
+        putStrErrLn $ programName ++ ": " ++ parsingErrorString parsingError
+        putStrErrLn "usage:"
+        System.IO.hPutStrLn System.IO.stderr $ show $ ppUsage description
+        System.Exit.exitWith $ System.Exit.ExitFailure 64
+      (description, Right command) -> case _cmd_out command of
+        Nothing -> do
+          putStrErrLn "usage:"
+          System.IO.hPutStrLn System.IO.stderr $ show $ ppUsage description
+          System.Exit.exitWith $ System.Exit.ExitFailure 64
+        Just action -> action
 
 helpDoc :: PP.Doc
 helpDoc = PP.vcat $ List.intersperse (PP.text "")

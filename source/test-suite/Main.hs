@@ -12,6 +12,7 @@ import qualified CommentPlanSpec
 import qualified CommentOwnershipSpec
 import qualified CommentBoundaryGraphSpec
 import qualified CommentIRSpec
+import qualified CommandLineSpec
 import qualified CompactParenthesizedPatternSpec
 import qualified CompositionalPatternSpec
 import qualified ComposableDeclarationSpec
@@ -129,6 +130,7 @@ main = Hspec.hspec $ do
   CommentBoundaryGraphSpec.spec
   CommentIRSpec.spec
   CommentOwnershipSpec.spec
+  CommandLineSpec.spec
   CompactParenthesizedPatternSpec.spec projectRoot
   CompositionalPatternSpec.spec projectRoot
   ComposableDeclarationSpec.spec projectRoot
