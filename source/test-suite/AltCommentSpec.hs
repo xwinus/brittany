@@ -4,6 +4,8 @@ import qualified Data.Text as Text
 import qualified GHC.Data.FastString as FastString
 import qualified GHC.Types.SrcLoc as SrcLoc
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as EP
+import Language.Haskell.Brittany.Internal.Delimiter.Comments
+  ( extractBoundaryComments )
 import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.Transformations.Alt.Comments
 import Language.Haskell.Brittany.Internal.Types
@@ -35,8 +37,44 @@ spec = Hspec.describe "alternative layout comment checks" $ do
       [blockCommentDocument 5, literalDocument 6]
       `Hspec.shouldBe` False
 
+  Hspec.it "extracts a matching delimiter boundary comment" $ do
+    let comment = lineCommentDocumentAt 1 BeforeCloseBoundary
+        literal = literalDocument 2
+        document = (0, BDFSeq [comment, literal])
+        (comments, remaining) = extractBoundaryComments
+          BeforeCloseBoundary document
+    ( (unwrapBriDocNumbered <$> comments, unwrapBriDocNumbered remaining)
+        == ( [unwrapBriDocNumbered comment]
+           , BDSeq [BDEmpty, BDLit $ Text.pack "value"]
+           )
+      ) `Hspec.shouldBe` True
+
+  Hspec.it "deduplicates a comment in a shared BriDoc subtree" $ do
+    let comment = lineCommentDocumentAt 2 BeforeCloseBoundary
+        shared = (1, BDFSeq [comment, literalDocument 3])
+        document = (0, BDFAlt [shared, shared])
+        (comments, remaining) = extractBoundaryComments
+          BeforeCloseBoundary document
+        transformedShared = BDSeq [BDEmpty, BDLit $ Text.pack "value"]
+    ( (unwrapBriDocNumbered <$> comments, unwrapBriDocNumbered remaining)
+        == ( [unwrapBriDocNumbered comment]
+           , BDAlt [transformedShared, transformedShared]
+           )
+      ) `Hspec.shouldBe` True
+
+  Hspec.it "preserves an empty malformed alternative" $ do
+    let document = (0, BDFAlt [])
+        (comments, remaining) = extractBoundaryComments
+          BeforeCloseBoundary document
+    (null comments && unwrapBriDocNumbered remaining == BDAlt [])
+      `Hspec.shouldBe` True
+
 lineCommentDocument :: Int -> BriDocNumbered
-lineCommentDocument nodeId = (nodeId, BDFComment $ plannedComment LineComment)
+lineCommentDocument nodeId = lineCommentDocumentAt nodeId WithinBoundary
+
+lineCommentDocumentAt :: Int -> CommentBoundaryGap -> BriDocNumbered
+lineCommentDocumentAt nodeId gap =
+  (nodeId, BDFComment $ plannedCommentAt LineComment gap)
 
 blockCommentDocument :: Int -> BriDocNumbered
 blockCommentDocument nodeId = (nodeId, BDFComment $ plannedComment BlockComment)
@@ -45,7 +83,10 @@ literalDocument :: Int -> BriDocNumbered
 literalDocument nodeId = (nodeId, BDFLit $ Text.pack "value")
 
 plannedComment :: SourceCommentSyntax -> PlannedComment
-plannedComment syntax = PlannedComment
+plannedComment syntax = plannedCommentAt syntax WithinBoundary
+
+plannedCommentAt :: SourceCommentSyntax -> CommentBoundaryGap -> PlannedComment
+plannedCommentAt syntax gap = PlannedComment
   { plannedCommentSource = SourceComment
       { sourceCommentKey = SourceCommentKey $ EP.realSpanToSrcSpan commentSpan
       , sourceCommentText = Text.pack $ case syntax of
@@ -63,7 +104,7 @@ plannedComment syntax = PlannedComment
       }
   , plannedCommentBoundary = CommentBoundaryId
       { commentBoundaryPath = ExpressionBoundaryPath 0
-      , commentBoundaryGap = WithinBoundary
+      , commentBoundaryGap = gap
       }
   , plannedCommentIndentPolicy = OwnerRelativeIndent
   , plannedCommentLineDelta = 0
