@@ -1747,13 +1747,14 @@ layoutClassDecl outer context name variables signatures methods = do
           && case Map.lookup key $ commentPlanSources commentPlan of
             Nothing -> False
             Just sourceComment ->
-              (srcSpanStartLine signatureSpan, srcSpanStartCol signatureSpan)
-                <= ( srcSpanStartLine $ sourceCommentSpan sourceComment
-                   , srcSpanStartCol $ sourceCommentSpan sourceComment
-                   )
-                && ( srcSpanEndLine $ sourceCommentSpan sourceComment
-                   , srcSpanEndCol $ sourceCommentSpan sourceComment
-                   ) <= (srcSpanEndLine signatureSpan, srcSpanEndCol signatureSpan)
+              placementOwner placement `elem` signatureNodeIds signature
+                || (srcSpanStartLine signatureSpan, srcSpanStartCol signatureSpan)
+                  <= ( srcSpanStartLine $ sourceCommentSpan sourceComment
+                     , srcSpanStartCol $ sourceCommentSpan sourceComment
+                     )
+                  && ( srcSpanEndLine $ sourceCommentSpan sourceComment
+                     , srcSpanEndCol $ sourceCommentSpan sourceComment
+                     ) <= (srcSpanEndLine signatureSpan, srcSpanEndCol signatureSpan)
       )
       $ Map.toList $ commentPlanPlacements commentPlan
 
@@ -1820,6 +1821,13 @@ classMemberComments outer signatures commentPlan = case
 
   spanStart span' = (srcSpanStartLine span', srcSpanStartCol span')
   spanEnd span' = (srcSpanEndLine span', srcSpanEndCol span')
+
+signatureNodeIds :: Located (Sig GhcPs) -> [NodeId]
+signatureNodeIds signature@(L _ signature') =
+  NodeId (mkAnnKey $ toL signature) : case signature' of
+    ClassOpSig _ _ _ signatureType ->
+      [NodeId $ mkAnnKey $ toL signatureType]
+    _ -> []
 
 layoutClassContext
   :: Maybe (LHsContext GhcPs) -> ToBriDocM BriDocNumbered

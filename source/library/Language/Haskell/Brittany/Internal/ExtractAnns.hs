@@ -92,6 +92,7 @@ import GHC.Types.SrcLoc (EpaLocation'(..), RealSrcSpan, SrcSpan(..))
 import qualified GHC.Types.SrcLoc as SrcLoc
 import qualified Language.Haskell.Brittany.Internal.AnnotationIndex as AnnotationIndex
 import Language.Haskell.Brittany.Internal.ExactPrintCompat
+import qualified Language.Haskell.Brittany.Internal.ExtractAnns.PostDocs as PostDocs
 import Language.Haskell.Brittany.Internal.CommentBoundary
   ( materializeCommentBoundaries )
 import Language.Haskell.Brittany.Internal.Prelude
@@ -359,7 +360,8 @@ extractAnnsFromModule lmod =
         [(k, ()) | k <- Map.keys merged, not (Map.member k allWithInner)]
       redistributed = redistributeInnerCommentsWithChildSkips
         fullSpanMap nonDeclKeys Map.empty merged
-  in materializeCommentBoundaries lmod redistributed
+  in PostDocs.reassignClassFinalPostDocs (hsmodDecls mod')
+    $ materializeCommentBoundaries lmod redistributed
 
 -- | Redistribute intra-declaration comments from the module annotation to
 -- individual AST nodes. Uses ghc-exactprint's bottom-up traversal to claim
