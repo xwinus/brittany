@@ -100,6 +100,7 @@ layoutState cursor = LayoutState
   , _lstate_indLevelLinger = 4
   , _lstate_comments = Map.empty
   , _lstate_emittedComments = Set.empty
+  , _lstate_trailingCommentRun = Nothing
   , _lstate_commentCol = Just 8
   , _lstate_addSepSpace = Just 2
   , _lstate_commentNewlines = 0

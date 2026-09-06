@@ -25,6 +25,8 @@ import Language.Haskell.Brittany.Internal.Delimiter.Types
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKey, AnnKeywordId, Anns)
 import Language.Haskell.Brittany.Internal.Fallbacks (RenderNotice)
 import Language.Haskell.Brittany.Internal.Prelude
+import Language.Haskell.Brittany.Internal.SourceComment.Continuation
+  ( TrailingCommentRun )
 import Language.Haskell.Brittany.Internal.SourceComment.Types
 import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPrint.Types
 import qualified Safe
@@ -73,6 +75,7 @@ data LayoutState = LayoutState
                                   -- non-indented element, which is confusing.
   , _lstate_comments      :: Anns
   , _lstate_emittedComments :: Set SourceCommentKey
+  , _lstate_trailingCommentRun :: Maybe TrailingCommentRun
   , _lstate_commentCol    :: Maybe Int -- this communicates two things:
                                        -- firstly, that cursor is currently
                                        -- at the end of a comment (so needs
@@ -117,14 +120,6 @@ instance Show LayoutState where
     ++ ",addSepSpace=" ++ show (_lstate_addSepSpace state)
     ++ ",commentNewlines=" ++ show (_lstate_commentNewlines state)
     ++ "}"
-
--- data NewLineState = NewLineStateInit -- initial state. we do not know if in a
---                                      -- newline, really. by special-casing
---                                      -- this we can appropriately handle it
---                                      -- differently at use-site.
---                   | NewLineStateYes
---                   | NewLineStateNo
---   deriving Eq
 
 -- data LayoutSettings = LayoutSettings
 --   { _lsettings_cols :: Int -- the thing that has default 80.

@@ -227,6 +227,7 @@ initialLayoutState = LayoutState
   , _lstate_indLevelLinger = 0
   , _lstate_comments = Map.empty
   , _lstate_emittedComments = Set.empty
+  , _lstate_trailingCommentRun = Nothing
   , _lstate_commentCol = Nothing
   , _lstate_addSepSpace = Nothing
   , _lstate_commentNewlines = 0

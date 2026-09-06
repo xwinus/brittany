@@ -50,6 +50,9 @@ import           Language.Haskell.Brittany.Internal.CommentBoundary.Delimiter
                                                           , buildDelimiterBoundaryIndex
                                                           , delimiterBoundaryFromIndex
                                                           )
+import           Language.Haskell.Brittany.Internal.CommentBoundary.Trailing
+                                                          ( takeTrailingContinuationRun
+                                                          , normalizeFinalTrailingRun )
 import           Language.Haskell.Brittany.Internal.ExactPrintCompat
 import           Language.Haskell.Brittany.Internal.Prelude
 import           Language.Haskell.Brittany.Internal.SourceComment.Types
@@ -57,6 +60,7 @@ import           Language.Haskell.Brittany.Internal.SourceComment.Types
 materializeCommentBoundaries :: ParsedSource -> Anns -> Anns
 materializeCommentBoundaries (L _ module') annotations =
   normalizeConstructorComments declarations
+    $ normalizeFinalTrailingRun declarations
     $ foldl materializeDeclarationGap
       (materializeCaseComments module' annotations)
     $ zip declarations (drop 1 declarations)
@@ -67,9 +71,9 @@ materializeDeclarationGap :: Anns -> (LHsDecl GhcPs, LHsDecl GhcPs) -> Anns
 materializeDeclarationGap annotations (previous, current) =
   case (locatedSpan previous, locatedSpan current) of
     (Just previousSpan, Just currentSpan) ->
-      let comments = commentsInGap previousSpan currentSpan annotations
+      let (seeds, comments) = commentsAtBoundary previousSpan currentSpan annotations
           (previousComments, currentComments) =
-            splitDeclarationBoundary previous comments
+            splitDeclarationBoundary previous previousSpan seeds comments
       in  if null comments
             then annotations
             else
@@ -79,9 +83,11 @@ materializeDeclarationGap annotations (previous, current) =
     _ -> annotations
 
 splitDeclarationBoundary
-  :: LHsDecl GhcPs -> [Comment] -> ([Comment], [Comment])
-splitDeclarationBoundary previous comments = case unLoc previous of
+  :: LHsDecl GhcPs -> SrcLoc.RealSrcSpan -> [Comment] -> [Comment]
+  -> ([Comment], [Comment])
+splitDeclarationBoundary previous previousSpan seeds comments = case unLoc previous of
   SigD{} -> takePostDocRun comments
+  ValD{} -> takeTrailingContinuationRun previousSpan seeds comments
   _      -> ([], comments)
 
 takePostDocRun :: [Comment] -> ([Comment], [Comment])
@@ -116,13 +122,17 @@ commentsAreAdjacent previous current =
           == SrcLoc.srcSpanStartLine currentSpan
       _ -> False
 
-commentsInGap :: SrcLoc.RealSrcSpan -> SrcLoc.RealSrcSpan -> Anns -> [Comment]
-commentsInGap previousSpan currentSpan annotations = uniqueComments
+commentsAtBoundary
+  :: SrcLoc.RealSrcSpan -> SrcLoc.RealSrcSpan -> Anns -> ([Comment], [Comment])
+commentsAtBoundary previousSpan currentSpan annotations = List.partition
+  (\comment -> fst (commentStart comment) == SrcLoc.srcSpanEndLine previousSpan)
+  $ uniqueComments
   [ comment
   | annotation       <- Map.elems annotations
   , comment          <- annotationComments annotation
   , Just commentSpan <- [srcSpanToRealSpan $ commentIdentifier comment]
-  , SrcLoc.srcSpanStartLine commentSpan > SrcLoc.srcSpanEndLine previousSpan
+  , SrcLoc.srcSpanFile commentSpan == SrcLoc.srcSpanFile previousSpan
+  , spanStart commentSpan >= spanEnd previousSpan
   , spanStart commentSpan < spanStart currentSpan
   ]
 
@@ -157,7 +167,6 @@ removeComments comments = Map.map remove
       }
 
 attachPriorRun :: LHsDecl GhcPs -> [Comment] -> Anns -> Anns
-attachPriorRun _           []       = id
 attachPriorRun declaration comments = Map.alter attach key
  where
   key = mkAnnKey $ L (getLocA declaration) $ unLoc declaration
@@ -165,6 +174,9 @@ attachPriorRun declaration comments = Map.alter attach key
     Just
       $ annotation
           { annPriorComments = rebaseRun comments ++ annPriorComments annotation
+          , annEntryDelta = if null comments && null (annPriorComments annotation)
+              then DP (0, 0)
+              else annEntryDelta annotation
           }
    where
     annotation = fromMaybe emptyAnnotation maybeAnnotation
@@ -199,7 +211,7 @@ rebaseRun :: [Comment] -> [(Comment, DeltaPos)]
 rebaseRun comments = case List.sortOn commentStart comments of
   [] -> []
   firstComment : rest ->
-    (firstComment, DP (0, 0))
+    (firstComment, DP (0, max 0 $ snd (commentStart firstComment) - 1))
       : snd (mapAccumL rebase (commentEnd firstComment) rest)
  where
   rebase previous comment =
