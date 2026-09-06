@@ -1826,7 +1826,8 @@ recomputeMergedPriorDPs :: [(Comment, DeltaPos)] -> [(Comment, DeltaPos)]
 recomputeMergedPriorDPs coms = case sortedComs of
   [] -> []
   ((firstCom, _) : _) -> case srcSpanToRealSpan (commentIdentifier firstCom) of
-    Just firstSpan -> recomputeComDPs (ss2pos firstSpan) sortedComs
+    Just firstSpan -> recomputeComDPs
+      (SrcLoc.srcSpanStartLine firstSpan, 1) sortedComs
     Nothing -> sortedComs
  where
   sortedComs = List.sortOn

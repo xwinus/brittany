@@ -29,6 +29,8 @@ import Language.Haskell.Brittany.Internal.ExactSource
   ( validateExactSourceFragment
   )
 import Language.Haskell.Brittany.Internal.Prelude
+import Language.Haskell.Brittany.Internal.SourceComment.Continuation
+  ( continueTrailingCommentRun, startTrailingCommentRun, trailingCommentColumn )
 import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
@@ -310,77 +312,90 @@ renderPlannedComment planned = do
           }
       when (not ownLine && placementRole placement == SectionComment) $
         layoutSetCommentCol
-      case plannedCommentIndentPolicy planned of
-        OwnerRelativeIndent
-          | ownLine, placementAnchor placement == BeforeNode ->
-              layoutMoveToCommentPos lineDelta
-                (max 0
-                  $ lstate_baseY state - _lstate_indLevelLinger state
-                  + plannedCommentColumnDelta planned
+      let continuedRun = _lstate_trailingCommentRun state
+            >>= continueTrailingCommentRun planned
+      case continuedRun of
+        Just run -> layoutMoveToAbsoluteCommentPos
+          (max 1 lineDelta) (trailingCommentColumn run) lineCount
+        Nothing -> case plannedCommentIndentPolicy planned of
+          OwnerRelativeIndent
+            | ownLine, placementAnchor placement == BeforeNode ->
+                layoutMoveToCommentPos lineDelta
+                  (max 0
+                    $ lstate_baseY state - _lstate_indLevelLinger state
+                    + plannedCommentColumnDelta planned
+                  )
+                  lineCount
+            | ownLine -> layoutMoveToAbsoluteCommentPos
+                lineDelta (lstate_baseY state) lineCount
+            | otherwise -> layoutMoveToCommentPos 0 1 lineCount
+          RenderedAnchorIndent -> do
+            layoutSetCommentCol
+            current <- mGet
+            let anchorColumn = fromMaybe
+                  (lstate_baseY current)
+                  (_lstate_commentCol current)
+            layoutMoveToAbsoluteCommentPos lineDelta
+              (anchorColumn + max 0 (plannedCommentColumnDelta planned))
+              lineCount
+          ContainerRelativeIndent ->
+            let containerColumn = lstate_baseY state
+                contentColumn = containerColumn + indentAmount
+                commentColumn
+                  | placementRole placement == SectionComment
+                      || isExportPlacement placement = contentColumn
+                  | commentBoundaryGap (plannedCommentBoundary planned)
+                      == BeforeCloseBoundary = containerColumn
+                  | otherwise = max containerColumn
+                      $ min contentColumn
+                      $ plannedCommentColumnDelta planned
+            in layoutMoveToAbsoluteCommentPos
+              lineDelta commentColumn lineCount
+          TokenRelativeIndent
+            | ownLine -> layoutMoveToAbsoluteCommentPos lineDelta
+                (fromMaybe
+                  ( lstate_baseY state
+                    + if placementRole placement == BetweenChildren TypeOperator
+                      then 3
+                      else indentAmount
+                  )
+                  (_lstate_commentCol state)
                 )
                 lineCount
-          | ownLine -> layoutMoveToAbsoluteCommentPos
-              lineDelta (lstate_baseY state) lineCount
-          | otherwise -> layoutMoveToCommentPos 0 1 lineCount
-        RenderedAnchorIndent -> do
-          layoutSetCommentCol
-          current <- mGet
-          let anchorColumn = fromMaybe
-                (lstate_baseY current)
-                (_lstate_commentCol current)
-          layoutMoveToAbsoluteCommentPos lineDelta
-            (anchorColumn + max 0 (plannedCommentColumnDelta planned))
-            lineCount
-        ContainerRelativeIndent ->
-          let containerColumn = lstate_baseY state
-              contentColumn = containerColumn + indentAmount
-              commentColumn
-                | placementRole placement == SectionComment
-                    || isExportPlacement placement = contentColumn
-                | commentBoundaryGap (plannedCommentBoundary planned)
-                    == BeforeCloseBoundary = containerColumn
-                | otherwise = max containerColumn
-                    $ min contentColumn
-                    $ plannedCommentColumnDelta planned
-          in layoutMoveToAbsoluteCommentPos
-            lineDelta commentColumn lineCount
-        TokenRelativeIndent
-          | ownLine -> layoutMoveToAbsoluteCommentPos lineDelta
-              (fromMaybe
-                ( lstate_baseY state
-                  + if placementRole placement == BetweenChildren TypeOperator
-                    then 3
-                    else indentAmount
+            | Left{} <- _lstate_curYOrAddNewline state -> layoutWriteAppendSpaces
+                $ max 0
+                $ max 1 (plannedCommentColumnDelta planned)
+                - if placementRole placement == SectionComment
+                  then fromMaybe 0 (_lstate_addSepSpace state)
+                  else 0
+            | otherwise -> layoutMoveToCommentPos 0
+                (max 0
+                  $ 1 - _lstate_indLevelLinger state
                 )
-                (_lstate_commentCol state)
-              )
-              lineCount
-          | Left{} <- _lstate_curYOrAddNewline state -> layoutWriteAppendSpaces
-              $ max 0
-              $ max 1 (plannedCommentColumnDelta planned)
-              - if placementRole placement == SectionComment
-                then fromMaybe 0 (_lstate_addSepSpace state)
-                else 0
-          | otherwise -> layoutMoveToCommentPos 0
-              (max 0
-                $ 1 - _lstate_indLevelLinger state
-              )
-              lineCount
-        SourceColumnIndent
-          | placementRole placement == HaddockPostDoc RecordField ->
-              layoutMoveToAbsoluteCommentPos
-                lineDelta (lstate_baseY state + indentAmount) lineCount
-          | placementRole placement == HaddockPostDoc SignatureArgument ->
-              layoutMoveToAbsoluteCommentPos
-                lineDelta (lstate_baseY state) lineCount
-          | placementRole placement == HaddockPostDoc SignatureResult ->
-              layoutMoveToAbsoluteCommentPos lineDelta indentAmount lineCount
-          | sourceColumnAtNestedBase ->
-              layoutMoveToAbsoluteCommentPos
-                lineDelta (lstate_baseY state) lineCount
-          | otherwise -> layoutMoveToCommentPos lineDelta
-              (plannedCommentColumnDelta planned - _lstate_indLevelLinger state)
-              lineCount
+                lineCount
+          SourceColumnIndent
+            | placementRole placement == HaddockPostDoc RecordField ->
+                layoutMoveToAbsoluteCommentPos
+                  lineDelta (lstate_baseY state + indentAmount) lineCount
+            | placementRole placement == HaddockPostDoc SignatureArgument ->
+                layoutMoveToAbsoluteCommentPos
+                  lineDelta (lstate_baseY state) lineCount
+            | placementRole placement == HaddockPostDoc SignatureResult ->
+                layoutMoveToAbsoluteCommentPos lineDelta indentAmount lineCount
+            | sourceColumnAtNestedBase ->
+                layoutMoveToAbsoluteCommentPos
+                  lineDelta (lstate_baseY state) lineCount
+            | otherwise -> layoutMoveToCommentPos lineDelta
+                (plannedCommentColumnDelta planned - _lstate_indLevelLinger state)
+                lineCount
+      positioned <- mGet
+      let commentColumn = either id (const 0)
+            (_lstate_curYOrAddNewline positioned)
+            + fromMaybe 0 (_lstate_addSepSpace positioned)
+      mModify $ \current -> current
+        { _lstate_trailingCommentRun = continuedRun
+            <|> startTrailingCommentRun planned commentColumn
+        }
       layoutWriteAppendMultiline commentLines
       when
         ( sourceCommentSyntax source == BlockComment

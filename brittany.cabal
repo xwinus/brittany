@@ -179,6 +179,7 @@ library
     Language.Haskell.Brittany.Internal.CommentUtils
     Language.Haskell.Brittany.Internal.ConstructorComments
     Language.Haskell.Brittany.Internal.CommentBoundary.Case
+    Language.Haskell.Brittany.Internal.CommentBoundary.Trailing
     Language.Haskell.Brittany.Internal.ExpressionComments
     Language.Haskell.Brittany.Internal.ExtractAnns.PostDocs
     Language.Haskell.Brittany.Internal.Layouters.DataDecl.Boundary
@@ -193,6 +194,7 @@ library
     Language.Haskell.Brittany.Internal.SemanticFingerprint.Ghc
     Language.Haskell.Brittany.Internal.SemanticModel
     Language.Haskell.Brittany.Internal.SourceComment.Indentation
+    Language.Haskell.Brittany.Internal.SourceComment.Continuation
     Language.Haskell.Brittany.Internal.TypeFallbacks
     Language.Haskell.Brittany.Main.Transform
 
@@ -216,6 +218,7 @@ test-suite brittany-test-suite
     AnnotationIndexSpec
     ColumnAlignmentSpec
     TransactionalInplaceSpec
+    TrailingCommentContinuationSpec
     CaseAlternativeCommentSpec
     CanonicalSemanticModelSpec
     CompatibilityMatrix

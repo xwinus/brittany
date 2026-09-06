@@ -58,6 +58,7 @@ import qualified TemplateHaskellFallbackSpec
 import qualified Test.Hspec as Hspec
 import qualified TopLevelSpacingSpec
 import qualified TransactionalInplaceSpec
+import qualified TrailingCommentContinuationSpec
 import qualified TypeOperatorRecordSpec
 import qualified TupleSemanticNameSpec
 
@@ -155,6 +156,7 @@ main = Hspec.hspec $ do
   RecordFieldRhsIndentSpec.spec projectRoot
   TopLevelSpacingSpec.spec
   TransactionalInplaceSpec.spec projectRoot
+  TrailingCommentContinuationSpec.spec
   TypeOperatorRecordSpec.spec projectRoot
   TupleSemanticNameSpec.spec projectRoot
 
