@@ -30,7 +30,8 @@ import GHC.Types.SrcLoc
 import GHC.Types.SourceText (SourceText(..))
 import qualified GHC.Data.FastString as FastString
 import GHC.Utils.Outputable (ftext, showSDocUnsafe)
-import Language.Haskell.Brittany.Internal.LayouterBasics
+import Language.Haskell.Brittany.Internal.CommentIR (planComment)
+import Language.Haskell.Brittany.Internal.Delimiter.Types
 import Language.Haskell.Brittany.Internal.ExactSource
   ( nodeSourceFragment
   , sourceCommentFragment
@@ -39,13 +40,13 @@ import Language.Haskell.Brittany.Internal.Fallbacks
   ( FallbackId(..)
   , untypedSpliceFamily
   )
-import Language.Haskell.Brittany.Internal.Delimiter.Types
+import Language.Haskell.Brittany.Internal.LayouterBasics
+import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
+import qualified Language.Haskell.Brittany.Internal.Layouters.Type.Operator as Operator
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.Types
-import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
-import qualified Language.Haskell.Brittany.Internal.Layouters.Type.Operator as Operator
 import Unsafe.Coerce (unsafeCoerce)
 
 
@@ -53,7 +54,7 @@ import Unsafe.Coerce (unsafeCoerce)
 layoutType :: ToBriDoc HsType
 layoutType ltype = layoutType' (toL ltype)
  where
-  layoutType' ltype'@(L _ typ) = docWrapNode ltype' $ case typ of
+  layoutType' ltype'@(L _ typ) = typeWrapper ltype' typ $ case typ of
     HsTyVar _ promoted name -> do
       t <- lrdrNameToTextAnnTypeEqualityIsSpecial (toL name)
       let t' = if t == Text.pack "()" || t == Text.pack "[]"
@@ -291,10 +292,24 @@ layoutType ltype = layoutType' (toL ltype)
     HsFunTy _ _ typ1 typ2 -> do
       typeDoc1 <- docSharedWrapper layoutType (toL typ1)
       typeDoc2 <- docSharedWrapper layoutType (toL typ2)
+      trailingComments <- typeTrailingComments ltype
       let
         maybeForceML = case toL typ2 of
           (L _ HsFunTy{}) -> docForceMultiline
           _ -> id
+        continuation = docCols
+          ColTyOpPrefix
+          [ appSep $ docLit $ Text.pack "->"
+          , docAddBaseY (BrIndentSpecial 3) $ maybeForceML typeDoc2
+          ]
+        multilineType = docPar
+          (docNodeAnnKW ltype Nothing typeDoc1)
+          continuation
+        multilineTypeWithPostDocs = case trailingComments of
+          [] -> multilineType
+          _ -> docSeq
+            $ multilineType
+            : (layoutPlannedTypeComment <$> trailingComments)
       hasComments <- hasAnyCommentsBelow ltype
       docAlt
         $ [ docSeq
@@ -304,15 +319,7 @@ layoutType ltype = layoutType' (toL ltype)
               ]
           | not hasComments
           ]
-        ++ [ docPar
-               (docNodeAnnKW ltype Nothing typeDoc1)
-               (docCols
-                 ColTyOpPrefix
-                 [  appSep $ docLit $ Text.pack "->"
-                 , docAddBaseY (BrIndentSpecial 3) $ maybeForceML typeDoc2
-                 ]
-               )
-           ]
+        ++ [multilineTypeWithPostDocs]
     HsParTy _ typ1 -> do
       typeDoc1 <- docSharedWrapper layoutType (toL typ1)
       docDelimitedSequence
@@ -600,6 +607,46 @@ layoutType ltype = layoutType' (toL ltype)
           ]
         , docPar t (docSeq [docLit $ Text.pack "@", k])
         ]
+
+  -- A trailing result post-doc must be rendered at the function type's
+  -- continuation column instead of the nested result node's column.
+  typeWrapper ltype' HsFunTy{} body = do
+    trailingComments <- typeTrailingComments ltype'
+    if null trailingComments
+      then docWrapNode ltype' body
+      else docWrapNodePrior ltype' body
+  typeWrapper ltype' _ body = docWrapNode ltype' body
+
+  typeTrailingComments ltype' = do
+    exactFollowingComments <- astFollowingComments ltype'
+    pure
+      [ commentWithDelta
+      | any (isPostDocComment . fst) exactFollowingComments
+      , commentWithDelta <- exactFollowingComments
+      ]
+
+  layoutPlannedTypeComment commentWithDelta@(exactComment, _) = do
+    commentPlan <- mAsk
+    case planComment commentPlan commentWithDelta of
+      Left commentError -> do
+        mTell [ErrorCommentPlan $ show commentError]
+        docEmpty
+      Right planned | isPostDocComment exactComment ->
+        let placement = (plannedCommentPlacement planned)
+              { placementRole = HaddockPostDoc SignatureResult }
+        in  allocateNode $ BDFComment planned
+              { plannedCommentPlacement = placement
+              , plannedCommentIndentPolicy = SourceColumnIndent
+              }
+      Right planned -> allocateNode $ BDFComment planned
+
+  isPostDocComment exactComment = case dropWhile (== ' ')
+      $ ExactPrintCompat.commentContents exactComment of
+    '-' : '-' : rest -> startsWithCaret rest
+    '{' : '-' : rest -> startsWithCaret rest
+    _ -> False
+   where
+    startsWithCaret = List.isPrefixOf "^" . dropWhile (== ' ')
 
 sourceCommentsBetween
   :: [(Int, Int)]
