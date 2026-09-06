@@ -1,7 +1,9 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 
 module Language.Haskell.Brittany.Internal.ExtractAnns.PostDocs
-  (reassignClassFinalPostDocs) where
+  ( reassignClassFinalPostDocs
+  , reassignTypeSynonymFinalPostDocs
+  ) where
 
 import           Data.Data                                ( Data )
 import           Data.Foldable                            ( toList )
@@ -12,6 +14,7 @@ import           GHC                                      ( GenLocated(L)
                                                           , unLoc
                                                           )
 import           GHC.Hs                                   ( HsDecl(..)
+                                                          , HsType(..)
                                                           , LHsDecl
                                                           , LSig
                                                           , Sig(..)
@@ -24,14 +27,46 @@ import qualified GHC.Types.SrcLoc                        as SrcLoc
 import           Language.Haskell.Brittany.Internal.ExactPrintCompat
 import           Language.Haskell.Brittany.Internal.Prelude
 
+-- | Keep a post-doc after a class body attached to its final signature.
 reassignClassFinalPostDocs :: [LHsDecl GhcPs] -> Anns -> Anns
 reassignClassFinalPostDocs declarations annotations =
   List.foldl' reassignPair annotations $ zip declarations $ drop 1 declarations
 
+-- | Keep a trailing function-result post-doc inside a type synonym RHS.
+reassignTypeSynonymFinalPostDocs :: [LHsDecl GhcPs] -> Anns -> Anns
+reassignTypeSynonymFinalPostDocs declarations annotations =
+  List.foldl' reassignTypeSynonym annotations
+    $ zip declarations
+    $ (Just <$> drop 1 declarations)
+    ++ [Nothing]
+
+reassignTypeSynonym :: Anns -> (LHsDecl GhcPs, Maybe (LHsDecl GhcPs)) -> Anns
+reassignTypeSynonym annotations (declaration, nextDeclaration) =
+  case typeSynonymTarget declaration of
+    Nothing -> annotations
+    Just (declarationKey, declarationEnd, targetKey, targetEnd) ->
+      let nextTarget = do
+            next      <- nextDeclaration
+            nextStart <- nodeStart next
+            pure (mkAnnKeyL next, nextStart)
+          afterFollowing = moveFollowingPostDocs declarationKey
+                                                 declarationEnd
+                                                 targetKey
+                                                 targetEnd
+                                                 (snd <$> nextTarget)
+                                                 annotations
+      in  case nextTarget of
+            Nothing -> afterFollowing
+            Just (nextKey, nextStart) -> movePriorPostDocs targetKey
+                                                           targetEnd
+                                                           nextKey
+                                                           nextStart
+                                                           afterFollowing
+
 reassignPair :: Anns -> (LHsDecl GhcPs, LHsDecl GhcPs) -> Anns
 reassignPair annotations (previous, next) =
   case (finalClassSignature previous, nodeStart next) of
-    (Just (signatureKey, signatureEnd), Just nextStart) -> movePostDocs
+    (Just (signatureKey, signatureEnd), Just nextStart) -> movePriorPostDocs
       signatureKey
       signatureEnd
       (mkAnnKeyL next)
@@ -58,15 +93,25 @@ finalClassSignature (L _ declaration) = case declaration of
           _ -> mkAnnKeyL signature
     pure (targetKey, signatureEnd)
 
-movePostDocs :: AnnKey -> (Int, Int) -> AnnKey -> (Int, Int) -> Anns -> Anns
-movePostDocs signatureKey signatureEnd nextKey nextStart annotations =
+typeSynonymTarget
+  :: LHsDecl GhcPs -> Maybe (AnnKey, (Int, Int), AnnKey, (Int, Int))
+typeSynonymTarget declaration@(L _ declaration') = case declaration' of
+  TyClD _ SynDecl { tcdRhs = rhs@(L _ HsFunTy{}) } -> do
+    declarationEnd <- nodeEnd declaration
+    targetEnd      <- nodeEnd rhs
+    pure (mkAnnKeyL declaration, declarationEnd, mkAnnKeyL rhs, targetEnd)
+  _ -> Nothing
+
+movePriorPostDocs
+  :: AnnKey -> (Int, Int) -> AnnKey -> (Int, Int) -> Anns -> Anns
+movePriorPostDocs targetKey targetEnd nextKey nextStart annotations =
   case Map.lookup nextKey annotations of
     Nothing -> annotations
     Just nextAnnotation ->
       case List.partition shouldMove $ annPriorComments nextAnnotation of
         ([], _) -> annotations
         (moved, remaining) ->
-          Map.alter (Just . addToSignature moved) signatureKey $ Map.insert
+          Map.alter (Just . addFollowing targetEnd moved) targetKey $ Map.insert
             nextKey
             (nextAnnotation
               { annPriorComments = rebasePriors remaining
@@ -78,16 +123,45 @@ movePostDocs signatureKey signatureEnd nextKey nextStart annotations =
   shouldMove (comment, _) = isPostDoc comment && case commentRange comment of
     Nothing -> False
     Just (commentStart, commentEnd) ->
-      signatureEnd < commentStart && commentEnd < nextStart
-  addToSignature moved maybeAnnotation =
-    let annotation = fromMaybe emptyAnnotation maybeAnnotation
-        following =
-          List.sortOn commentStartPosition
-            $ annFollowingComments annotation
-            ++ moved
-    in  annotation
-          { annFollowingComments = rebaseComments signatureEnd following
-          }
+      targetEnd < commentStart && commentEnd < nextStart
+
+moveFollowingPostDocs
+  :: AnnKey
+  -> (Int, Int)
+  -> AnnKey
+  -> (Int, Int)
+  -> Maybe (Int, Int)
+  -> Anns
+  -> Anns
+moveFollowingPostDocs ownerKey ownerEnd targetKey targetEnd upperBound annotations
+  = case Map.lookup ownerKey annotations of
+    Nothing -> annotations
+    Just ownerAnnotation ->
+      case List.partition shouldMove $ annFollowingComments ownerAnnotation of
+        ([], _) -> annotations
+        (moved, remaining) ->
+          Map.alter (Just . addFollowing targetEnd moved) targetKey $ Map.insert
+            ownerKey
+            (ownerAnnotation
+              { annFollowingComments = rebaseComments ownerEnd remaining
+              }
+            )
+            annotations
+ where
+  shouldMove (comment, _) = isPostDoc comment && case commentRange comment of
+    Nothing -> False
+    Just (commentStart, commentEnd) ->
+      ownerEnd < commentStart && maybe True (commentEnd <) upperBound
+
+addFollowing
+  :: (Int, Int) -> [(Comment, DeltaPos)] -> Maybe Annotation -> Annotation
+addFollowing targetEnd moved maybeAnnotation =
+  let annotation = fromMaybe emptyAnnotation maybeAnnotation
+      following =
+        List.sortOn commentStartPosition
+          $ annFollowingComments annotation
+          ++ moved
+  in  annotation { annFollowingComments = rebaseComments targetEnd following }
 
 rebasePriors :: [(Comment, DeltaPos)] -> [(Comment, DeltaPos)]
 rebasePriors comments = case List.sortOn commentStartPosition comments of

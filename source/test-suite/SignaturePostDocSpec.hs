@@ -18,6 +18,14 @@ spec projectRoot = Hspec.describe "Haddock-commented type signatures" $ do
     "ClassFinalPostDocEdgeInput.hs"
     "ClassFinalPostDocEdgeExpected.hs"
   formattingExampleAt 2 projectRoot
+    "keeps a trailing type synonym post-doc at continuation indentation"
+    "TypeSynonymPostDocInput.hs"
+    "TypeSynonymPostDocExpected.hs"
+  formattingExampleAt 4 projectRoot
+    "keeps an end-of-file type synonym post-doc at configured indentation"
+    "TypeSynonymPostDocEdgeInput.hs"
+    "TypeSynonymPostDocEdgeExpected.hs"
+  formattingExampleAt 2 projectRoot
     "formats a Headroom-style signature at configured indentation"
     "SignaturePostDocInput.hs"
     "SignaturePostDocExpected.hs"
@@ -35,6 +43,9 @@ spec projectRoot = Hspec.describe "Haddock-commented type signatures" $ do
   parseFailureExample projectRoot
     "rejects a malformed final class signature without changing input"
     "ClassFinalPostDocInvalid.hs"
+  parseFailureExample projectRoot
+    "rejects a malformed documented type synonym without changing input"
+    "TypeSynonymPostDocInvalid.hs"
 
 formattingExampleAt
   :: Int -> FilePath -> String -> FilePath -> FilePath -> Hspec.SpecWith ()

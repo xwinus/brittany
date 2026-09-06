@@ -361,6 +361,7 @@ extractAnnsFromModule lmod =
       redistributed = redistributeInnerCommentsWithChildSkips
         fullSpanMap nonDeclKeys Map.empty merged
   in PostDocs.reassignClassFinalPostDocs (hsmodDecls mod')
+    $ PostDocs.reassignTypeSynonymFinalPostDocs (hsmodDecls mod')
     $ materializeCommentBoundaries lmod redistributed
 
 -- | Redistribute intra-declaration comments from the module annotation to
