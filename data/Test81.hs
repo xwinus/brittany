@@ -1,2 +1,4 @@
-func reallyreallyreallyreallyreallyreallyreallyreallyreallyreallylongvariable reallyreallyreallyreallyreallyreallyreallyreallyreallyreallylongvariable
-  = x
+func
+    reallyreallyreallyreallyreallyreallyreallyreallyreallyreallylongvariable
+    reallyreallyreallyreallyreallyreallyreallyreallyreallyreallylongvariable
+   = x

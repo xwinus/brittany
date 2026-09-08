@@ -674,7 +674,7 @@ layoutBindWithComments declarationComments lbind@(L _ bind) = case bind of
     hasComments <- hasAnyCommentsBelow (toL lbind)
     formatted <- docWrapNode (toL lbind) $ layoutPatternBindFinal
       OptionalSiblingAlignment Nothing binderDoc (Just patDocs)
-      multilinePatDoc clauseDocs (hasSingleBooleanGuard grhss) mWhereArg
+      multilinePatDoc Nothing clauseDocs (hasSingleBooleanGuard grhss) mWhereArg
       (hasComments || not (null separatorComments))
     Right <$> prependConsumedComments
       (separatorComments ++ handledClauseComments clauseDocs)
@@ -761,6 +761,7 @@ layoutIPBind lipbind@(L _ bind) = case bind of
         Nothing
         binderDoc
         (Just ipName)
+        Nothing
         Nothing
         [([], exprDoc, expr, [])]
         False
@@ -1044,7 +1045,10 @@ layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
     (Nothing, ps) ->
       docCols ColPatterns
         $ (List.intersperse docSeparator $ docForceSingleline <$> ps)
-  mMultilinePatDoc <- if isInfix || not (any Data.Maybe.isJust multilinePatDocs)
+  let hasPrefixArguments = Data.Maybe.isJust mIdStr' && length patDocs > 1
+      hasStructuralPatterns = any Data.Maybe.isJust multilinePatDocs
+  mMultilinePatDoc <- if isInfix
+      || not (hasPrefixArguments || hasStructuralPatterns)
     then return Nothing
     else do
       selectedDocs <- sequence $ zipWith
@@ -1055,10 +1059,19 @@ layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
         patDocs
         multilinePatDocs
       case (mIdStr', selectedDocs) of
-        (Just idStr, ps@(_ : _)) -> fmap Just
-          $ docWrapNodePrior (toL lmatch)
-          $ docAddBaseY BrIndentRegular
-          $ docPar (docLit idStr) (docLines $ return <$> ps)
+        (Just idStr, ps@(_ : _)) -> do
+          let lastArgumentIndex = length ps - 1
+          lineDocs <- sequence
+            [ case unLoc pattern' of
+                InvisPat{} | argumentIndex < lastArgumentIndex ->
+                  omitPatternTrailingLineBreak document
+                _ -> pure document
+            | (argumentIndex, pattern', document) <- zip3 [0 ..] pats ps
+            ]
+          fmap Just
+            $ docWrapNodePrior (toL lmatch)
+            $ docAddBaseY BrIndentRegular
+            $ docPar (docLit idStr) (docLines $ return <$> lineDocs)
         (Nothing, [p]) -> fmap Just
           $ docWrapNodePrior (toL lmatch)
           $ return p
@@ -1080,7 +1093,10 @@ layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
   prependConsumedComments
     (separatorComments ++ handledClauseComments clauseDocs)
     $ layoutPatternBindFinal alignmentScope alignmentToken binderWithComments
-      (Just patDoc) mMultilinePatDoc clauseDocs
+      (Just patDoc)
+      (if hasStructuralPatterns then mMultilinePatDoc else Nothing)
+      (if hasStructuralPatterns then Nothing else mMultilinePatDoc)
+      clauseDocs
       (hasSingleBooleanGuard grhss) mWhereArg
       (hasComments || not (null separatorComments))
 
@@ -1111,13 +1127,14 @@ layoutPatternBindFinal
   -> BriDocNumbered
   -> Maybe BriDocNumbered
   -> Maybe BriDocNumbered
+  -> Maybe BriDocNumbered
   -> [([BriDocNumbered], BriDocNumbered, LHsExpr GhcPs, [SourceComment])]
   -> Bool
   -> Maybe (AnnKey, [BriDocNumbered])
      -- ^ AnnKey for the node that contains the AnnWhere position annotation
   -> Bool
   -> ToBriDocM BriDocNumbered
-layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilinePatDoc clauseDocs hasSingleBodyGuard mWhereDocs hasComments
+layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilinePatDoc mArgumentSequenceDoc clauseDocs hasSingleBodyGuard mWhereDocs hasComments
   = do
     let alignmentCandidates = case alignmentScope of
           RequiredPatternAlignment -> [StructuralAffinity $ Right ()]
@@ -1128,9 +1145,12 @@ layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilin
       patPartInline = case mPatDoc of
         Nothing -> []
         Just patDoc -> [appSep $ docForceSingleline $ return patDoc]
+      -- Choose the head independently so an overflowing body cannot expand it.
       patPartParWrap = case mPatDoc of
         Nothing -> id
-        Just patDoc -> docPar (return patDoc)
+        Just patDoc -> docPar $ case mArgumentSequenceDoc of
+          Nothing -> return patDoc
+          Just multilinePatDoc -> docAlt [return patDoc, return multilinePatDoc]
     whereIndent <- do
       shouldSpecial <-
         mAsk <&> _conf_layout .> _lconfig_indentWhereSpecial .> confUnpack

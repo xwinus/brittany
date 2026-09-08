@@ -11,6 +11,7 @@ module Language.Haskell.Brittany.Internal.Layouters.Pattern
   , layoutPattern
   , patternCompactDocument
   , patternDocument
+  , omitPatternTrailingLineBreak
   , wrapPatListy
   , wrapPatPrepend
   ) where
