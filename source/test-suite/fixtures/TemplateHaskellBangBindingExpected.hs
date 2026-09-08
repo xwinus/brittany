@@ -24,6 +24,5 @@ re =
   quoteExpRegex txt =
     [|compileRegex txt|]
    where
-    !validated = compileRegex txt
-    -- check at compile time
-    checked = validated
+    !validated = compileRegex txt -- check at compile time
+    checked    = validated

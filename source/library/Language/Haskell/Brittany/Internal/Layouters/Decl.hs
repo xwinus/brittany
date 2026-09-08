@@ -54,6 +54,7 @@ import Language.Haskell.Brittany.Internal.Layouters.DataDecl
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
 import Language.Haskell.Brittany.Internal.Layouters.FixitySignature
 import Language.Haskell.Brittany.Internal.Layouters.Pattern
+import Language.Haskell.Brittany.Internal.Layouters.LocalComments
 import Language.Haskell.Brittany.Internal.Layouters.StandaloneKindSignature
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Stmt
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
@@ -811,14 +812,13 @@ layoutLocalBindsWithComments outerComments lbinds@(L _ binds) = case binds of
     docs <- docWrapAnnKeyList
       (ExactPrintCompat.mkNamedAnnKey "HsValBinds" $ getLoc lbinds)
       $ pure itemDocs
-    let previousItems = Nothing : (Just <$> ordered)
+    let itemSpans = bindOrSigtoSrcSpan <$> ordered
+        previousSpans = Nothing : (Just <$> itemSpans)
         leadingComments = zipWith
-          (leadingLocalComments localComments)
-          previousItems
-          ordered
+          (leadingLocalComments localComments) previousSpans itemSpans
     Just <$> sequence
-      (zipWith prependLocalComments leadingComments
-        (zip (bindOrSigtoSrcSpan <$> ordered) docs)
+      (List.zipWith3 (prependLocalComments localComments) previousSpans leadingComments
+        (zip itemSpans docs)
       )
 --  x@(HsValBinds (ValBindsOut _binds _lsigs)) ->
   HsValBinds _ (XValBindsLR{}) -> error "brittany internal error: XValBindsLR"
@@ -830,48 +830,6 @@ localBindsSpan (HsValBinds (EpAnn anchor _ _) _) = case anchor of
   EpaSpan span' -> span'
   _ -> noSrcSpan
 localBindsSpan _ = noSrcSpan
-
-leadingLocalComments
-  :: [SourceComment]
-  -> Maybe BagBindOrSig
-  -> BagBindOrSig
-  -> [SourceComment]
-leadingLocalComments sourceComments previous current = List.sortOn
-    sourceCommentStart
-  $ filter isLeading sourceComments
- where
-  isLeading sourceComment = case
-      ( srcSpanToRealSpan $ bindOrSigtoSrcSpan current
-      , srcSpanToRealSpan . bindOrSigtoSrcSpan =<< previous
-      ) of
-    (Just currentSpan, previousSpan) ->
-      sourceCommentEnd sourceComment
-        <= (srcSpanStartLine currentSpan, srcSpanStartCol currentSpan)
-        && maybe True
-          (\span' ->
-            (srcSpanEndLine span', srcSpanEndCol span')
-              <= sourceCommentStart sourceComment
-          )
-          previousSpan
-    _ -> False
-
-prependLocalComments
-  :: [SourceComment]
-  -> (SrcSpan, BriDocNumbered)
-  -> ToBriDocM BriDocNumbered
-prependLocalComments [] (_, formatted) = pure formatted
-prependLocalComments sourceComments (itemSpan, formatted) =
-  prependConsumedComments sourceComments $ docLines
-    $ (layoutPatSynComment <$> sourceComments)
-    ++ blankLineBeforeItem
-    ++ [pure formatted]
- where
-  blankLineBeforeItem = case
-      (List.last sourceComments, srcSpanToRealSpan itemSpan) of
-    (lastComment, Just realItemSpan)
-      | srcSpanStartLine realItemSpan
-          - srcSpanEndLine (sourceCommentSpan lastComment) > 1 -> [docBlankLine]
-    _ -> []
 
 -- TODO: we don't need the `LHsExpr GhcPs` anymore, now that there is
 -- parSpacing stuff.B
