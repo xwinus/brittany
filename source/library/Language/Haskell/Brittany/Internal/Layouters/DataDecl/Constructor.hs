@@ -382,8 +382,8 @@ gadtSignatureComments constructor arguments resultType = do
     (Just start, Just end) -> List.sortOn gadtSourceCommentStart
       [ sourceComment
       | sourceComment <- Map.elems $ commentPlanSources commentPlan
-      , fst (gadtSourceCommentStart sourceComment) >= fst start
-      , fst (gadtSourceCommentEnd sourceComment) <= fst end
+      , gadtSourceCommentStart sourceComment >= start
+      , gadtSourceCommentEnd sourceComment <= end
       ]
     _ -> []
 

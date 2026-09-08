@@ -10,8 +10,10 @@ import qualified Data.Char                               as Char
 import           Data.Data                                ( Data )
 import qualified Data.Generics                           as SYB
 import           Data.Kind                                ( Type )
+import qualified Data.List                               as List
 import qualified Data.Map                                as Map
 import qualified Data.Maybe                              as Maybe
+import qualified Data.Set                                as Set
 import           GHC                                      ( GenLocated(L)
                                                           , getLoc
                                                           , unLoc
@@ -24,8 +26,14 @@ import           GHC.Hs                                   ( DataDefnCons(..)
                                                           )
 import           GHC.Parser.Annotation                    ( getLocA )
 import qualified GHC.Types.SrcLoc                        as SrcLoc
+import           Language.Haskell.Brittany.Internal.CommentBoundary.Trailing
+                                                          ( plainLineCommentText
+                                                          , takeTrailingContinuationRun
+                                                          )
 import           Language.Haskell.Brittany.Internal.ExactPrintCompat
 import           Language.Haskell.Brittany.Internal.Prelude
+import           Language.Haskell.Brittany.Internal.SourceComment.Types
+                                                          ( SourceCommentKey(..) )
 
 type BoundaryNode :: Type
 data BoundaryNode = BoundaryNode
@@ -35,12 +43,79 @@ data BoundaryNode = BoundaryNode
 
 normalizeConstructorComments :: [LHsDecl GhcPs] -> Anns -> Anns
 normalizeConstructorComments declarations annotations =
-  foldl moveGroup annotations
-    $ constructorBoundaryGroups declarations
-    ++ terminalConstructorBoundaryGroups declarations
+  foldl moveOrdinaryGroup postDocAnnotations
+    $ terminalConstructorBoundaryGroups declarations True
  where
+  postDocAnnotations = foldl moveGroup annotations
+    $ constructorBoundaryGroups declarations
+    ++ terminalConstructorBoundaryGroups declarations False
   moveGroup currentAnnotations nodes =
     foldl movePostDocs currentAnnotations $ zip nodes $ drop 1 nodes
+  moveOrdinaryGroup currentAnnotations nodes =
+    foldl moveOrdinaryRun currentAnnotations
+      $ zip nodes $ (Just <$> drop 1 nodes) ++ [Nothing]
+
+moveOrdinaryRun :: Anns -> (BoundaryNode, Maybe BoundaryNode) -> Anns
+moveOrdinaryRun annotations (constructor, nextNode) =
+  fromMaybe annotations $ do
+    let key@(AnnKey _ constructorName) = boundaryKey constructor
+    guard $ unConName constructorName `elem` ["ConDeclH98", "ConDeclGADT"]
+    constructorSpan <- annKeyRealSpan key
+    let candidates = List.sortOn (spanStart . snd)
+          [ (comment, span')
+          | annotation <- Map.elems annotations
+          , comment <- annotationComments annotation
+          , Just span' <- [srcSpanToRealSpan $ commentIdentifier comment]
+          , SrcLoc.srcSpanFile span' == SrcLoc.srcSpanFile constructorSpan
+          , spanStart span' >= spanEnd constructorSpan
+          , maybe True (spanStart span' <)
+              (nextNode >>= annKeyRealSpan . boundaryKey >>= pure . spanStart)
+          ]
+        (sameLine, following) = List.partition
+          ((== SrcLoc.srcSpanEndLine constructorSpan) . SrcLoc.srcSpanStartLine . snd)
+          candidates
+        seeds = filter (\(comment, span') ->
+          plainLineCommentText (commentContents comment)
+            && SrcLoc.srcSpanStartLine span' == SrcLoc.srcSpanEndLine span') sameLine
+        (continuations, _) = takeTrailingContinuationRun constructorSpan
+          (fst <$> seeds) (fst <$> following)
+        moved = (fst <$> seeds) ++ continuations
+        movedKeys = Set.fromList $ commentKey <$> moved
+        occurrences = Map.fromListWith (+)
+          [(commentKey comment, 1 :: Int) | (comment, _) <- candidates]
+    guard $ not $ null continuations
+    -- A repeated occurrence must remain visible to comment-plan validation.
+    guard $ all (\comment -> Map.lookup (commentKey comment) occurrences == Just 1) moved
+    let removed = Map.mapWithKey (removeRun movedKeys) annotations
+        previous = Map.findWithDefault emptyAnnotation key removed
+        merged = List.sortOn (commentKey . fst)
+          $ annFollowingComments previous ++ [(comment, DP (0, 0)) | comment <- moved]
+    pure $ Map.insert key
+      previous { annFollowingComments = rebaseComments (spanEnd constructorSpan) merged }
+      removed
+ where
+  commentKey = SourceCommentKey . commentIdentifier
+  annotationComments annotation =
+    (fst <$> annPriorComments annotation)
+      ++ (fst <$> annFollowingComments annotation)
+      ++ [comment | (AnnComment comment, _) <- annsDP annotation]
+  removeRun keys key annotation =
+    let keep = (`Set.notMember` keys) . commentKey
+        priors = filter (keep . fst) $ annPriorComments annotation
+        nextDeclaration = maybe False ((== key) . boundaryKey) nextNode
+          && case key of
+            AnnKey _ name -> unConName name `elem` ["ValD", "SigD", "TyClD"]
+    in annotation
+      { annPriorComments = priors
+      , annFollowingComments = filter (keep . fst) $ annFollowingComments annotation
+      , annsDP = filter (\case
+          (AnnComment comment, _) -> keep comment
+          _ -> True) $ annsDP annotation
+      , annEntryDelta = if nextDeclaration && null priors
+            && not (null $ annPriorComments annotation)
+          then DP (0, 0)
+          else annEntryDelta annotation
+      }
 
 movePostDocs :: Anns -> (BoundaryNode, BoundaryNode) -> Anns
 movePostDocs annotations (previousNode, currentNode) =
@@ -175,11 +250,11 @@ constructorBoundaryGroups = SYB.everything (++) query
   derivingNode derivingClause =
     locatedNode (L (getLocA derivingClause) $ unLoc derivingClause)
 
-terminalConstructorBoundaryGroups :: [LHsDecl GhcPs] -> [[BoundaryNode]]
-terminalConstructorBoundaryGroups declarations = Maybe.mapMaybe boundaryGroup
-  $ zip declarations $ drop 1 declarations
+terminalConstructorBoundaryGroups :: [LHsDecl GhcPs] -> Bool -> [[BoundaryNode]]
+terminalConstructorBoundaryGroups declarations includeFinal = Maybe.mapMaybe boundaryGroup
+  $ zip declarations $ (Just <$> drop 1 declarations) ++ [Nothing | includeFinal]
  where
-  boundaryGroup :: (LHsDecl GhcPs, LHsDecl GhcPs) -> Maybe [BoundaryNode]
+  boundaryGroup :: (LHsDecl GhcPs, Maybe (LHsDecl GhcPs)) -> Maybe [BoundaryNode]
   boundaryGroup (declaration, nextDeclaration) = case unLoc declaration of
     TyClD _ DataDecl
       { tcdDataDefn = HsDataDefn
@@ -189,7 +264,7 @@ terminalConstructorBoundaryGroups declarations = Maybe.mapMaybe boundaryGroup
       } -> Just
         $ fmap constructorNode (constructorList constructors)
         ++ fmap derivingNode derivings
-        ++ [locatedNode $ L (getLocA nextDeclaration) $ unLoc nextDeclaration]
+        ++ maybe [] (\next -> [locatedNode $ L (getLocA next) $ unLoc next]) nextDeclaration
     _ -> Nothing
   constructorList = \case
     NewTypeCon constructor -> [constructor]

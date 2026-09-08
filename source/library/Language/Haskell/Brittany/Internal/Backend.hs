@@ -397,6 +397,14 @@ renderPlannedComment planned = do
             <|> startTrailingCommentRun planned commentColumn
         }
       layoutWriteAppendMultiline commentLines
+      -- Keep the run column from becoming the next constructor's indentation.
+      when
+        ( Maybe.isJust continuedRun
+        && case commentBoundaryPath $ plannedCommentBoundary planned of
+          ConstructorBoundaryPath{} -> True
+          _ -> False
+        ) $ mModify $ \current -> current
+          { _lstate_commentCol = _lstate_commentCol state }
       when
         ( sourceCommentSyntax source == BlockComment
         && ownLine

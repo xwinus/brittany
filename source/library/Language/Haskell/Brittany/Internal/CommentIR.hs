@@ -392,6 +392,8 @@ planSourceCommentWithDelta plan source lineDelta columnDelta = case
           else rolePlacement
         baseLineDelta = lineDelta
         inlineConstructorDoc = placementRole placement == LeadingDoc
+          && not (any (earlierPrior placement)
+            $ Map.elems $ commentPlanPlacements plan)
           && case placementOwner placement of
             NodeId (AnnKey _ constructor) -> unConName constructor
               == "ConDeclH98"
@@ -453,6 +455,9 @@ planSourceCommentWithDelta plan source lineDelta columnDelta = case
   (_, _, Nothing) -> Left $ MissingCommentBoundary key
  where
   key = sourceCommentKey source
+  earlierPrior placement other = placementOwner other == placementOwner placement
+    && placementAnchor other == BeforeNode
+    && placementRelativeOrder other < placementRelativeOrder placement
 
 leadingDocContinuation :: CommentPlan -> SourceComment -> CommentBoundaryId -> Bool
 leadingDocContinuation plan source boundary = case commentBoundaryPath boundary of
