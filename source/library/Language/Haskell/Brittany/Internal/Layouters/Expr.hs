@@ -66,6 +66,24 @@ isSymbolicSectionOp (L _ expr) =
   where
     isSymbolic s = not (null s) && head s `elem` ("!:#$%&*+./<=>?@\\^|-~" :: String)
 
+-- Keep backticks inside the annotation wrapper so trailing comments follow them.
+layoutInfixOperator :: LHsExpr GhcPs -> ToBriDocM BriDocNumbered
+layoutInfixOperator operator@(L _ (HsVar _ name)) =
+  docWrapNode (toL operator) $ do
+    text <- lrdrNameToTextAnn (toL name)
+    symbolic <- isSymbolicSectionOp operator
+    docLit $ if symbolic then text else Text.pack "`" <> text <> Text.pack "`"
+layoutInfixOperator operator = layoutExpr' $ toL operator
+
+operatorRhsBreakReducesIndent :: LHsExpr GhcPs -> ToBriDocM Bool
+operatorRhsBreakReducesIndent operator@(L _ (HsVar _ name)) = do
+  text <- lrdrNameToTextAnn (toL name)
+  symbolic <- isSymbolicSectionOp operator
+  indent <- mAsk <&> _conf_layout .> _lconfig_indentAmount .> confUnpack
+  -- A short operator already leaves at least as much room as a continuation.
+  pure $ Text.length text + (if symbolic then 1 else 3) > indent
+operatorRhsBreakReducesIndent _ = pure False
+
 matchGroupKey
   :: HasLoc l => GenLocated l e -> ExactPrintCompat.AnnKey
 matchGroupKey lmatches = ExactPrintCompat.mkNamedAnnKey
@@ -133,29 +151,32 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
       (leftOperand, appList) = gather [] expLeft
   leftOperandDoc <- docSharedWrapper layoutExpr' (toL leftOperand)
   appListDocs <- appList `forM` \(op, operand) -> do
-    isSymbolic <- isSymbolicSectionOp op
-    opDoc <- docSharedWrapper layoutExpr' (toL op)
+    opDoc <- docSharedWrapper layoutInfixOperator op
     operandDoc <- docSharedWrapper layoutExpr' (toL operand)
-    let wrappedOp = if isSymbolic
-          then opDoc
-          else docSeq [docLit $ Text.pack "`", opDoc, docLit $ Text.pack "`"]
-    pure (wrappedOp, operandDoc)
-  isLastSymbolic <- isSymbolicSectionOp expOp
-  lastOpDoc' <- docSharedWrapper layoutExpr' (toL expOp)
-  let lastOpDoc = if isLastSymbolic
-        then lastOpDoc'
-        else docSeq
-          [docLit $ Text.pack "`", lastOpDoc', docLit $ Text.pack "`"]
+    reducesIndent <- operatorRhsBreakReducesIndent op
+    pure (opDoc, operandDoc, reducesIndent && isListExpression (unLoc operand))
+  lastReducesIndent <- operatorRhsBreakReducesIndent expOp
+  let lastAllowsBreak = lastReducesIndent && isListExpression (unLoc expRight)
+  lastOpDoc <- docSharedWrapper layoutInfixOperator expOp
   lastOperandDoc <- docSharedWrapper layoutExpr' (toL expRight)
   let allowPar = case (expOp, expRight) of
         (L _ (HsVar _ (L _ (Unqual occname))), _)
           | occNameString occname == "$" -> True
         (_, L _ (HsApp _ _ (L _ HsVar{}))) -> False
         _ -> True
+  let layoutChain allowBreak =
+        -- Merge pending indentation instead of counting it again in the paragraph.
+        docAddBaseY BrIndentRegular $ docPar leftOperandDoc $ docLines
+          $ (appListDocs <&> \(opDoc, operandDoc, listOperand) ->
+              layoutOperatorContinuation (allowBreak && listOperand) opDoc operandDoc)
+          ++ [layoutOperatorContinuation
+                (allowBreak && lastAllowsBreak)
+                lastOpDoc lastOperandDoc]
+  attachedChain <- layoutChain False
   runFilteredAlternative $ do
     addAlternative $ docSeq
       [ appSep $ docForceSingleline leftOperandDoc
-      , docSeq $ appListDocs <&> \(opDoc, operandDoc) -> docSeq
+      , docSeq $ appListDocs <&> \(opDoc, operandDoc, _) -> docSeq
         [ appSep $ docForceSingleline opDoc
         , appSep $ docForceSingleline operandDoc
         ]
@@ -163,17 +184,32 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
       , (if allowPar then docForceParSpacing else docForceSingleline)
         lastOperandDoc
       ]
-    addAlternative
-      $ docParIndented BrIndentRegular
-        leftOperandDoc
-      $ docLines
-      $ (appListDocs <&> \(opDoc, operandDoc) ->
-          docCols ColOpPrefix [appSep opDoc, docSetBaseY operandDoc]
-        )
-      ++ [ docCols
-             ColOpPrefix
-             [appSep lastOpDoc, docSetBaseY lastOperandDoc]
-         ]
+    addAlternative $ pure attachedChain
+    addAlternativeCond
+      (lastAllowsBreak || any (\(_, _, listOperand) -> listOperand) appListDocs)
+      $ layoutChain True
+
+isListExpression :: HsExpr GhcPs -> Bool
+isListExpression = \case
+  ExplicitList{} -> True
+  HsPar _ inner -> isListExpression $ unLoc inner
+  _ -> False
+
+layoutOperatorContinuation
+  :: Bool
+  -> ToBriDocM BriDocNumbered
+  -> ToBriDocM BriDocNumbered
+  -> ToBriDocM BriDocNumbered
+layoutOperatorContinuation allowBreak operator operand = do
+  attached <- docCols ColOpPrefix [appSep operator, docSetBaseY operand]
+  if allowBreak
+    then docAlt
+      [ pure attached
+      , docParIndented BrIndentRegular operator operand
+      -- Preserve the previous fallback when even a separate RHS cannot fit.
+      , pure attached
+      ]
+    else pure attached
 
 layoutOperatorApplication
   :: LHsExpr GhcPs
@@ -182,11 +218,8 @@ layoutOperatorApplication
   -> ToBriDocM BriDocNumbered
 layoutOperatorApplication expLeft expOp expRight = do
   expDocLeft <- layoutOperatorLeftOperand expLeft
-  expDocOp <- docSharedWrapper layoutExpr' (toL expOp)
-  isSymOp <- isSymbolicSectionOp expOp
-  let expDocOp' = if isSymOp
-        then expDocOp
-        else docSeq [docLit $ Text.pack "`", expDocOp, docLit $ Text.pack "`"]
+  reducesIndent <- operatorRhsBreakReducesIndent expOp
+  expDocOp' <- docSharedWrapper layoutInfixOperator expOp
   expDocRight <- docSharedWrapper layoutExpr' (toL expRight)
   let allowPar = case (expOp, expRight) of
         (L _ (HsVar _ (L _ (Unqual occname))), _)
@@ -206,6 +239,7 @@ layoutOperatorApplication expLeft expOp expRight = do
         | leftIsDoBlock = docLines [expDocLeft, opAndRight]
         | otherwise = docAddBaseY BrIndentRegular
           $ docPar expDocLeft opAndRight
+  attached <- docCols ColOpPrefix [appSep expDocOp', layoutRight]
   runFilteredAlternative $ do
     addAlternative $ docSeq
       [ appSep $ docForceSingleline expDocLeft
@@ -222,10 +256,15 @@ layoutOperatorApplication expLeft expOp expRight = do
       , appSep $ docForceSingleline expDocOp'
       , docForceParSpacing expDocRight
       ]
-    addAlternative $ do
-      let expDocOpAndRight =
-            docCols ColOpPrefix [appSep expDocOp', layoutRight]
-      layoutMultiline expDocOpAndRight
+    addAlternative $ layoutMultiline $ pure attached
+    addAlternativeCond (reducesIndent && isListExpression (unLoc expRight))
+      $ layoutMultiline
+      $ docAlt
+        [ pure attached
+        , docParIndented BrIndentRegular expDocOp' expDocRight
+        -- Retain the previous fallback if the RHS contains an indivisible token.
+        , pure attached
+        ]
 
 layoutExpr :: ToBriDoc HsExpr
 layoutExpr lexpr = layoutExpr' (toL lexpr)
