@@ -220,6 +220,7 @@ test-suite brittany-test-suite
     ColumnAlignmentSpec
     TransactionalInplaceSpec
     InfixRhsWrappingSpec
+    InfixBlockIndentationSpec
     LocalTrailingCommentSpec
     FunctionHeadWrappingSpec
     InlineCommentSpacingSpec

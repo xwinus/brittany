@@ -114,6 +114,11 @@ isParenthesizedBlockExpression = \case
   HsPar _ inner -> isBlockLikeExpression $ unLoc inner
   _ -> False
 
+isUnparenthesizedBlockExpression :: HsExpr GhcPs -> Bool
+isUnparenthesizedBlockExpression = \case
+  HsPar{} -> False
+  expression -> isBlockLikeExpression expression
+
 layoutOperatorLeftOperand
   :: LHsExpr GhcPs -> ToBriDocM (ToBriDocM BriDocNumbered)
 layoutOperatorLeftOperand expLeft@(L _ (HsPar _ inner))
@@ -154,7 +159,12 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
     opDoc <- docSharedWrapper layoutInfixOperator op
     operandDoc <- docSharedWrapper layoutExpr' (toL operand)
     reducesIndent <- operatorRhsBreakReducesIndent op
-    pure (opDoc, operandDoc, reducesIndent && isListExpression (unLoc operand))
+    pure
+      ( opDoc
+      , operandDoc
+      , reducesIndent && isListExpression (unLoc operand)
+      , isUnparenthesizedBlockExpression $ unLoc operand
+      )
   lastReducesIndent <- operatorRhsBreakReducesIndent expOp
   let lastAllowsBreak = lastReducesIndent && isListExpression (unLoc expRight)
   lastOpDoc <- docSharedWrapper layoutInfixOperator expOp
@@ -167,15 +177,16 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
   let layoutChain =
         -- Merge pending indentation instead of counting it again in the paragraph.
         docAddBaseY BrIndentRegular $ docPar leftOperandDoc $ docLines
-          $ (appListDocs <&> \(opDoc, operandDoc, listOperand) ->
-              layoutOperatorContinuation listOperand opDoc operandDoc)
+          $ (appListDocs <&> \(opDoc, operandDoc, listOperand, blockOperand) ->
+              layoutOperatorContinuation listOperand blockOperand opDoc operandDoc)
           ++ [layoutOperatorContinuation
                 lastAllowsBreak
+                (isUnparenthesizedBlockExpression $ unLoc expRight)
                 lastOpDoc lastOperandDoc]
   runFilteredAlternative $ do
     addAlternative $ docSeq
       [ appSep $ docForceSingleline leftOperandDoc
-      , docSeq $ appListDocs <&> \(opDoc, operandDoc, _) -> docSeq
+      , docSeq $ appListDocs <&> \(opDoc, operandDoc, _, _) -> docSeq
         [ appSep $ docForceSingleline opDoc
         , appSep $ docForceSingleline operandDoc
         ]
@@ -193,11 +204,13 @@ isListExpression = \case
 
 layoutOperatorContinuation
   :: Bool
+  -> Bool
   -> ToBriDocM BriDocNumbered
   -> ToBriDocM BriDocNumbered
   -> ToBriDocM BriDocNumbered
-layoutOperatorContinuation allowBreak operator operand = do
-  attached <- docCols ColOpPrefix [appSep operator, docSetBaseY operand]
+layoutOperatorContinuation allowBreak blockOperand operator operand = do
+  let layoutRight = if blockOperand then operand else docSetBaseY operand
+  attached <- docCols ColOpPrefix [appSep operator, layoutRight]
   if allowBreak
     then docAlt
       [ pure attached
@@ -228,7 +241,8 @@ layoutOperatorApplication expLeft expOp expRight = do
         _ -> False
       leftIsParenthesizedBlock =
         isParenthesizedBlockExpression $ unLoc expLeft
-      layoutRight = if isParenthesizedBlockExpression $ unLoc expRight
+      -- Block bodies inherit the enclosing base, not the cursor after the operator.
+      layoutRight = if isBlockLikeExpression $ unLoc expRight
         then expDocRight
         else docSetBaseY expDocRight
       layoutMultiline opAndRight
