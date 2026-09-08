@@ -368,11 +368,7 @@ renderPlannedComment planned = do
                 - if placementRole placement == SectionComment
                   then fromMaybe 0 (_lstate_addSepSpace state)
                   else 0
-            | otherwise -> layoutMoveToCommentPos 0
-                (max 0
-                  $ 1 - _lstate_indLevelLinger state
-                )
-                lineCount
+            | otherwise -> mModify $ resumeInlineCommentState lineCount
           SourceColumnIndent
             | placementRole placement == HaddockPostDoc RecordField ->
                 layoutMoveToAbsoluteCommentPos

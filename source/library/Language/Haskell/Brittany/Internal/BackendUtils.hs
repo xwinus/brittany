@@ -154,6 +154,21 @@ layoutMoveToCommentPos y x commentLines = do
       _lstate_commentNewlines state + y + commentLines - 1
     }
 
+-- An inline comment resumes the previous token's line with a token-relative gap.
+resumeInlineCommentState :: Int -> LayoutState -> LayoutState
+resumeInlineCommentState commentLines state = state
+  { _lstate_curYOrAddNewline = either Left (const $ Right 0)
+      $ _lstate_curYOrAddNewline state
+  , _lstate_addSepSpace = Just 1
+  , _lstate_commentCol = Just $ fromMaybe
+      (case _lstate_curYOrAddNewline state of
+        Left column -> column + fromMaybe 0 (_lstate_addSepSpace state)
+        Right{} -> lstate_baseY state)
+      (_lstate_commentCol state)
+  , _lstate_commentNewlines =
+      _lstate_commentNewlines state + commentLines - 1
+  }
+
 layoutMoveToAbsoluteCommentPos
   :: (MonadMultiWriter Text.Builder.Builder m, MonadMultiState LayoutState m)
   => Int
