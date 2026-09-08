@@ -161,7 +161,7 @@ main = Hspec.hspec $ do
   RecordFieldRhsIndentSpec.spec projectRoot
   TopLevelSpacingSpec.spec
   TransactionalInplaceSpec.spec projectRoot
-  InfixRhsWrappingSpec.spec
+  InfixRhsWrappingSpec.spec projectRoot
   LocalTrailingCommentSpec.spec
   FunctionHeadWrappingSpec.spec projectRoot
   InlineCommentSpacingSpec.spec

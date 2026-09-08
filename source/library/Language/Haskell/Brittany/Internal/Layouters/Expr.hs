@@ -164,15 +164,14 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
           | occNameString occname == "$" -> True
         (_, L _ (HsApp _ _ (L _ HsVar{}))) -> False
         _ -> True
-  let layoutChain allowBreak =
+  let layoutChain =
         -- Merge pending indentation instead of counting it again in the paragraph.
         docAddBaseY BrIndentRegular $ docPar leftOperandDoc $ docLines
           $ (appListDocs <&> \(opDoc, operandDoc, listOperand) ->
-              layoutOperatorContinuation (allowBreak && listOperand) opDoc operandDoc)
+              layoutOperatorContinuation listOperand opDoc operandDoc)
           ++ [layoutOperatorContinuation
-                (allowBreak && lastAllowsBreak)
+                lastAllowsBreak
                 lastOpDoc lastOperandDoc]
-  attachedChain <- layoutChain False
   runFilteredAlternative $ do
     addAlternative $ docSeq
       [ appSep $ docForceSingleline leftOperandDoc
@@ -184,10 +183,7 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
       , (if allowPar then docForceParSpacing else docForceSingleline)
         lastOperandDoc
       ]
-    addAlternative $ pure attachedChain
-    addAlternativeCond
-      (lastAllowsBreak || any (\(_, _, listOperand) -> listOperand) appListDocs)
-      $ layoutChain True
+    addAlternative layoutChain
 
 isListExpression :: HsExpr GhcPs -> Bool
 isListExpression = \case
@@ -221,7 +217,8 @@ layoutOperatorApplication expLeft expOp expRight = do
   reducesIndent <- operatorRhsBreakReducesIndent expOp
   expDocOp' <- docSharedWrapper layoutInfixOperator expOp
   expDocRight <- docSharedWrapper layoutExpr' (toL expRight)
-  let allowPar = case (expOp, expRight) of
+  let allowRhsBreak = reducesIndent && isListExpression (unLoc expRight)
+      allowPar = case (expOp, expRight) of
         (L _ (HsVar _ (L _ (Unqual occname))), _)
           | occNameString occname == "$" -> True
         (_, L _ (HsApp _ _ (L _ HsVar{}))) -> False
@@ -246,7 +243,9 @@ layoutOperatorApplication expLeft expOp expRight = do
       , appSep $ docForceSingleline expDocOp'
       , docForceSingleline expDocRight
       ]
-    addAlternative $ do
+    -- Eligible RHS lists must retain their break choice at the actual operator
+    -- column; the parent estimate may rely on a different multiline LHS layout.
+    addAlternativeCond (not allowRhsBreak) $ do
       let expDocOpAndRight = docForceSingleline $ docCols
             ColOpPrefix
             [appSep expDocOp', layoutRight]
@@ -256,15 +255,15 @@ layoutOperatorApplication expLeft expOp expRight = do
       , appSep $ docForceSingleline expDocOp'
       , docForceParSpacing expDocRight
       ]
-    addAlternative $ layoutMultiline $ pure attached
-    addAlternativeCond (reducesIndent && isListExpression (unLoc expRight))
-      $ layoutMultiline
-      $ docAlt
-        [ pure attached
-        , docParIndented BrIndentRegular expDocOp' expDocRight
-        -- Retain the previous fallback if the RHS contains an indivisible token.
-        , pure attached
-        ]
+    addAlternative $ layoutMultiline $
+      if allowRhsBreak
+        then docAlt
+          [ pure attached
+          , docParIndented BrIndentRegular expDocOp' expDocRight
+          -- Retain the previous fallback if the RHS contains an indivisible token.
+          , pure attached
+          ]
+        else pure attached
 
 layoutExpr :: ToBriDoc HsExpr
 layoutExpr lexpr = layoutExpr' (toL lexpr)
