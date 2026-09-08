@@ -20,7 +20,7 @@ import Language.Haskell.Brittany.Internal.SourceComment.Types
 
 type TrailingCommentRun :: Type
 data TrailingCommentRun = TrailingCommentRun
-  { trailingCommentSeed :: SourceComment
+  { trailingCommentSeed :: PlannedComment
   , trailingCommentPrevious :: SourceComment
   , trailingCommentColumn :: Int
   , trailingCommentSourceColumn :: Maybe Int
@@ -32,10 +32,7 @@ startTrailingCommentRun planned column = do
       placement = plannedCommentPlacement planned
   guard $ ordinarySource source
   guard $ placementLineRelation placement == InlineComment
-  guard $ case commentBoundaryPath $ plannedCommentBoundary planned of
-    ConstructorBoundaryPath{} -> False
-    _ -> True
-  pure $ TrailingCommentRun source source column Nothing
+  pure $ TrailingCommentRun planned source column Nothing
 
 continueTrailingCommentRun
   :: PlannedComment -> TrailingCommentRun -> Maybe TrailingCommentRun
@@ -44,13 +41,23 @@ continueTrailingCommentRun planned run = do
       placement = plannedCommentPlacement planned
       currentSpan = sourceCommentSpan source
       previousSpan = sourceCommentSpan $ trailingCommentPrevious run
-      seedSpan = sourceCommentSpan $ trailingCommentSeed run
+      seed = trailingCommentSeed run
+      seedSpan = sourceCommentSpan $ plannedCommentSource seed
       column = SrcLoc.srcSpanStartCol currentSpan
       NodeId owner@(AnnKey _ constructor) = placementOwner placement
-  guard $ placementAnchor placement == AfterNode
-  guard $ unConName constructor == "ValD"
+      NodeId seedOwner@(AnnKey _ seedConstructor) =
+        placementOwner $ plannedCommentPlacement seed
+  ownerSpan <- case commentBoundaryPath $ plannedCommentBoundary seed of
+    ConstructorBoundaryPath{} -> do
+      guard $ plannedCommentBoundary planned == plannedCommentBoundary seed
+      guard $ unConName seedConstructor `elem` ["ConDeclH98", "ConDeclGADT"]
+      guard $ placementLineRelation placement == CommentOwnLine
+      annKeyRealSpan seedOwner
+    _ -> do
+      guard $ placementAnchor placement == AfterNode
+      guard $ unConName constructor == "ValD"
+      annKeyRealSpan owner
   guard $ ordinarySource source
-  ownerSpan <- annKeyRealSpan owner
   guard $ SrcLoc.srcSpanFile currentSpan == SrcLoc.srcSpanFile previousSpan
     && SrcLoc.srcSpanFile currentSpan == SrcLoc.srcSpanFile ownerSpan
   guard $ SrcLoc.srcSpanEndLine seedSpan == SrcLoc.srcSpanEndLine ownerSpan
