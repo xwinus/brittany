@@ -59,6 +59,7 @@ import qualified Test.Hspec as Hspec
 import qualified TopLevelSpacingSpec
 import qualified TransactionalInplaceSpec
 import qualified InfixRhsWrappingSpec
+import qualified InfixBlockIndentationSpec
 import qualified LocalTrailingCommentSpec
 import qualified FunctionHeadWrappingSpec
 import qualified InlineCommentSpacingSpec
@@ -162,6 +163,7 @@ main = Hspec.hspec $ do
   TopLevelSpacingSpec.spec
   TransactionalInplaceSpec.spec projectRoot
   InfixRhsWrappingSpec.spec projectRoot
+  InfixBlockIndentationSpec.spec projectRoot
   LocalTrailingCommentSpec.spec
   FunctionHeadWrappingSpec.spec projectRoot
   InlineCommentSpacingSpec.spec
