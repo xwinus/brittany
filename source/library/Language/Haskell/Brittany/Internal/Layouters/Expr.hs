@@ -162,11 +162,12 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
     pure
       ( opDoc
       , operandDoc
-      , reducesIndent && isListExpression (unLoc operand)
+      , reducesIndent && supportsOperatorRhsBreak (unLoc operand)
       , isUnparenthesizedBlockExpression $ unLoc operand
       )
   lastReducesIndent <- operatorRhsBreakReducesIndent expOp
-  let lastAllowsBreak = lastReducesIndent && isListExpression (unLoc expRight)
+  let lastAllowsBreak =
+        lastReducesIndent && supportsOperatorRhsBreak (unLoc expRight)
   lastOpDoc <- docSharedWrapper layoutInfixOperator expOp
   lastOperandDoc <- docSharedWrapper layoutExpr' (toL expRight)
   let allowPar = case (expOp, expRight) of
@@ -177,8 +178,9 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
   let layoutChain =
         -- Merge pending indentation instead of counting it again in the paragraph.
         docAddBaseY BrIndentRegular $ docPar leftOperandDoc $ docLines
-          $ (appListDocs <&> \(opDoc, operandDoc, listOperand, blockOperand) ->
-              layoutOperatorContinuation listOperand blockOperand opDoc operandDoc)
+          $ (appListDocs <&> \(opDoc, operandDoc, breakableOperand, blockOperand) ->
+              layoutOperatorContinuation
+                breakableOperand blockOperand opDoc operandDoc)
           ++ [layoutOperatorContinuation
                 lastAllowsBreak
                 (isUnparenthesizedBlockExpression $ unLoc expRight)
@@ -196,10 +198,14 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
       ]
     addAlternative layoutChain
 
-isListExpression :: HsExpr GhcPs -> Bool
-isListExpression = \case
+-- Add literal continuations without expanding the bounded-search alternatives
+-- of fitting variable chains or changing block and compound-expression layouts.
+supportsOperatorRhsBreak :: HsExpr GhcPs -> Bool
+supportsOperatorRhsBreak = \case
   ExplicitList{} -> True
-  HsPar _ inner -> isListExpression $ unLoc inner
+  HsLit{} -> True
+  HsOverLit{} -> True
+  HsPar _ inner -> supportsOperatorRhsBreak $ unLoc inner
   _ -> False
 
 layoutOperatorContinuation
@@ -230,7 +236,7 @@ layoutOperatorApplication expLeft expOp expRight = do
   reducesIndent <- operatorRhsBreakReducesIndent expOp
   expDocOp' <- docSharedWrapper layoutInfixOperator expOp
   expDocRight <- docSharedWrapper layoutExpr' (toL expRight)
-  let allowRhsBreak = reducesIndent && isListExpression (unLoc expRight)
+  let allowRhsBreak = reducesIndent && supportsOperatorRhsBreak (unLoc expRight)
       allowPar = case (expOp, expRight) of
         (L _ (HsVar _ (L _ (Unqual occname))), _)
           | occNameString occname == "$" -> True
@@ -257,7 +263,7 @@ layoutOperatorApplication expLeft expOp expRight = do
       , appSep $ docForceSingleline expDocOp'
       , docForceSingleline expDocRight
       ]
-    -- Eligible RHS lists must retain their break choice at the actual operator
+    -- Eligible RHS operands must retain their break choice at the actual operator
     -- column; the parent estimate may rely on a different multiline LHS layout.
     addAlternativeCond (not allowRhsBreak) $ do
       let expDocOpAndRight = docForceSingleline $ docCols
