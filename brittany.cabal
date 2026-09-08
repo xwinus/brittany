@@ -147,6 +147,7 @@ library
     Language.Haskell.Brittany.Internal.Layouters.Instance
     Language.Haskell.Brittany.Internal.Layouters.Module
     Language.Haskell.Brittany.Internal.Layouters.Pattern
+    Language.Haskell.Brittany.Internal.Layouters.LocalComments
     Language.Haskell.Brittany.Internal.Layouters.StandaloneDeriving
     Language.Haskell.Brittany.Internal.Layouters.StandaloneKindSignature
     Language.Haskell.Brittany.Internal.Layouters.Stmt
@@ -218,6 +219,7 @@ test-suite brittany-test-suite
     AnnotationIndexSpec
     ColumnAlignmentSpec
     TransactionalInplaceSpec
+    LocalTrailingCommentSpec
     FunctionHeadWrappingSpec
     InlineCommentSpacingSpec
     ConstructorCommentContinuationSpec
