@@ -15,13 +15,13 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc clauseDocs = do
         , [(guards, body, _bodyRaw)] <- [clauseDocs]
         , let guardPart = singleLineGuardsDoc guards
         , wherePart <- case mWhereDocs of
-          Nothing  -> return @[] $ docEmpty
-          Just [w] -> return @[] $ docSeq
-            [ docSeparator
-            , appSep $ docLit $ Text.pack "where"
-            , docSetIndentLevel $ docForceSingleline $ return w
-            ]
-          _ -> []
+            Nothing  -> return @[] $ docEmpty
+            Just [w] -> return @[] $ docSeq
+              [ docSeparator
+              , appSep $ docLit $ Text.pack "where"
+              , docSetIndentLevel $ docForceSingleline $ return w
+              ]
+            _ -> []
         ]
       ++ -- one-line solution + where in next line(s)
          [ docLines
