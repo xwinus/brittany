@@ -28,11 +28,12 @@ import Language.Haskell.Brittany.Internal.SemanticFingerprint
 import qualified Language.Haskell.Brittany.Main as Brittany
 import qualified System.Directory as Directory
 import qualified System.Exit as Exit
+import System.FilePath ((</>))
 import qualified System.IO as IO
 import qualified Test.Hspec as Hspec
 
-spec :: Hspec.Spec
-spec = Hspec.describe "infix RHS wrapping" $ do
+spec :: FilePath -> Hspec.Spec
+spec projectRoot = Hspec.describe "infix RHS wrapping" $ do
   Hspec.it "fits the issue #191 singleton list by breaking after the operator" $ do
     output <- checkWithinColumns 80 2 $ moduleSource
       [ "example = do"
@@ -56,6 +57,36 @@ spec = Hspec.describe "infix RHS wrapping" $ do
       , "            ]"
       ]
     assertSeparateRhs "`Hspec.shouldContain`" output
+
+  Hspec.it "fits every body line in the complete maintained CompatibilitySpec module" $ do
+    source <- readFile $ projectRoot </> "source/test-suite/CompatibilitySpec.hs"
+    let config = configWithLayout 80 2
+    output <- formatChecked config source
+    let body = dropWhile (not . List.isPrefixOf "spec ::") $ lines output
+    body `Hspec.shouldSatisfy` (not . null)
+    filter ((> 80) . length) body `Hspec.shouldBe` []
+    assertStableAndEquivalent config source output
+
+  Hspec.it "fits the shorter singleton assertion inside nested case and do blocks" $ do
+    output <- checkWithinColumns 80 2 $ nestedAssertionSource
+      $ show "feature has no compatibility case: ModuleHeaders"
+    assertSeparateRhs "`Hspec.shouldContain`" output
+
+  Hspec.it "fits a concatenated singleton element inside nested case and do blocks" $ do
+    output <- checkWithinColumns 80 2 $ nestedAssertionSource
+      $ show "case references unknown feature UnclassifiedFeature: "
+        ++ " ++ Matrix.matrixCaseName firstCase"
+    assertSeparateRhs "`Hspec.shouldContain`" output
+
+  forM_ [41, 42, 43, 48, 52, 55] $ \literalLength ->
+    forM_ [False, True] $ \compound ->
+      Hspec.it
+        ("fits a nested " ++ (if compound then "compound" else "plain")
+          ++ " list element with literal length " ++ show literalLength) $ do
+          let element = show (replicate literalLength 'x')
+                ++ if compound then " ++ Matrix.matrixCaseName firstCase" else ""
+          _ <- checkWithinColumns 80 2 $ nestedAssertionSource element
+          pure ()
 
   forM_ [0, 1] $ \overflow ->
     Hspec.it
@@ -220,6 +251,18 @@ assertionSource :: String -> [String] -> String
 assertionSource operator elements = moduleSource
   [ "example = do"
   , "  result " ++ operator ++ " [" ++ List.intercalate ", " (map show elements) ++ "]"
+  ]
+
+nestedAssertionSource :: String -> String
+nestedAssertionSource element = moduleSource
+  [ "example = Hspec.describe \"matrix\" $ do"
+  , "  case loaded of"
+  , "    Right (matrix, discoveredPragmas) -> do"
+  , "      Hspec.describe \"manifest validation\" $ do"
+  , "        Hspec.it \"requires coverage\" $ do"
+  , "          Matrix.validateMatrix invalidMatrix discoveredPragmas"
+  , "            `Hspec.shouldContain`"
+  , "              [" ++ element ++ "]"
   ]
 
 moduleSource :: [String] -> String
