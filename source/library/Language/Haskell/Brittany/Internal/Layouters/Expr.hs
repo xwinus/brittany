@@ -989,7 +989,7 @@ layoutExprNative lexpr@(L _ expr) = do
           resultComments <- filter
             (sourceCommentPrecedesNode resultStatement)
             <$> sourceCommentsWithinNode lexpr
-          stmtDocs <- docSharedWrapper layoutStmt `mapM` (map toL stmts)
+          stmtDocs <- docSharedWrapper layoutComprehensionStmt `mapM` (map toL stmts)
           hasComments <- hasAnyCommentsBelow lexpr
           let resultDoc = docNodeAnnKW lexpr (Just AnnOpenS)
                 $ List.last stmtDocs

@@ -49,8 +49,15 @@ layoutStmtList stmts = do
     = topLevelSeparatorLines previous current
   separatorLines _ _ = 1
 
+layoutComprehensionStmt :: ToBriDoc' (StmtLR GhcPs GhcPs (LHsExpr GhcPs))
+layoutComprehensionStmt = layoutStmtWithGeneratorBase True
+
 layoutStmt :: ToBriDoc' (StmtLR GhcPs GhcPs (LHsExpr GhcPs))
-layoutStmt lstmt@(L _ stmt) = do
+layoutStmt = layoutStmtWithGeneratorBase False
+
+layoutStmtWithGeneratorBase
+  :: Bool -> ToBriDoc' (StmtLR GhcPs GhcPs (LHsExpr GhcPs))
+layoutStmtWithGeneratorBase generatorBase lstmt@(L _ stmt) = do
   indentPolicy <- mAsk <&> _conf_layout .> _lconfig_indentPolicy .> confUnpack
   indentAmount :: Int <-
     mAsk <&> _conf_layout .> _lconfig_indentAmount .> confUnpack
@@ -60,20 +67,19 @@ layoutStmt lstmt@(L _ stmt) = do
     BindStmt _ lPat expr -> do
       patDoc <- fmap pure $ patternDocument =<< layoutPattern lPat
       expDoc <- docSharedWrapper layoutExpr (toL expr)
-      docAlt
-        [ docCols
-          ColBindStmt
-          [ appSep patDoc
-          , docSeq
+      -- Choose the RHS continuation after laying out the pattern.
+      -- A parent estimate may use a different multiline pattern.
+      -- Comprehension separators precede the pattern's continuation base.
+      let withBase = if generatorBase then docSetBaseY else id
+      withBase $ docCols ColBindStmt
+        [ appSep patDoc
+        , docAlt
+          [ docSeq
             [ appSep $ docLit $ Text.pack "<-"
             , docAddBaseY BrIndentRegular $ docForceParSpacing expDoc
             ]
-          ]
-        , docCols
-          ColBindStmt
-          [ appSep patDoc
           , docAddBaseY BrIndentRegular
-            $ docPar (docLit $ Text.pack "<-") (expDoc)
+            $ docPar (docLit $ Text.pack "<-") expDoc
           ]
         ]
     LetStmt _ binds -> do

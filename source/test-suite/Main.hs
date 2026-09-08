@@ -58,6 +58,7 @@ import qualified TemplateHaskellFallbackSpec
 import qualified Test.Hspec as Hspec
 import qualified TopLevelSpacingSpec
 import qualified TransactionalInplaceSpec
+import qualified GeneratorRhsWrappingSpec
 import qualified NonListInfixRhsSpec
 import qualified InfixRhsWrappingSpec
 import qualified InfixBlockIndentationSpec
@@ -163,6 +164,7 @@ main = Hspec.hspec $ do
   RecordFieldRhsIndentSpec.spec projectRoot
   TopLevelSpacingSpec.spec
   TransactionalInplaceSpec.spec projectRoot
+  GeneratorRhsWrappingSpec.spec projectRoot
   NonListInfixRhsSpec.spec projectRoot
   InfixRhsWrappingSpec.spec projectRoot
   InfixBlockIndentationSpec.spec projectRoot
