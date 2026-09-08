@@ -20,9 +20,10 @@ identity
   :: forall a .
   -- Keep the signature binder comment.
                 a -> a
-identity @typeArgument -- Keep the type abstraction comment.
- value
-  = value :: typeArgument
+identity
+    @typeArgument -- Keep the type abstraction comment.
+    value
+   = value :: typeArgument
 requiredIdentity
   :: forall a
      -- Keep the required binder comment.
