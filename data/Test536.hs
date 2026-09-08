@@ -44,8 +44,7 @@ layoutPatternBindFinal alignmentToken binderDoc mPatDoc clauseDocs = do
     [ docLines
       $ [ docForceSingleline
           $ docSeq (patPartInline ++ [guardPart, return binderDoc])
-        , docEnsureIndent BrIndentRegular $ docForceSingleline $ return
-          body
+        , docEnsureIndent BrIndentRegular $ docForceSingleline $ return body
         ]
       ++ wherePartMultiLine
     | [(guards, body, _bodyRaw)] <- [clauseDocs]
