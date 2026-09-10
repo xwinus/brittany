@@ -59,6 +59,7 @@ import qualified Test.Hspec as Hspec
 import qualified TopLevelSpacingSpec
 import qualified TransactionalInplaceSpec
 import qualified GeneratorRhsWrappingSpec
+import qualified NestedLambdaPatternSpec
 import qualified NonListInfixRhsSpec
 import qualified InfixRhsWrappingSpec
 import qualified InfixBlockIndentationSpec
@@ -166,6 +167,7 @@ main = Hspec.hspec $ do
   TopLevelSpacingSpec.spec
   TransactionalInplaceSpec.spec projectRoot
   GeneratorRhsWrappingSpec.spec projectRoot
+  NestedLambdaPatternSpec.spec projectRoot
   NonListInfixRhsSpec.spec projectRoot
   InfixRhsWrappingSpec.spec projectRoot
   InfixBlockIndentationSpec.spec projectRoot
