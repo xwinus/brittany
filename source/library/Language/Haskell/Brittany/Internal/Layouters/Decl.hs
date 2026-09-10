@@ -37,6 +37,7 @@ import Language.Haskell.Syntax.BooleanFormula
 import GHC.Parser.Annotation
   ( EpAnn(..)
   , EpaLocation(..)
+  , HasLoc(getHasLoc)
   , getLocA
   )
 import GHC.Types.SrcLoc (Located, RealSrcSpan, SrcSpan(..), getLoc, noSrcSpan, srcSpanStartCol, srcSpanStartLine, srcSpanEndCol, srcSpanEndLine, unLoc)
@@ -51,6 +52,7 @@ import Language.Haskell.Brittany.Internal.ExactSource (sourceCommentFragment)
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.DataDecl
+import Language.Haskell.Brittany.Internal.Layouters.Decl.Guard
 import Language.Haskell.Brittany.Internal.Layouters.Decl.Infix
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
 import Language.Haskell.Brittany.Internal.Layouters.FixitySignature
@@ -729,17 +731,19 @@ commentsAfterGrhsSeparator
   -> [SourceComment]
   -> LGRHS GhcPs (LHsExpr GhcPs)
   -> [SourceComment]
-commentsAfterGrhsSeparator commentPlan sourceComments lgrhs@(L _ (GRHS _ _ body)) =
-  case
+commentsAfterGrhsSeparator commentPlan sourceComments
+    lgrhs@(L _ (GRHS (EpAnn _ annotations _) _ body)) = case
       ( srcSpanToRealSpan $ getLoc $ toL lgrhs
       , srcSpanToRealSpan $ getLoc $ toL body
+      , srcSpanToRealSpan $ either getHasLoc getHasLoc $ ga_sep annotations
       ) of
-  (Just grhsSpan, Just bodySpan) -> List.sortOn sourceCommentStart
-    $ filter (isInlineBetween grhsSpan bodySpan) sourceComments
+  (Just grhsSpan, Just bodySpan, Just separatorSpan) ->
+    List.sortOn sourceCommentStart
+      $ filter (isInlineBetween grhsSpan bodySpan separatorSpan) sourceComments
   _ -> []
  where
-  isInlineBetween grhsSpan bodySpan sourceComment =
-    sourceSpanStart grhsSpan <= sourceCommentStart sourceComment
+  isInlineBetween grhsSpan bodySpan separatorSpan sourceComment =
+    sourceSpanEnd separatorSpan <= sourceCommentStart sourceComment
       && sourceCommentEnd sourceComment <= sourceSpanStart bodySpan
       && case Map.lookup (sourceCommentKey sourceComment)
           $ commentPlanPlacements commentPlan of
@@ -842,9 +846,12 @@ layoutGrhs
 layoutGrhs declarationComments lgrhs@(L _ (GRHS _ guards body)) = do
   guardDocs <- forM guards $ \guard -> do
     guardDoc <- layoutStmt (toL guard)
-    appendSourceComments (pure guardDoc)
-      $ filter (sourceCommentFollowsNodeSameLine $ toL guard)
-      declarationComments
+    let trailingComments = filter
+          (sourceCommentFollowsNodeSameLine $ toL guard) declarationComments
+    commentedGuard <- appendSourceComments (pure guardDoc) trailingComments
+    if any ((== LineComment) . sourceCommentSyntax) trailingComments
+      then docLines [pure commentedGuard, docEmpty]
+      else pure commentedGuard
   let trailingGuardComments = List.concat
         [ filter (sourceCommentFollowsNodeSameLine $ toL guard)
             declarationComments
@@ -1051,6 +1058,11 @@ layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
   hasComments <- case mWhereDocs of
     Nothing -> hasAnyRegularCommentsConnectedNoFollowing (toL lmatch)
     Just _  -> hasAnyCommentsBelow (toL lmatch)
+  let hasGuardComments = or
+        [ any (sourceCommentFollowsNodeSameLine $ toL guard) remainingComments
+        | L _ (GRHS _ guards _) <- grhss
+        , guard <- guards
+        ]
   prependConsumedComments
     (separatorComments ++ handledClauseComments clauseDocs)
     -- Infix boundaries are chosen with the head even when an operand also
@@ -1061,7 +1073,7 @@ layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
       (if hasStructuralPatterns && not isInfix then Nothing else mMultilinePatDoc)
       clauseDocs
       (hasSingleBooleanGuard grhss) mWhereArg
-      (hasComments || not (null separatorComments))
+      (hasComments || hasGuardComments || not (null separatorComments))
 
 fixPatternBindIdentifier :: Match GhcPs (LHsExpr GhcPs) -> Text -> Text
 fixPatternBindIdentifier match idStr = go $ m_ctxt match
@@ -1188,7 +1200,9 @@ layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilin
         [(guards, body, _bodyRaw, _)] -> do
           let guardPart = singleLineGuardsDoc guards
           addAlternativeCond hasComments $ docLines
-            $ [ docSeq (patPartInline ++ [guardPart, pure binderDoc])
+            $ [ docSeq $ patPartInline ++ if null guards
+                  then [guardPart, pure binderDoc]
+                  else [layoutGuardedHeadTail guards guardPart binderDoc]
               , docNonBottomSpacing
                 $ docEnsureIndent BrIndentRegular
                 $ docAddBaseY BrIndentRegular
@@ -1267,8 +1281,10 @@ layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilin
                   $ docSeq
                       [ appSep $ docLit $ Text.pack "|"
                       , appSep $ return guardDoc
-                      , appSep $ return binderDoc
-                      , return body
+                      , layoutGuardedBody binderDoc body $ docSeq
+                        [ appSep $ return binderDoc
+                        , return body
+                        ]
                       ]
                   ]
                 ++ wherePartMultiLine
@@ -1280,8 +1296,9 @@ layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilin
                 $ docLines
                 $ [ docSeq
                       [ appSep $ return patDoc
-                      , guardPart
-                      , return binderDoc
+                      , if null guards
+                        then docSeq [guardPart, pure binderDoc]
+                        else layoutGuardedHeadTail guards guardPart binderDoc
                       ]
                   , docNonBottomSpacing
                   $ docEnsureIndent multilinePatternBodyIndent
@@ -1372,7 +1389,8 @@ layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilin
                           ]
                       )
                     ++ [ docSeparator
-                       , docCols
+                       , (if null guardDocs then id else layoutGuardedBody binderDoc bodyDoc)
+                         $ docCols
                          ColOpPrefix
                          [ appSep $ return binderDoc
                          , docAddBaseY BrIndentRegular
@@ -1452,14 +1470,17 @@ layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilin
               $ docLines
               $ clauseDocs
               <&> \(guardDocs, bodyDoc, _, _) -> do
-                    let guardPart = singleLineGuardsDoc guardDocs
-                    docForceSingleline $ docCols
+                    let guardPart = layoutGuardedPredicates guardDocs
+                          $ singleLineGuardsDoc guardDocs
+                    (if null guardDocs then docForceSingleline else id)
+                      $ docCols
                       ColGuardedBody
                       [ guardPart
-                      , docSeq
-                        [ appSep $ return binderDoc
-                        , docForceSingleline $ return bodyDoc
-                        ]
+                      , (if null guardDocs then id else layoutGuardedBody binderDoc bodyDoc)
+                        $ docSeq
+                          [ appSep $ return binderDoc
+                          , docForceSingleline $ return bodyDoc
+                          ]
                       ]
               ]
             ++ wherePartMultiLine
