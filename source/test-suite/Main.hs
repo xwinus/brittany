@@ -65,6 +65,7 @@ import qualified InfixRhsWrappingSpec
 import qualified InfixBlockIndentationSpec
 import qualified LocalTrailingCommentSpec
 import qualified FunctionHeadWrappingSpec
+import qualified InfixFunctionHeadSpec
 import qualified InlineCommentSpacingSpec
 import qualified ConstructorCommentContinuationSpec
 import qualified ExpressionCommentContinuationSpec
@@ -173,6 +174,7 @@ main = Hspec.hspec $ do
   InfixBlockIndentationSpec.spec projectRoot
   LocalTrailingCommentSpec.spec
   FunctionHeadWrappingSpec.spec projectRoot
+  InfixFunctionHeadSpec.spec projectRoot
   InlineCommentSpacingSpec.spec
   ConstructorCommentContinuationSpec.spec
   ExpressionCommentContinuationSpec.spec projectRoot
