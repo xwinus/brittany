@@ -22,7 +22,8 @@ import qualified GHC.OldList as List
 import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.ExactPrintCompat
-  ( realSpanToSrcSpan
+  ( annKeyRealSpan
+  , realSpanToSrcSpan
   , srcSpanToRealSpan
   )
 import Language.Haskell.Brittany.Internal.ExactSource (sourceCommentFragment)
@@ -76,12 +77,11 @@ createAnnotatedDetailsDoc consNameStr details = case details of
         (docLit consNameStr)
         (docWrapNodePrior (toL lRec) $ docNonBottomSpacingS $ docLines
           [ docAlt
-            [ docCols
-              ColRecDecl
+            [ compactFieldColumns
               [ appSep (docLitS "{")
               , appSep $ docForceSingleline fName1
               , docSeq [docLitS "::", docSeparator]
-              , docForceSingleline fType1
+              , compactFieldType fType1
               ]
             , docSeq
               [ docLitS "{"
@@ -93,12 +93,11 @@ createAnnotatedDetailsDoc consNameStr details = case details of
             ]
           , docWrapNodeRest (toL lRec) $ docLines $ fDocR <&> \(fName, fType) ->
             docAlt
-              [ docCols
-                ColRecDecl
+              [ compactFieldColumns
                 [ docCommaSep
                 , appSep $ docForceSingleline fName
                 , docSeq [docLitS "::", docSeparator]
-                , docForceSingleline fType
+                , compactFieldType fType
                 ]
               , docSeq
                 [ docLitS ","
@@ -215,12 +214,11 @@ createDetailsDocWith preference consNameStr details = case details of
         (docLit consNameStr)
         (docWrapNodePrior (toL lRec) $ docNonBottomSpacingS $ docLines
           [ docAlt
-            [ docCols
-              ColRecDecl
+            [ compactFieldColumns
               [ appSep (docLitS "{")
               , appSep $ docForceSingleline fName1
               , docSeq [docLitS "::", docSeparator]
-              , docForceSingleline fType1
+              , compactFieldType fType1
               ]
             , docSeq
               [ docLitS "{"
@@ -232,12 +230,11 @@ createDetailsDocWith preference consNameStr details = case details of
             ]
           , docWrapNodeRest (toL lRec) $ docLines $ fDocR <&> \(fName, fType) ->
             docAlt
-              [ docCols
-                ColRecDecl
+              [ compactFieldColumns
                 [ docCommaSep
                 , appSep $ docForceSingleline fName
                 , docSeq [docLitS "::", docSeparator]
-                , docForceSingleline fType
+                , compactFieldType fType
                 ]
               , docSeq
                 [ docLitS ","
@@ -423,3 +420,65 @@ createNamesAndTypeDoc lField names field =
     ]
   , docWrapNodeRest lField $ createFieldTypeDoc field
   )
+
+-- Keep the type itself single-line without constraining its trailing comments.
+compactFieldType :: ToBriDocM BriDocNumbered -> ToBriDocM BriDocNumbered
+compactFieldType document = do
+  fieldType <- document
+  case fieldType of
+    (_, BDFAnnotationRest key body) -> do
+      plan <- mAsk
+      let commentsWithinType = any (insideField key)
+            [ source
+            | (commentKey, placement) <- Map.toList $ commentPlanPlacements plan
+            , placementOwner placement == NodeId key
+            , placementLineRelation placement == CommentOwnLine
+            , Just source <- [Map.lookup commentKey $ commentPlanSources plan]
+            ]
+      if commentsWithinType
+        then docForceSingleline $ pure fieldType
+        else docAnnotationRest key $ docForceSingleline $ pure body
+    _ -> docForceSingleline $ pure fieldType
+ where
+  insideField key source = case annKeyRealSpan key of
+    Just fieldSpan -> sourceSpanStart (sourceCommentSpan source)
+      < sourceSpanEnd fieldSpan
+    Nothing -> True
+
+-- Padding a field after choosing its layout can push a continuation run over
+-- the column limit. Keep ordinary inline-only rows in their alignment group.
+compactFieldColumns :: [ToBriDocM BriDocNumbered] -> ToBriDocM BriDocNumbered
+compactFieldColumns documents = do
+  fields <- sequence documents
+  plan <- mAsk
+  let hasInlineComment = case reverse fields of
+        (_, BDFAnnotationRest key _) : _ -> case annKeyRealSpan key of
+          Just fieldSpan -> any (continues fieldSpan)
+            [ source
+            | (commentKey, source) <- Map.toList $ commentPlanSources plan
+            , Just placement <- [Map.lookup commentKey $ commentPlanPlacements plan]
+            , placementLineRelation placement == CommentOwnLine
+            ] && any (endsAt fieldSpan)
+            [ owner
+            | (commentKey, placement) <- Map.toList $ commentPlanPlacements plan
+            , placementLineRelation placement == InlineComment
+            , Just source <- [Map.lookup commentKey $ commentPlanSources plan]
+            , sourceCommentSyntax source == LineComment
+            , let NodeId owner = placementOwner placement
+            ]
+          Nothing -> False
+        _ -> False
+  if hasInlineComment
+    then docSeq $ pure <$> fields
+    else docCols ColRecDecl $ pure <$> fields
+ where
+  continues fieldSpan source = sourceCommentSyntax source == LineComment
+    && SrcLoc.srcSpanFile span' == SrcLoc.srcSpanFile fieldSpan
+    && SrcLoc.srcSpanStartLine span' == SrcLoc.srcSpanEndLine fieldSpan + 1
+    && SrcLoc.srcSpanStartCol span' >= SrcLoc.srcSpanEndCol fieldSpan
+   where
+    span' = sourceCommentSpan source
+  endsAt fieldSpan owner = case annKeyRealSpan owner of
+    Just ownerSpan -> SrcLoc.srcSpanFile ownerSpan == SrcLoc.srcSpanFile fieldSpan
+      && sourceSpanEnd ownerSpan == sourceSpanEnd fieldSpan
+    Nothing -> False

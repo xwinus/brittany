@@ -52,9 +52,10 @@ commentSpacing comment
       VerticalSpacing 0 VerticalSpacingParNone False
   | otherwise = VerticalSpacing commentWidth VerticalSpacingParNone False
  where
-  commentWidth = Text.length
-    $ sourceCommentText
-    $ plannedCommentSource comment
+  commentWidth = Text.length (sourceCommentText $ plannedCommentSource comment)
+    + case plannedCommentIndentPolicy comment of
+      TokenRelativeIndent -> max 1 $ plannedCommentColumnDelta comment
+      _ -> 0
 
 forceCommentLineBreak :: VerticalSpacing -> VerticalSpacing
 forceCommentLineBreak spacing = spacing

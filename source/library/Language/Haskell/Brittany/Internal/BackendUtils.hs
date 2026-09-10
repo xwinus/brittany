@@ -44,6 +44,10 @@ layoutWriteAppend t = do
     { _lstate_curYOrAddNewline = Left $ case _lstate_curYOrAddNewline s of
       Left c -> c + Text.length t + spaces
       Right{} -> Text.length t + spaces
+    , _lstate_lastWrittenColumn = Text.length t + spaces
+        + case _lstate_curYOrAddNewline s of
+          Right newlines | newlines > 0 -> 0
+          _ -> _lstate_lastWrittenColumn s
     , _lstate_addSepSpace = Nothing
     }
 
@@ -57,6 +61,9 @@ layoutWriteBlankLine = do
   mModify $ \s -> s
     { _lstate_curYOrAddNewline = either Left (const $ Left 0)
         $ _lstate_curYOrAddNewline s
+    , _lstate_lastWrittenColumn = case _lstate_curYOrAddNewline s of
+        Right newlines | newlines > 0 -> 0
+        _ -> _lstate_lastWrittenColumn s
     , _lstate_addSepSpace = Nothing
     }
 

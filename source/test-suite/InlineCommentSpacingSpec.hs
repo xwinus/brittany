@@ -4,14 +4,17 @@ module InlineCommentSpacingSpec (spec) where
 
 import qualified Control.Exception as Exception
 import Control.Monad (forM_)
+import qualified Control.Monad.Trans.MultiRWS.Strict as MultiRWSS
 import Data.Char (isSpace)
-import Data.Functor.Identity (Identity(..))
+import Data.Functor.Identity (Identity(..), runIdentity)
 import qualified Data.List as List
 import qualified Data.Map as Map
 import Data.Semigroup (Last(..))
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
+import qualified Data.Text.Lazy as TextL
+import qualified Data.Text.Lazy.Builder as Text.Builder
 import Language.Haskell.Brittany
   ( CConfig(..)
   , CErrorHandlingConfig(..)
@@ -25,7 +28,9 @@ import Language.Haskell.Brittany.Internal.CommentPlan
   , normalizeCommentPlan
   )
 import Language.Haskell.Brittany.Internal.BackendUtils
-  ( finishPriorCommentLineState
+  ( layoutWriteAppend
+  , layoutWriteBlankLine
+  , finishPriorCommentLineState
   , resumeInlineCommentState
   )
 import qualified Language.Haskell.Brittany.Internal.ParseModule as ParseModule
@@ -80,8 +85,11 @@ spec = Hspec.describe "inline comment spacing" $ do
         config = configWithIndent 2
     output <- formatChecked config source
     assertInlineSeparated "do" "-- first comment line" output
-    filter (List.isInfixOf "-- continuation comment") (lines output)
-      `Hspec.shouldBe` [replicate 18 ' ' ++ "-- continuation comment"]
+    let seedColumns = [length $ takeWhile (/= '-') line
+          | line <- lines output, "-- first comment line" `List.isInfixOf` line]
+        continuationColumns = [length $ takeWhile (/= '-') line
+          | line <- lines output, "-- continuation comment" `List.isInfixOf` line]
+    continuationColumns `Hspec.shouldBe` seedColumns
     filter ((== "pure ()") . dropWhile isSpace) (lines output)
       `Hspec.shouldSatisfy` ((== 1) . length)
     assertStableAndEquivalent config source output
@@ -132,6 +140,49 @@ spec = Hspec.describe "inline comment spacing" $ do
     _lstate_curYOrAddNewline result `Hspec.shouldBe` Right 1
     _lstate_commentCol result `Hspec.shouldBe` Just 8
 
+  Hspec.it "tracks the physical column when an inline write cancels a pending newline" $ do
+    let initial = (layoutState (Right 0) Nothing)
+          { _lstate_lastWrittenColumn = 5 }
+        rendered :: (LayoutState, Text.Builder.Builder)
+        rendered = runIdentity $ MultiRWSS.runMultiRWSTNil
+          $ MultiRWSS.withMultiWriterAW
+          $ MultiRWSS.withMultiStateS initial
+          $ do
+            layoutWriteAppend $ Text.pack "x"
+            pure ()
+        (state, builder) = rendered
+    _lstate_lastWrittenColumn state `Hspec.shouldBe` 8
+    Text.Builder.toLazyText builder `Hspec.shouldBe` TextL.pack "  x"
+
+  Hspec.it "resets the physical column when pending newlines are written" $ do
+    let initial = (layoutState (Right 2) Nothing)
+          { _lstate_lastWrittenColumn = 17 }
+        rendered :: (LayoutState, Text.Builder.Builder)
+        rendered = runIdentity $ MultiRWSS.runMultiRWSTNil
+          $ MultiRWSS.withMultiWriterAW
+          $ MultiRWSS.withMultiStateS initial
+          $ do
+            layoutWriteAppend $ Text.pack "x"
+            pure ()
+        (state, builder) = rendered
+    _lstate_lastWrittenColumn state `Hspec.shouldBe` 3
+    Text.Builder.toLazyText builder `Hspec.shouldBe` TextL.pack "\n\n  x"
+
+  Hspec.it "does not retain the previous column after an explicit blank line" $ do
+    let initial = (layoutState (Right 2) Nothing)
+          { _lstate_lastWrittenColumn = 17 }
+        rendered :: (LayoutState, Text.Builder.Builder)
+        rendered = runIdentity $ MultiRWSS.runMultiRWSTNil
+          $ MultiRWSS.withMultiWriterAW
+          $ MultiRWSS.withMultiStateS initial
+          $ do
+            layoutWriteBlankLine
+            layoutWriteAppend $ Text.pack "x"
+            pure ()
+        (state, builder) = rendered
+    _lstate_lastWrittenColumn state `Hspec.shouldBe` 1
+    Text.Builder.toLazyText builder `Hspec.shouldBe` TextL.pack "\n\nx"
+
   Hspec.it "rejects malformed do input without replacing its inplace source" $ do
     directory <- Directory.getTemporaryDirectory
     Exception.bracket
@@ -155,6 +206,7 @@ layoutState :: Either Int Int -> Maybe Int -> LayoutState
 layoutState cursor anchor = LayoutState
   { _lstate_baseYs = [4]
   , _lstate_curYOrAddNewline = cursor
+  , _lstate_lastWrittenColumn = 0
   , _lstate_indLevels = [4]
   , _lstate_indLevelLinger = 4
   , _lstate_comments = Map.empty
