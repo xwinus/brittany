@@ -34,6 +34,7 @@ source/library/Language/Haskell/Brittany/Internal/Layouters/DataDecl/Constructor
 source/library/Language/Haskell/Brittany/Internal/Layouters/DataDecl/Deriving.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/DataDecl/Support.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Decl.hs
+source/library/Language/Haskell/Brittany/Internal/Layouters/Decl/Guard.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Decl/Infix.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Expr.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/FixitySignature.hs
@@ -92,6 +93,7 @@ source/test-suite/ExtractAnnsSpec.hs
 source/test-suite/FallbackSpec.hs
 source/test-suite/FallbackSweepSpec.hs
 source/test-suite/FixitySignatureSpec.hs
+source/test-suite/GuardedClauseWrappingSpec.hs
 source/test-suite/InfixFunctionHeadSpec.hs
 source/test-suite/InstanceHeadSpec.hs
 source/test-suite/LetStatementBoundarySpec.hs

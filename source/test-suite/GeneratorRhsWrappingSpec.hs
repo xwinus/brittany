@@ -56,7 +56,7 @@ spec projectRoot = Hspec.describe "generator RHS wrapping" $ do
       "source/library/Language/Haskell/Brittany/Internal/Transformations/Columns.hs"
     let config = configWithLayout 80 2
     output <- formatChecked config source
-    output `Hspec.shouldContain` "\n      _ <- List.last lines1, sig1 == sig2 ->"
+    output `Hspec.shouldContain` "\n      | BDCols sig1 _ <- List.last lines1, sig1 == sig2 ->"
     assertStableAndEquivalent config source output
 
   forM_ [False, True] $ \isDo ->

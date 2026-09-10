@@ -1,7 +1,4 @@
 func x
-  | very long guard, another rather long guard that refers to x = nontrivial
-    expression
-    foo
-    bar
-    alsdkjlasdjlasj
+  | very long guard, another rather long guard that refers to x =
+    nontrivial expression foo bar alsdkjlasdjlasj
   | otherwise = 0
