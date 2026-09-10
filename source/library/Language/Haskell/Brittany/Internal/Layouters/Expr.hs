@@ -428,6 +428,8 @@ layoutExprNative lexpr@(L _ expr) = do
                 ]
               )
               (docWrapNode (toL lgrhs) bodyWithComments)
+        -- Structural patterns must retain non-paragraph spacing so enclosing
+        -- alternatives can break before fragmenting the lambda header.
         structuralLambda <- if not $ any (Maybe.isJust . snd) patternLayouts
           then pure Nothing
           else do
@@ -440,7 +442,6 @@ layoutExprNative lexpr@(L _ expr) = do
             case selectedPatterns of
               [] -> pure Nothing
               firstPattern : remainingPatterns -> fmap Just
-                $ docSetParSpacing
                 $ docAddBaseY BrIndentRegular
                 $ docLines
                 $ [ docSeq

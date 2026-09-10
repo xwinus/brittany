@@ -23,17 +23,18 @@ handleRequest
             extractedPayloadWithLongName
             requestMetadata
 
-lambdaHandler = \ context
-  Request
-    { requestIdentifier = requestIdentifierWithLongName
-    , requestMetadata   =
-      Metadata
-        { metadataOwner = metadataOwnerWithLongName
-        , metadataTags  = [firstMetadataTag, secondMetadataTag]
-        }
-    , ..
-    }
-  -> combine context requestIdentifierWithLongName metadataOwnerWithLongName
+lambdaHandler =
+  \ context
+    Request
+      { requestIdentifier = requestIdentifierWithLongName
+      , requestMetadata   =
+        Metadata
+          { metadataOwner = metadataOwnerWithLongName
+          , metadataTags  = [firstMetadataTag, secondMetadataTag]
+          }
+      , ..
+      }
+    -> combine context requestIdentifierWithLongName metadataOwnerWithLongName
 
 caseHandler request = case request of
   Request
