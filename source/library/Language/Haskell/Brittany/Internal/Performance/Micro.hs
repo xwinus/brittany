@@ -223,6 +223,7 @@ initialLayoutState :: LayoutState
 initialLayoutState = LayoutState
   { _lstate_baseYs = [0]
   , _lstate_curYOrAddNewline = Right 0
+  , _lstate_lastWrittenColumn = 0
   , _lstate_indLevels = [0]
   , _lstate_indLevelLinger = 0
   , _lstate_comments = Map.empty

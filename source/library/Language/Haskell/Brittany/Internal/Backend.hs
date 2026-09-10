@@ -30,7 +30,11 @@ import Language.Haskell.Brittany.Internal.ExactSource
   )
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.SourceComment.Continuation
-  ( continueTrailingCommentRun, startTrailingCommentRun, trailingCommentColumn )
+  ( continueTrailingCommentFragment
+  , continueTrailingCommentRun
+  , startTrailingCommentRun
+  , trailingCommentColumn
+  )
 import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
@@ -163,6 +167,13 @@ layoutBriDocM = \case
         ++ "-}"
     case (externalSource, tlines) of
       (SourceFragment fragment, firstLine : remainingLines) -> do
+        commentPlan :: CommentPlan <- mAsk
+        state <- mGet
+        let continuedRun = _lstate_trailingCommentRun state
+              >>= continueTrailingCommentFragment commentPlan fragment
+        forM_ continuedRun $ \run -> do
+          layoutMoveToAbsoluteCommentPos 0 (trailingCommentColumn run) (length tlines)
+          mModify $ \current -> current { _lstate_trailingCommentRun = Just run }
         forM_ (fragmentAbsoluteColumn fragment) $ \column ->
           layoutMoveToAbsoluteCommentPos 0 column (length tlines)
         initialState <- mGet
@@ -177,6 +188,8 @@ layoutBriDocM = \case
             when (fragmentRebaseContinuation fragment)
               $ layoutWriteAppendSpaces fragmentColumn
             layoutWriteAppend line
+        when (Maybe.isJust continuedRun) $ mModify $ \current -> current
+          { _lstate_commentCol = _lstate_commentCol state }
         when (sourceFragmentRequiresLineBoundary fragment)
           layoutFinishPriorCommentLine
       _ -> do
@@ -385,21 +398,18 @@ renderPlannedComment planned = do
                 (plannedCommentColumnDelta planned - _lstate_indLevelLinger state)
                 lineCount
       positioned <- mGet
-      let commentColumn = either id (const 0)
-            (_lstate_curYOrAddNewline positioned)
+      let commentColumn = (case _lstate_curYOrAddNewline positioned of
+            Left column -> column
+            Right 0 | not ownLine -> _lstate_lastWrittenColumn positioned
+            Right{} -> 0)
             + fromMaybe 0 (_lstate_addSepSpace positioned)
       mModify $ \current -> current
         { _lstate_trailingCommentRun = continuedRun
             <|> startTrailingCommentRun planned commentColumn
         }
       layoutWriteAppendMultiline commentLines
-      -- Keep the run column from becoming the next constructor's indentation.
-      when
-        ( Maybe.isJust continuedRun
-        && case commentBoundaryPath $ plannedCommentBoundary planned of
-          ConstructorBoundaryPath{} -> True
-          _ -> False
-        ) $ mModify $ \current -> current
+      -- Comment alignment must not become the following code's indentation.
+      when (Maybe.isJust continuedRun) $ mModify $ \current -> current
           { _lstate_commentCol = _lstate_commentCol state }
       when
         ( sourceCommentSyntax source == BlockComment
@@ -416,6 +426,9 @@ renderPlannedComment planned = do
       when (sourceCommentSyntax source == LineComment) $ case
           (placementAnchor placement, placementOwner placement) of
             _ | placementLineRelation placement == InlineComment ->
+              layoutFinishPriorCommentLine
+            _ | Maybe.isJust continuedRun
+              , placementAnchor placement == AfterNode ->
               layoutFinishPriorCommentLine
             (BeforeNode, NodeId owner)
               | isLastCommentBeforeOwner commentPlan planned -> do

@@ -60,6 +60,8 @@ data LayoutState = LayoutState
              -- 1) number of chars in the current line.
              -- 2) number of newlines to be inserted before inserting any
              --    non-space elements.
+  , _lstate_lastWrittenColumn :: Int
+    -- ^ Physical cursor before any pending newline is committed.
   , _lstate_indLevels      :: [Int]
     -- ^ stack of current indentation levels. set for
     -- any layout-affected elements such as

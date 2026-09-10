@@ -96,6 +96,7 @@ layoutState :: Either Int Int -> LayoutState
 layoutState cursor = LayoutState
   { _lstate_baseYs = [4]
   , _lstate_curYOrAddNewline = cursor
+  , _lstate_lastWrittenColumn = 0
   , _lstate_indLevels = [4]
   , _lstate_indLevelLinger = 4
   , _lstate_comments = Map.empty

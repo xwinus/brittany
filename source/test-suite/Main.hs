@@ -66,6 +66,7 @@ import qualified LocalTrailingCommentSpec
 import qualified FunctionHeadWrappingSpec
 import qualified InlineCommentSpacingSpec
 import qualified ConstructorCommentContinuationSpec
+import qualified ExpressionCommentContinuationSpec
 import qualified TrailingCommentContinuationSpec
 import qualified TypeOperatorRecordSpec
 import qualified TupleSemanticNameSpec
@@ -172,6 +173,7 @@ main = Hspec.hspec $ do
   FunctionHeadWrappingSpec.spec projectRoot
   InlineCommentSpacingSpec.spec
   ConstructorCommentContinuationSpec.spec
+  ExpressionCommentContinuationSpec.spec projectRoot
   TrailingCommentContinuationSpec.spec
   TypeOperatorRecordSpec.spec projectRoot
   TupleSemanticNameSpec.spec projectRoot

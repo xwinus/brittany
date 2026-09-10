@@ -1242,6 +1242,7 @@ layoutBriDoc metrics _rawNodeCount briDoc = do
                                            -- here because moveToAnn stuff
                                            -- of the first node needs to do
                                            -- its thing properly.
+      , _lstate_lastWrittenColumn = 0
       , _lstate_indLevels = [0]
       , _lstate_indLevelLinger = 0
       , _lstate_comments = reserveSourceFragmentComments briDoc' anns
