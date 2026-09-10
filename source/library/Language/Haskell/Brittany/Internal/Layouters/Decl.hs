@@ -51,6 +51,7 @@ import Language.Haskell.Brittany.Internal.ExactSource (sourceCommentFragment)
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.DataDecl
+import Language.Haskell.Brittany.Internal.Layouters.Decl.Infix
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
 import Language.Haskell.Brittany.Internal.Layouters.FixitySignature
 import Language.Haskell.Brittany.Internal.Layouters.Pattern
@@ -1005,8 +1006,7 @@ layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
         $ (List.intersperse docSeparator $ docForceSingleline <$> ps)
   let hasPrefixArguments = Data.Maybe.isJust mIdStr' && length patDocs > 1
       hasStructuralPatterns = any Data.Maybe.isJust multilinePatDocs
-  mMultilinePatDoc <- if isInfix
-      || not (hasPrefixArguments || hasStructuralPatterns)
+  mMultilinePatDoc <- if not (isInfix || hasPrefixArguments || hasStructuralPatterns)
     then return Nothing
     else do
       selectedDocs <- sequence $ zipWith
@@ -1017,6 +1017,9 @@ layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
         patDocs
         multilinePatDocs
       case (mIdStr', selectedDocs) of
+        (Just idStr, ps) | isInfix ->
+          traverse (docWrapNodePrior (toL lmatch) . pure)
+            =<< layoutInfixPatternHead idStr ps
         (Just idStr, ps@(_ : _)) -> do
           let lastArgumentIndex = length ps - 1
           lineDocs <- sequence
@@ -1050,10 +1053,12 @@ layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
     Just _  -> hasAnyCommentsBelow (toL lmatch)
   prependConsumedComments
     (separatorComments ++ handledClauseComments clauseDocs)
+    -- Infix boundaries are chosen with the head even when an operand also
+    -- offers a structural layout; an overflowing RHS must not expand the head.
     $ layoutPatternBindFinal alignmentScope alignmentToken binderWithComments
       (Just patDoc)
-      (if hasStructuralPatterns then mMultilinePatDoc else Nothing)
-      (if hasStructuralPatterns then Nothing else mMultilinePatDoc)
+      (if hasStructuralPatterns && not isInfix then mMultilinePatDoc else Nothing)
+      (if hasStructuralPatterns && not isInfix then Nothing else mMultilinePatDoc)
       clauseDocs
       (hasSingleBooleanGuard grhss) mWhereArg
       (hasComments || not (null separatorComments))
