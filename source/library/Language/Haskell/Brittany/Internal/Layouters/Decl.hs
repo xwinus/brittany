@@ -52,6 +52,7 @@ import Language.Haskell.Brittany.Internal.ExactSource (sourceCommentFragment)
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.DataDecl
+import Language.Haskell.Brittany.Internal.Layouters.Decl.Case
 import Language.Haskell.Brittany.Internal.Layouters.Decl.Guard
 import Language.Haskell.Brittany.Internal.Layouters.Decl.Infix
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
@@ -678,7 +679,7 @@ layoutBindWithComments declarationComments lbind@(L _ bind) = case bind of
     hasComments <- hasAnyCommentsBelow (toL lbind)
     formatted <- docWrapNode (toL lbind) $ layoutPatternBindFinal
       OptionalSiblingAlignment Nothing binderDoc (Just patDocs)
-      multilinePatDoc Nothing clauseDocs (hasSingleBooleanGuard grhss) mWhereArg
+      multilinePatDoc Nothing Nothing clauseDocs (hasSingleBooleanGuard grhss) mWhereArg
       (hasComments || not (null separatorComments))
     Right <$> prependConsumedComments
       (separatorComments ++ handledClauseComments clauseDocs)
@@ -767,6 +768,7 @@ layoutIPBind lipbind@(L _ bind) = case bind of
         Nothing
         binderDoc
         (Just ipName)
+        Nothing
         Nothing
         Nothing
         [([], exprDoc, expr, [])]
@@ -1044,6 +1046,17 @@ layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
           $ docWrapNodePrior (toL lmatch)
           $ return p
         _ -> return Nothing
+  let isCaseAlternative = case m_ctxt match of
+        CaseAlt -> True
+        LamAlt LamCase -> True
+        _ -> False
+  mCaseHeadDoc <- case (isCaseAlternative, multilinePatDocs, grhss) of
+    (True, [Just structural], [L _ (GRHS _ [] _)]) -> do
+      structuralPat <- docWrapNodePrior (toL lmatch) $ pure structural
+      Just <$> if null separatorComments
+        then layoutCasePatternHead patDoc structuralPat binderDoc
+        else layoutCommentedCasePatternHead patDoc structuralPat binderWithComments
+    _ -> pure Nothing
   let matchComments = filter
         (sourceCommentWithinNodeSpan $ toL lmatch)
         remainingComments
@@ -1071,7 +1084,7 @@ layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
       (Just patDoc)
       (if hasStructuralPatterns && not isInfix then mMultilinePatDoc else Nothing)
       (if hasStructuralPatterns && not isInfix then Nothing else mMultilinePatDoc)
-      clauseDocs
+      mCaseHeadDoc clauseDocs
       (hasSingleBooleanGuard grhss) mWhereArg
       (hasComments || hasGuardComments || not (null separatorComments))
 
@@ -1103,13 +1116,14 @@ layoutPatternBindFinal
   -> Maybe BriDocNumbered
   -> Maybe BriDocNumbered
   -> Maybe BriDocNumbered
+  -> Maybe BriDocNumbered
   -> [([BriDocNumbered], BriDocNumbered, LHsExpr GhcPs, [SourceComment])]
   -> Bool
   -> Maybe (AnnKey, [BriDocNumbered])
      -- ^ AnnKey for the node that contains the AnnWhere position annotation
   -> Bool
   -> ToBriDocM BriDocNumbered
-layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilinePatDoc mArgumentSequenceDoc clauseDocs hasSingleBodyGuard mWhereDocs hasComments
+layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilinePatDoc mArgumentSequenceDoc mCaseHeadDoc clauseDocs hasSingleBodyGuard mWhereDocs hasComments
   = do
     let alignmentCandidates = case alignmentScope of
           RequiredPatternAlignment -> [StructuralAffinity $ Right ()]
@@ -1199,10 +1213,11 @@ layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilin
       case clauseDocs of
         [(guards, body, _bodyRaw, _)] -> do
           let guardPart = singleLineGuardsDoc guards
+          let completeHead = docSeq $ patPartInline ++ if null guards
+                then [guardPart, pure binderDoc]
+                else [layoutGuardedHeadTail guards guardPart binderDoc]
           addAlternativeCond hasComments $ docLines
-            $ [ docSeq $ patPartInline ++ if null guards
-                  then [guardPart, pure binderDoc]
-                  else [layoutGuardedHeadTail guards guardPart binderDoc]
+            $ [ maybe completeHead pure mCaseHeadDoc
               , docNonBottomSpacing
                 $ docEnsureIndent BrIndentRegular
                 $ docAddBaseY BrIndentRegular
@@ -1265,7 +1280,8 @@ layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilin
           -- pattern and exactly one clause in single line, body in new line.
           addAlternativeCond (not hasComments)
             $ docLines
-            $ [ docSeq (patPartInline ++ [guardPart, return binderDoc])
+            $ [ (if Data.Maybe.isJust mCaseHeadDoc then docForceSingleline else id)
+                $ docSeq (patPartInline ++ [guardPart, return binderDoc])
               , docNonBottomSpacing
               $ docEnsureIndent BrIndentRegular
               $ docAddBaseY BrIndentRegular
@@ -1294,12 +1310,14 @@ layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilin
             Just patDoc ->
               addAlternative
                 $ docLines
-                $ [ docSeq
-                      [ appSep $ return patDoc
-                      , if null guards
-                        then docSeq [guardPart, pure binderDoc]
-                        else layoutGuardedHeadTail guards guardPart binderDoc
-                      ]
+                $ [ maybe
+                      (docSeq
+                        [ appSep $ return patDoc
+                        , if null guards
+                          then docSeq [guardPart, pure binderDoc]
+                          else layoutGuardedHeadTail guards guardPart binderDoc
+                        ])
+                      pure mCaseHeadDoc
                   , docNonBottomSpacing
                   $ docEnsureIndent multilinePatternBodyIndent
                   $ return body
@@ -1433,8 +1451,18 @@ layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilin
                        ]
           ]
         ++ wherePartMultiLine
+      -- Preserve a structural case head when no whole-clause layout fits.
+      let caseFallback fallback = case (mCaseHeadDoc, clauseDocs) of
+            (Just headDoc, [([], body, _, _)]) -> docLines
+              $ [ pure headDoc
+                , docNonBottomSpacing $ if hasComments
+                  then docEnsureIndent BrIndentRegular
+                    $ docAddBaseY BrIndentRegular $ pure body
+                  else docEnsureIndent multilinePatternBodyIndent $ pure body
+                ] ++ wherePartMultiLine
+            _ -> fallback
       -- conservative approach: everything starts on the left.
-      addAlternative
+      addAlternative $ caseFallback
         $ docLines
         $ [ docAddBaseY BrIndentRegular
             $ patPartParWrap

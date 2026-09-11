@@ -866,7 +866,7 @@ layoutExprNative lexpr@(L _ expr) = do
         $ docAddBaseY BrIndentRegular
         $ docPar (docLit $ Text.pack "if")
         $ layoutPatternBindFinal RequiredPatternAlignment Nothing binderDoc
-          Nothing Nothing Nothing
+          Nothing Nothing Nothing Nothing
           (NonEmpty.toList clauseDocs)
           (hasSingleBooleanGuard $ NonEmpty.toList cases)
           Nothing

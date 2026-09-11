@@ -31,6 +31,7 @@ import qualified ExpressionCommentIndentationSpec
 import qualified FallbackSpec
 import qualified FallbackSweepSpec
 import qualified FixitySignatureSpec
+import qualified CaseHeadWidthSpec
 import qualified GuardedClauseWrappingSpec
 import qualified GuardLayoutSpec
 import qualified InstanceHeadSpec
@@ -152,6 +153,7 @@ main = Hspec.hspec $ do
   FallbackSpec.spec projectRoot
   FallbackSweepSpec.spec
   FixitySignatureSpec.spec projectRoot
+  CaseHeadWidthSpec.spec projectRoot
   GuardedClauseWrappingSpec.spec projectRoot
   GuardLayoutSpec.spec
   InstanceHeadSpec.spec projectRoot
