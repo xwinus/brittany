@@ -34,6 +34,7 @@ source/library/Language/Haskell/Brittany/Internal/Layouters/DataDecl/Constructor
 source/library/Language/Haskell/Brittany/Internal/Layouters/DataDecl/Deriving.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/DataDecl/Support.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Decl.hs
+source/library/Language/Haskell/Brittany/Internal/Layouters/Decl/Case.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Decl/Guard.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Decl/Infix.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Expr.hs
@@ -75,6 +76,7 @@ source/library/Language/Haskell/Brittany/Main.hs
 source/library/Language/Haskell/Brittany/Main/Transform.hs
 source/test-suite/AlignmentPlannerSpec.hs
 source/test-suite/CanonicalSemanticModelSpec.hs
+source/test-suite/CaseHeadWidthSpec.hs
 source/test-suite/CommentBoundaryGraphSpec.hs
 source/test-suite/CommentIRSpec.hs
 source/test-suite/CommentOwnershipSpec.hs
