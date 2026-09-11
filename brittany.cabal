@@ -127,6 +127,7 @@ library
     Language.Haskell.Brittany.Internal.Config.Types.Instances
     Language.Haskell.Brittany.Internal.Delimiter
     Language.Haskell.Brittany.Internal.Delimiter.Comments
+    Language.Haskell.Brittany.Internal.Delimiter.RecordComments
     Language.Haskell.Brittany.Internal.Delimiter.Render
     Language.Haskell.Brittany.Internal.Delimiter.Render.Utils
     Language.Haskell.Brittany.Internal.Delimiter.Types
@@ -256,6 +257,7 @@ test-suite brittany-test-suite
     ExactPrintCompatSpec
     ExactSourceFragmentSpec
     ExpressionCommentIndentationSpec
+    StandaloneCommentAlignmentSpec
     ExpressionTypeAnnotationSpec
     FallbackSpec
     FallbackSweepSpec

@@ -38,7 +38,7 @@ largeConstruct fieldOne fieldTwo =
     { fieldOne
     , fieldTwo
     , fieldThree    = nestedValue argumentOne argumentTwo
-      -- Keep this comment with field four.
+    -- Keep this comment with field four.
     , fieldFour     = undefined
     , fieldFive     = undefined
     , fieldSix      = undefined
@@ -59,6 +59,6 @@ largeUpdate record =
     { fieldOne   = undefined
     , fieldTwo   = undefined
     , fieldThree = nestedValue argumentOne argumentTwo
-      -- Keep this update comment with field four.
+    -- Keep this update comment with field four.
     , fieldFour  = undefined
     }

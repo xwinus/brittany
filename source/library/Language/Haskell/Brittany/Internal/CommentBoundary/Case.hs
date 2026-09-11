@@ -7,9 +7,11 @@ module Language.Haskell.Brittany.Internal.CommentBoundary.Case
   , buildCaseBoundaryIndex
   , caseAlternativeBoundary
   , caseAlternativeBoundaryFromIndex
+  , caseAlternativeBoundaryWithPlacement
   , materializeCaseComments
   ) where
 
+import qualified Data.Char                               as Char
 import qualified Data.Generics                           as Generics
 import           Data.Kind                               ( Type )
 import qualified Data.List                               as List
@@ -17,9 +19,12 @@ import qualified Data.Map                                as Map
 import qualified Data.Set                                as Set
 import           GHC                                      ( GenLocated(L)
                                                           , HsModule
+                                                          , unLoc
                                                           )
 import           GHC.Hs                                   ( EpAnnHsCase(..)
                                                           , HsExpr(..)
+                                                          , LHsExpr
+                                                          , LMatch
                                                           , MatchGroup(..)
                                                           )
 import           GHC.Parser.Annotation                    ( getEpTokenSrcSpan
@@ -27,6 +32,8 @@ import           GHC.Parser.Annotation                    ( getEpTokenSrcSpan
                                                           )
 import qualified GHC.Types.SrcLoc                        as SrcLoc
 import           Language.Haskell.Brittany.Internal.ExactPrintCompat
+import           Language.Haskell.Brittany.Internal.CommentBoundary.Trailing
+                                                          ( plainLineCommentText )
 import           Language.Haskell.Brittany.Internal.Prelude
 import           Language.Haskell.Brittany.Internal.SourceComment.Types
 
@@ -35,6 +42,7 @@ data CaseRegion = CaseRegion
   { regionMatchGroupOwner :: AnnKey
   , regionOfSpan          :: SrcLoc.RealSrcSpan
   , regionFirstMatchSpan  :: SrcLoc.RealSrcSpan
+  , regionFollowsMatch    :: Bool
   }
 
 type CaseBoundaryIndex :: Type
@@ -54,10 +62,33 @@ caseAlternativeBoundary module' =
 
 caseAlternativeBoundaryFromIndex
   :: CaseBoundaryIndex -> SrcLoc.RealSrcSpan -> Maybe CommentBoundaryId
-caseAlternativeBoundaryFromIndex (CaseBoundaryIndex indexedRegions) commentSpan = do
+caseAlternativeBoundaryFromIndex index = caseBoundaryForPlacement index Nothing
+
+caseAlternativeBoundaryWithPlacement
+  :: CaseBoundaryIndex
+  -> CommentPlacement
+  -> SrcLoc.RealSrcSpan
+  -> Maybe CommentBoundaryId
+caseAlternativeBoundaryWithPlacement index placement =
+  caseBoundaryForPlacement index $ Just placement
+
+caseBoundaryForPlacement
+  :: CaseBoundaryIndex
+  -> Maybe CommentPlacement
+  -> SrcLoc.RealSrcSpan
+  -> Maybe CommentBoundaryId
+caseBoundaryForPlacement (CaseBoundaryIndex indexedRegions) placement commentSpan = do
   (index, _) <-
-    List.find (commentWithinRegion commentSpan . snd) indexedRegions
+    List.find (matchesRegion . snd) indexedRegions
   pure $ CommentBoundaryId (CaseAlternativeBoundaryPath index) BeforeBoundary
+ where
+  matchesRegion region = commentWithinRegion commentSpan region
+    && (not (regionFollowsMatch region) || maybe False (ownsComment region) placement)
+  ownsComment region current =
+    placementOwner current == NodeId (regionMatchGroupOwner region)
+      && placementAnchor current == BeforeNode
+      && placementRole current == LeadingOrdinary
+      && placementLineRelation current == CommentOwnLine
 
 caseRegions :: HsModule GhcPs -> [CaseRegion]
 caseRegions =
@@ -68,8 +99,8 @@ caseRegionQuery = Generics.mkQ [] caseRegion
 
 caseRegion :: HsExpr GhcPs -> [CaseRegion]
 caseRegion = \case
-  HsCase annotations _ (MG _ matches@(L _ (firstMatch : _))) ->
-    maybeToList $ do
+  HsCase annotations _ (MG _ matches@(L _ matchList@(firstMatch : _))) ->
+    maybeToList (do
       ofSpan <- srcSpanToRealSpan $ getEpTokenSrcSpan $ hsCaseAnnOf annotations
       firstMatchSpan <- srcSpanToRealSpan $ getLocA firstMatch
       pure
@@ -77,8 +108,24 @@ caseRegion = \case
           { regionMatchGroupOwner = mkNamedAnnKey "MatchGroup" (getLocA matches)
           , regionOfSpan          = ofSpan
           , regionFirstMatchSpan  = firstMatchSpan
-          }
+          , regionFollowsMatch    = False
+          })
+      ++ List.concatMap (maybeToList . betweenMatches)
+        (zip matchList $ drop 1 matchList)
   _ -> []
+ where
+  betweenMatches
+    :: (LMatch GhcPs (LHsExpr GhcPs), LMatch GhcPs (LHsExpr GhcPs))
+    -> Maybe CaseRegion
+  betweenMatches (previous, current) = do
+    previousSpan <- srcSpanToRealSpan $ getLocA previous
+    currentSpan <- srcSpanToRealSpan $ getLocA current
+    pure CaseRegion
+      { regionMatchGroupOwner = mkAnnKey $ L (getLocA current) $ unLoc current
+      , regionOfSpan = previousSpan
+      , regionFirstMatchSpan = currentSpan
+      , regionFollowsMatch = True
+      }
 
 relocateComments :: Anns -> CaseRegion -> Anns
 relocateComments annotations region
@@ -86,26 +133,75 @@ relocateComments annotations region
   = annotations
   | otherwise
   = Map.alter
-      (Just . addPriorComments region moved . fromMaybe emptyAnnotation)
+      (Just . addPriorComments region regionComments moved . fromMaybe emptyAnnotation)
       (regionMatchGroupOwner region)
     $ removeComments moved annotations
  where
-  moved = commentsInRegion region annotations
+  regionComments = commentsInRegion region annotations
+  moved = commentsToRelocate region regionComments
 
-addPriorComments :: CaseRegion -> [Comment] -> Annotation -> Annotation
-addPriorComments region moved annotation =
+addPriorComments :: CaseRegion -> [Comment] -> [Comment] -> Annotation -> Annotation
+addPriorComments region regionComments moved annotation =
   annotation
     { annPriorComments =
-        rebaseComments region moved ++ annPriorComments annotation
+        if regionFollowsMatch region
+          then rebaseFrom precedingPosition priorComments
+          else rebaseComments region moved ++ annPriorComments annotation
     }
+ where
+  priorComments = List.sortOn commentPosition
+    $ moved ++ fmap fst (annPriorComments annotation)
+  precedingPosition = case priorComments of
+    [] -> spanEnd $ regionOfSpan region
+    first : _ -> foldl max (spanEnd $ regionOfSpan region)
+      [ commentEnd earlier
+      | earlier <- regionComments
+      , commentEnd earlier <= commentStart first
+      ]
 
 commentsInRegion :: CaseRegion -> Anns -> [Comment]
-commentsInRegion region annotations =
-  distinctComments
+commentsInRegion region annotations = distinctComments
     $ List.sortOn commentPosition
     $ filter (commentWithinRegion' region)
     $ List.concatMap annotationComments
     $ Map.elems annotations
+
+commentsToRelocate :: CaseRegion -> [Comment] -> [Comment]
+commentsToRelocate region comments
+  | not $ regionFollowsMatch region = comments
+  -- Earlier prose must not cross a protected run that keeps its original owner.
+  | otherwise = List.concat $ reverse
+      $ takeWhile ordinaryStandaloneRun $ reverse $ commentRuns comments
+ where
+  ordinaryStandaloneRun comments = not (null comments)
+    && all ordinaryComment comments
+    && all ((> SrcLoc.srcSpanEndLine (regionOfSpan region)) . fst . commentStart)
+      comments
+    && all ((== snd (commentStart $ head comments)) . snd . commentStart) comments
+
+-- Keep a run intact when it starts inline, contains documentation or a diagram,
+-- or uses deliberately different source indentation.
+commentRuns :: [Comment] -> [[Comment]]
+commentRuns [] = []
+commentRuns (first : remaining) = collect [first] first remaining
+ where
+  collect run _ [] = [reverse run]
+  collect run previous rest@(current : following)
+    | fst (commentStart current) <= fst (commentEnd previous) + 1 =
+        collect (current : run) current following
+    | otherwise = reverse run : commentRuns rest
+
+ordinaryComment :: Comment -> Bool
+ordinaryComment comment = plainLineCommentText text
+  && fst (commentStart comment) == fst (commentEnd comment)
+  && not (any (`List.isInfixOf` text) ["->", "<-", "=>", "::", "$"])
+  && case drop 2 $ dropWhile Char.isSpace text of
+    ' ' : content -> prose content
+    content -> prose content
+ where
+  text = commentContents comment
+  prose [] = True
+  prose (first : _) = Char.isAlphaNum first || first == '('
 
 annotationComments :: Annotation -> [Comment]
 annotationComments annotation =
@@ -131,7 +227,10 @@ removeComments comments = Map.map remove
     _ -> True
 
 rebaseComments :: CaseRegion -> [Comment] -> [(Comment, DeltaPos)]
-rebaseComments region = snd . mapAccumL rebase (spanEnd $ regionOfSpan region)
+rebaseComments region = rebaseFrom $ spanEnd $ regionOfSpan region
+
+rebaseFrom :: (Int, Int) -> [Comment] -> [(Comment, DeltaPos)]
+rebaseFrom previousPosition = snd . mapAccumL rebase previousPosition
  where
   rebase previous comment =
     ( commentEnd comment

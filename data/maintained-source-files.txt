@@ -121,3 +121,5 @@ source/test-suite/TopLevelSpacingSpec.hs
 source/test-suite/TransactionalInplaceSpec.hs
 source/test-suite/TupleSemanticNameSpec.hs
 source/test-suite/TypeOperatorRecordSpec.hs
+source/test-suite/StandaloneCommentAlignmentSpec.hs
+source/library/Language/Haskell/Brittany/Internal/Delimiter/RecordComments.hs

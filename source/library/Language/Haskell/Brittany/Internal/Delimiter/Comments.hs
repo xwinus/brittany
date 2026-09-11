@@ -3,6 +3,7 @@
 
 module Language.Haskell.Brittany.Internal.Delimiter.Comments
   ( extractBoundaryComments
+  , extractCommentsMatching
   , isRecordEdgeBoundaryComment
   , rebaseInlineBoundaryComment
   , splitBoundaryComments
@@ -42,7 +43,14 @@ extractBoundaryComments
   :: CommentBoundaryGap
   -> BriDocNumbered
   -> ([BriDocNumbered], BriDocNumbered)
-extractBoundaryComments gap document =
+extractBoundaryComments gap = extractCommentsMatching
+  ((== gap) . commentBoundaryGap . plannedCommentBoundary)
+
+extractCommentsMatching
+  :: (PlannedComment -> Bool)
+  -> BriDocNumbered
+  -> ([BriDocNumbered], BriDocNumbered)
+extractCommentsMatching matches document =
   State.evalState (extract document) IntMap.empty
  where
   extract current@(nodeId, _) = do
@@ -69,7 +77,7 @@ extractBoundaryComments gap document =
           else (comments, (nodeId, constructor $ snd <$> extracted))
     in case value of
     BDFComment planned
-      | commentBoundaryGap (plannedCommentBoundary planned) == gap ->
+      | matches planned ->
           pure ([document'], (nodeId, BDFEmpty))
     BDFSeq children -> childrenNode BDFSeq children
     BDFCols signature children -> childrenNode (BDFCols signature) children

@@ -7,14 +7,12 @@ module Language.Haskell.Brittany.Internal.Delimiter.Render
 import qualified Data.List as List
 import qualified Data.Text as Text
 import Language.Haskell.Brittany.Internal.Delimiter.Comments
+import Language.Haskell.Brittany.Internal.Delimiter.RecordComments
 import Language.Haskell.Brittany.Internal.Delimiter.Render.Utils
 import Language.Haskell.Brittany.Internal.Delimiter.Types
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.SourceComment.Types
-  ( CommentBoundaryGap (AfterOpenBoundary, BeforeCloseBoundary)
-  , PlannedComment (plannedCommentSource)
-  , SourceComment (sourceCommentKey)
-  )
+  ( CommentBoundaryGap (AfterOpenBoundary) )
 import Language.Haskell.Brittany.Internal.Types
 
 renderLayout
@@ -46,6 +44,11 @@ renderLayout layout sequence' = case layout of
 
 renderCompact
   :: DelimiterSequence BriDocNumbered -> RenderM BriDocNumbered
+renderCompact sequence'
+  | delimiterSequenceProfile sequence' == RecordDelimiterFields
+  , hasStandaloneRecordComments
+      (delimiterChildDocument <$> delimiterSequenceChildren sequence') =
+      renderRecordRows False sequence'
 renderCompact sequence' = do
   open <- token $ delimiterSequenceOpenToken sequence'
   close <- token $ delimiterSequenceCloseToken sequence'
@@ -272,7 +275,11 @@ renderRecordRows forceChildren sequence' = case delimiterSequenceChildren sequen
     open <- token $ delimiterSequenceOpenToken sequence'
     close <- token $ delimiterSequenceCloseToken sequence'
     spacedOpen <- openWithSpacing open
-    let extracted = extractBeforeClose <$> originalChildren
+    let extracted = zipWith
+          (\child (comments, document) ->
+            (comments, child { delimiterChildDocument = document }))
+          originalChildren
+          (extractRecordBoundaryComments $ delimiterChildDocument <$> originalChildren)
         (firstComments, firstChild) : remainingChildren = extracted
     firstDocument <- forceIfRequested $ delimiterChildDocument firstChild
     let firstRow = prependRecordColumn spacedOpen firstDocument
@@ -282,13 +289,6 @@ renderRecordRows forceChildren sequence' = case delimiterSequenceChildren sequen
     setBaseY =<< linesNode
       (firstRow : firstBoundaryRows ++ List.concat remainingRows ++ [close])
  where
-  extractBeforeClose child =
-    let (comments, document) = extractBoundaryComments
-          BeforeCloseBoundary
-          (delimiterChildDocument child)
-    in ( List.nubBy samePlannedComment comments
-       , child { delimiterChildDocument = document }
-       )
   renderChildAndBoundary (separator, (comments, child)) = do
     row <- renderRecordRow forceChildren (separator, child)
     boundaryRows <- traverse renderRecordBoundaryComment comments
@@ -296,19 +296,6 @@ renderRecordRows forceChildren sequence' = case delimiterSequenceChildren sequen
   forceIfRequested document
     | forceChildren = forceSingleline document
     | otherwise = pure document
-
-renderRecordBoundaryComment
-  :: BriDocNumbered -> RenderM BriDocNumbered
-renderRecordBoundaryComment document@(_, BDFComment planned)
-  | isRecordEdgeBoundaryComment planned =
-      addBaseY (DelimiterIndentFixed (-2)) document
-renderRecordBoundaryComment document = pure document
-
-samePlannedComment :: BriDocNumbered -> BriDocNumbered -> Bool
-samePlannedComment (_, BDFComment left) (_, BDFComment right) =
-  sourceCommentKey (plannedCommentSource left)
-    == sourceCommentKey (plannedCommentSource right)
-samePlannedComment _ _ = False
 
 renderRecordRow
   :: Bool
