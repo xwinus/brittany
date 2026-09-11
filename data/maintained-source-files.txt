@@ -129,3 +129,4 @@ source/library/Language/Haskell/Brittany/Internal/Layouters/Expr/BranchComments.
 source/library/Language/Haskell/Brittany/Internal/Layouters/Expr/Application.hs
 source/test-suite/HangingApplicationSpec.hs
 source/test-suite/UnfittableInfixRhsSpec.hs
+source/test-suite/ListDelimiterAlignmentSpec.hs

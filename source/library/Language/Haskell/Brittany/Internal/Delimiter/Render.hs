@@ -157,7 +157,14 @@ renderLeading sequence' = case delimiterSequenceChildren sequence' of
     rows <- traverse (renderLeadingRow $ rowColumns sequence')
       $ zip (delimiterSequenceSeparators sequence') remainingChildren
     body <- linesNode $ firstLine : List.concat rows ++ [close]
-    setBaseY body
+    anchoredBody <- setBaseY body
+    if delimiterSequenceKind sequence' == SquareBracketsDelimiter
+      then do
+        -- Materialize pending indentation before capturing the opening column.
+        -- An enclosing infix chain may already have raised the inherited base.
+        openingColumn <- token Text.empty
+        sequenceNode [openingColumn, anchoredBody]
+      else pure anchoredBody
 
 renderLeadingRow
   :: ColSig

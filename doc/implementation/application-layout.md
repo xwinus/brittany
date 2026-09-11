@@ -50,3 +50,26 @@ wrapping can make a separate RHS wider instead.
 Literal contents and spelling remain intact. Operators whose prefix is no wider
 than the normal continuation indent retain their attached layout, and block
 expressions retain their existing indentation rules.
+
+## Lists before infix continuations
+
+A multiline list keeps its opening bracket, leading commas and closing bracket
+at the opening bracket's column, including when it is the first operand of an
+infix chain. The operators retain their normal continuation indentation:
+
+```haskell
+  StandardSuite ->
+    [ "alt-parse"
+    , "alt-format"
+    , "alt-full"
+    ]
+      ++ scenarioNames MicroSuite
+      ++ scenarioNames ScalingSuite
+```
+
+The attached square-bracket renderer materializes pending indentation with a
+zero-width literal before capturing the list's base column. This distinguishes
+the opening column from an inherited base already raised by an enclosing infix
+continuation. The shared base-column operation retains its existing semantics:
+parenthesized expressions can depend on that inherited base to keep continuation
+lines inside a `do` statement's layout block.
