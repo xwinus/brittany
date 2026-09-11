@@ -128,3 +128,4 @@ source/test-suite/InlineBranchCommentSpec.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Expr/BranchComments.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Expr/Application.hs
 source/test-suite/HangingApplicationSpec.hs
+source/test-suite/UnfittableInfixRhsSpec.hs

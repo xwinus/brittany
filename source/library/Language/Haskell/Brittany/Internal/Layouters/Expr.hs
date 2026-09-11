@@ -169,6 +169,7 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
       , operandDoc
       , reducesIndent && supportsOperatorRhsBreak (unLoc operand)
       , isUnparenthesizedBlockExpression $ unLoc operand
+      , isIndivisibleRhsLiteral $ unLoc operand
       )
   lastReducesIndent <- operatorRhsBreakReducesIndent expOp
   let lastAllowsBreak =
@@ -183,17 +184,18 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
   let layoutChain =
         -- Merge pending indentation instead of counting it again in the paragraph.
         docAddBaseY BrIndentRegular $ docPar leftOperandDoc $ docLines
-          $ (appListDocs <&> \(opDoc, operandDoc, breakableOperand, blockOperand) ->
+          $ (appListDocs <&> \(opDoc, operandDoc, breakableOperand, blockOperand, literalOperand) ->
               layoutOperatorContinuation
-                breakableOperand blockOperand opDoc operandDoc)
+                breakableOperand blockOperand literalOperand opDoc operandDoc)
           ++ [layoutOperatorContinuation
                 lastAllowsBreak
                 (isUnparenthesizedBlockExpression $ unLoc expRight)
+                (isIndivisibleRhsLiteral $ unLoc expRight)
                 lastOpDoc lastOperandDoc]
   runFilteredAlternative $ do
     addAlternative $ docSeq
       [ appSep $ docForceSingleline leftOperandDoc
-      , docSeq $ appListDocs <&> \(opDoc, operandDoc, _, _) -> docSeq
+      , docSeq $ appListDocs <&> \(opDoc, operandDoc, _, _, _) -> docSeq
         [ appSep $ docForceSingleline opDoc
         , appSep $ docForceSingleline operandDoc
         ]
@@ -213,22 +215,30 @@ supportsOperatorRhsBreak = \case
   HsPar _ inner -> supportsOperatorRhsBreak $ unLoc inner
   _ -> False
 
+isIndivisibleRhsLiteral :: HsExpr GhcPs -> Bool
+isIndivisibleRhsLiteral = \case
+  HsLit{} -> True
+  HsOverLit{} -> True
+  HsPar _ inner -> isIndivisibleRhsLiteral $ unLoc inner
+  _ -> False
+
 layoutOperatorContinuation
   :: Bool
+  -> Bool
   -> Bool
   -> ToBriDocM BriDocNumbered
   -> ToBriDocM BriDocNumbered
   -> ToBriDocM BriDocNumbered
-layoutOperatorContinuation allowBreak blockOperand operator operand = do
+layoutOperatorContinuation allowBreak blockOperand literalOperand operator operand = do
   let layoutRight = if blockOperand then operand else docSetBaseY operand
   attached <- docCols ColOpPrefix [appSep operator, layoutRight]
   if allowBreak
-    then docAlt
+    then docAlt $
       [ pure attached
+      -- Even an indivisible RHS should not inherit the operator's extra width.
       , docParIndented BrIndentRegular operator operand
-      -- Preserve the previous fallback when even a separate RHS cannot fit.
-      , pure attached
       ]
+      ++ [pure attached | not literalOperand]
     else pure attached
 
 layoutOperatorApplication
@@ -282,12 +292,12 @@ layoutOperatorApplication expLeft expOp expRight = do
       ]
     addAlternative $ layoutMultiline $
       if allowRhsBreak
-        then docAlt
+        then docAlt $
           [ pure attached
+          -- The separate RHS also minimizes unavoidable literal overflow.
           , docParIndented BrIndentRegular expDocOp' expDocRight
-          -- Retain the previous fallback if the RHS contains an indivisible token.
-          , pure attached
           ]
+          ++ [pure attached | not $ isIndivisibleRhsLiteral $ unLoc expRight]
         else pure attached
 
 layoutExpr :: ToBriDoc HsExpr

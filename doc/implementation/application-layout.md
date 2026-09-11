@@ -35,3 +35,18 @@ emitted outside the measured RHS. Multiline components without a valid single-li
 width also retain existing handling.
 `IndentPolicyLeft` and `IndentPolicyMultiple` do not offer this free hanging
 alternative and retain their application indentation rules.
+
+## Indivisible infix operands
+
+For a literal or parenthesized literal after an infix operator, a separate
+RHS continuation is available when it uses less indentation than attaching the
+operator. The attached form remains preferred when it fits. If neither form fits,
+the separate RHS is also the fallback: an indivisible token can exceed the column
+limit, but attaching the operator should not increase that unavoidable overflow.
+This applies to direct applications and each eligible operand in an operator chain.
+Lists retain their existing fallback, since their internal indentation and
+wrapping can make a separate RHS wider instead.
+
+Literal contents and spelling remain intact. Operators whose prefix is no wider
+than the normal continuation indent retain their attached layout, and block
+expressions retain their existing indentation rules.

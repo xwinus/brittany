@@ -229,6 +229,7 @@ test-suite brittany-test-suite
     TransactionalInplaceSpec
     GeneratorRhsWrappingSpec
     NestedLambdaPatternSpec
+    UnfittableInfixRhsSpec
     NonListInfixRhsSpec
     InfixRhsWrappingSpec
     InfixBlockIndentationSpec
