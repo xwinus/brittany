@@ -15,6 +15,8 @@ import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.Decl
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
+import Language.Haskell.Brittany.Internal.Layouters.Expr.Application
+  ( preferCompactRhs )
 import Language.Haskell.Brittany.Internal.Layouters.Pattern
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
@@ -67,20 +69,21 @@ layoutStmtWithGeneratorBase generatorBase lstmt@(L _ stmt) = do
     BindStmt _ lPat expr -> do
       patDoc <- fmap pure $ patternDocument =<< layoutPattern lPat
       expDoc <- docSharedWrapper layoutExpr (toL expr)
+      hasComments <- (||) <$> hasAnyCommentsBelow lstmt
+        <*> hasAnyCommentsConnected lstmt
       -- Choose the RHS continuation after laying out the pattern.
       -- A parent estimate may use a different multiline pattern.
       -- Comprehension separators precede the pattern's continuation base.
       let withBase = if generatorBase then docSetBaseY else id
       withBase $ docCols ColBindStmt
         [ appSep patDoc
-        , docAlt
-          [ docSeq
+        , preferCompactRhs (not hasComments)
+          (\body -> docSeq
             [ appSep $ docLit $ Text.pack "<-"
-            , docAddBaseY BrIndentRegular $ docForceParSpacing expDoc
-            ]
-          , docAddBaseY BrIndentRegular
-            $ docPar (docLit $ Text.pack "<-") expDoc
-          ]
+            , docAddBaseY BrIndentRegular body
+            ])
+          (docAddBaseY BrIndentRegular . docPar (docLit $ Text.pack "<-"))
+          expDoc
         ]
     LetStmt _ binds -> do
       let isFree = indentPolicy == IndentPolicyFree

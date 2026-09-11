@@ -38,6 +38,8 @@ import Language.Haskell.Brittany.Internal.ExpressionComments
   ( requiresExactSourceExpression )
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.Decl
+import Language.Haskell.Brittany.Internal.Layouters.Expr.Application
+  ( balancedHangingApplication )
 import Language.Haskell.Brittany.Internal.Layouters.Expr.BranchComments
   ( reserveBranchSuffixWidth )
 import Language.Haskell.Brittany.Internal.Layouters.Expr.TypeAnnotation
@@ -536,7 +538,9 @@ layoutExprNative lexpr@(L _ expr) = do
           : spacifyDocs (docForceSingleline <$> paramDocs)
         -- foo x
         --     y
-        addAlternativeCond allowFreeIndent $ docSeq
+        addAlternativeCond allowFreeIndent
+          $ (if hasComments then id else balancedHangingApplication headDoc paramDocs)
+          $ docSeq
           [ appSep (docForceSingleline headDoc)
           , docSetBaseY
           $ docAddBaseY BrIndentRegular

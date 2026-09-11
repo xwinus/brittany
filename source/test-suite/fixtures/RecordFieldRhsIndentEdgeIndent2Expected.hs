@@ -13,9 +13,10 @@ firstAndLater argument =
 oneField firstArgument secondArgument =
   Handler
     { runHandler =
-        \inputValue -> combineHandlerValues firstArgument
-                                            secondArgument
-                                            inputValue
+        \inputValue -> combineHandlerValues
+          firstArgument
+          secondArgument
+          inputValue
     }
 
 nested argument =

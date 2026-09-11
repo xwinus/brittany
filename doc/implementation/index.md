@@ -18,6 +18,11 @@
   Specifying the semantics of the different (smart) constructors of the
   `BriDoc` type.
 
+- [application layout preferences](application-layout.md)
+
+  Documents compact RHS continuations and the relative width rule for hanging
+  application arguments.
+
 - [exactprinting](exactprinting.md)
 
   A closer look at how we achieve exactprinting, i.e. keeping comments and

@@ -36,10 +36,11 @@ commented command = case command of
     -- Keep this with the following argument.
     (NestedPattern nestedFirst nestedSecond)
     finalValue) ->
-      combineCommentedValues firstValue
-                             nestedFirst
-                             nestedSecond
-                             finalValue
+      combineCommentedValues
+        firstValue
+        nestedFirst
+        nestedSecond
+        finalValue
 
 adorned command = case command of
   (Decorated
