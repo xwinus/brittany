@@ -38,6 +38,7 @@ import Language.Haskell.Brittany.Internal.ExpressionComments
   ( requiresExactSourceExpression )
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.Decl
+import Language.Haskell.Brittany.Internal.Layouters.Expr.TypeAnnotation
 import Language.Haskell.Brittany.Internal.Layouters.Pattern
 import Language.Haskell.Brittany.Internal.Layouters.Stmt
 import Language.Haskell.Brittany.Internal.Layouters.Type
@@ -1111,10 +1112,10 @@ layoutExprNative lexpr@(L _ expr) = do
       briDocByExactInlineOnly ExpressionFallback lexpr
     ExprWithTySig _ exp1 sigWc -> case sigWc of
       HsWC _ body -> case unLoc body of
-        HsSig _ _ typ1 -> do
+        HsSig{} -> do
           expDoc <- docSharedWrapper layoutExpr' (toL exp1)
-          typDoc <- docSharedWrapper layoutType (toL typ1)
-          docSeq [appSep expDoc, appSep $ docLit $ Text.pack "::", typDoc]
+          typDoc <- docSharedWrapper layoutExpressionSignature body
+          layoutExpressionTypeAnnotation expDoc typDoc
         _ -> briDocByExactInlineOnly ExpressionFallback lexpr
       _ -> briDocByExactInlineOnly ExpressionFallback lexpr
     ArithSeq _ Nothing info -> case info of

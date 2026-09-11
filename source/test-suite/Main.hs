@@ -27,6 +27,7 @@ import qualified DelimiterLayoutSpec
 import qualified ExtractAnnsSpec
 import qualified ExactPrintCompatSpec
 import qualified ExactSourceFragmentSpec
+import qualified ExpressionTypeAnnotationSpec
 import qualified ExpressionCommentIndentationSpec
 import qualified FallbackSpec
 import qualified FallbackSweepSpec
@@ -138,6 +139,7 @@ main = Hspec.hspec $ do
   ExtractAnnsSpec.spec
   ExactPrintCompatSpec.spec
   ExactSourceFragmentSpec.spec projectRoot
+  ExpressionTypeAnnotationSpec.spec projectRoot
   ExpressionCommentIndentationSpec.spec
   CompatibilitySpec.spec projectRoot
   CommentPlanSpec.spec
