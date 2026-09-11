@@ -256,6 +256,7 @@ test-suite brittany-test-suite
     ConstructorFieldModifierSpec
     DataDeclSingleConstructorSpec
     DeclarationSpanIndexSpec
+    ListDelimiterAlignmentSpec
     DelimiterLayoutSpec
     ExtractAnnsSpec
     ExactPrintCompatSpec

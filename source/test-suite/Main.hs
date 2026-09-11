@@ -23,6 +23,7 @@ import qualified Data.List as List
 import qualified Data.Set as Set
 import qualified DataDeclSingleConstructorSpec
 import qualified DeclarationSpanIndexSpec
+import qualified ListDelimiterAlignmentSpec
 import qualified DelimiterLayoutSpec
 import qualified ExtractAnnsSpec
 import qualified ExactPrintCompatSpec
@@ -139,6 +140,7 @@ main = Hspec.hspec $ do
   StructuralCommentSpec.spec
   DataDeclSingleConstructorSpec.spec projectRoot
   DeclarationSpanIndexSpec.spec
+  ListDelimiterAlignmentSpec.spec projectRoot
   DelimiterLayoutSpec.spec
   ExtractAnnsSpec.spec
   ExactPrintCompatSpec.spec
