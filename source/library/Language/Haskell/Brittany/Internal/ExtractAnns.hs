@@ -14,6 +14,8 @@ module Language.Haskell.Brittany.Internal.ExtractAnns
   , recoverMissingCommentsWithAnnotations
   ) where
 
+import Language.Haskell.Brittany.Internal.ExtractAnns.BranchComments
+  ( branchCommentAnnotation )
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import qualified Data.Char as Char
 import Data.Data (Data, gmapQ, gmapQi)
@@ -1333,10 +1335,9 @@ extractFromLocatedWithLoc ln@(L loc x) =
 -- | Redistribute inner comments from HsIf to child expression annotations.
 -- GHC 9.14 stores all comments on the location annotation (EpAnn AnnListItem)
 -- of the HsIf node. Comments between keywords belong to child expressions:
--- - Between "then" and "else" → prior comment on then-expression
--- - After "else" → prior comment on else-expression
--- We create override annotations for the children with the redistributed
--- comments as annPriorComments, so BDAnnotationPrior emits them correctly.
+-- Keyword positions select the branch; expression spans distinguish leading
+-- comments from trailing notes. Keep trailing notes in annFollowingComments
+-- so they are emitted after their expression.
 extractHsIfAnns
   :: LHsExpr GhcPs
   -> EpAnn AnnListItem  -- location annotation (has comments)
@@ -1374,8 +1375,8 @@ extractHsIfAnns lexpr locAnn annsIf condExpr thenExpr elseExpr =
           condTrailingSpans = fst conditionCommentPartition
           innerComSpans = snd conditionCommentPartition
           -- Classify inner comments by keyword position
-          -- Between "then" and "else" → then-expression prior
-          -- After "else" → else-expression prior
+          -- Between "then" and "else" → then-expression
+          -- After "else" → else-expression
           (thenComSpans, elseComSpans) = classifyByKeywords thenPos elsePos innerComSpans
           -- Build HsIf annotation: genuine priors only, no inner comments
           genuinePriorComs = lepaToCommentsWithDP nodeStart
@@ -1409,8 +1410,8 @@ extractHsIfAnns lexpr locAnn annsIf condExpr thenExpr elseExpr =
               , annEntryDelta = DP (0, 0)
               }
           -- Build child annotations with redistributed comments
-          thenChildAnn = buildChildAnn thenPos thenComSpans thenExpr
-          elseChildAnn = buildChildAnn elsePos elseComSpans elseExpr
+          thenChildAnn = branchCommentAnnotation thenPos thenComSpans thenExpr
+          elseChildAnn = branchCommentAnnotation elsePos elseComSpans elseExpr
       in [(ifKey, ifAnn)]
          ++ maybe [] (\a -> [(condKey, a)]) condAnn
          ++ maybe [] (\a -> [(thenKey, a)]) thenChildAnn
@@ -1432,73 +1433,8 @@ extractHsIfAnns lexpr locAnn annsIf condExpr thenExpr elseExpr =
       -> [((Int, Int), (String, RealSrcSpan))]
       -> ([((Int, Int), (String, RealSrcSpan))], [((Int, Int), (String, RealSrcSpan))])
     classifyByKeywords _thenPos elsePos coms = case elsePos of
-      Just ep -> List.partition (\((line, _), _) -> line < fst ep) coms
+      Just ep -> List.partition ((< ep) . fst) coms
       Nothing -> (coms, [])  -- no else → all go to then
-
-    -- | Build a child annotation with redistributed comments as prior comments.
-    -- The DP for each comment is computed relative to the preceding keyword
-    -- position (e.g., "then" keyword for then-expression comments), so that
-    -- the comment gets placed on a new line at the correct column.
-    buildChildAnn
-      :: Maybe (Int, Int)  -- keyword position (e.g., "then" position)
-      -> [((Int, Int), (String, RealSrcSpan))]
-      -> LHsExpr GhcPs
-      -> Maybe Annotation
-    buildChildAnn _ [] _ = Nothing
-    buildChildAnn kwPos comSpans childExpr =
-      let childStart = getExprStart childExpr
-          -- Use keyword position as initial reference (it's before the comments).
-          -- This gives positive line deltas for DP computation.
-          initRef = case kwPos of
-            Just kp -> kp
-            Nothing -> case comSpans of
-              ((pos, _) : _) -> pos
-              [] -> childStart
-          priorComs = snd $ List.mapAccumL (buildRelativeDP childStart) initRef comSpans
-          entryDelta = case comSpans of
-            [] -> DP (0, 0)
-            _ -> let (_, (_, spanR)) = List.last comSpans
-                     afterRef = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
-                 in posToDP afterRef childStart
-      in Just Ann
-            { annCapturedSpan = Nothing
-            , annSortKey = Nothing
-            , annsDP = []
-            , annFollowingComments = []
-            , annPriorComments = priorComs
-            , annEntryDelta = entryDelta
-            }
-
-    getExprStart :: LHsExpr GhcPs -> (Int, Int)
-    getExprStart lexpr =
-      let srcSpan = getLocA lexpr
-      in case srcSpanToRealSpan srcSpan of
-        Just rsp -> ss2pos rsp
-        Nothing -> (1, 1)
-
-    -- | Build a (Comment, DP) for a prior comment on a child expression.
-    -- The DP's x-component is the column offset from the child's start column,
-    -- since layoutMoveToCommentPos adds indLevelLinger (≈ child indent) to x.
-    buildRelativeDP
-      :: (Int, Int)  -- child expression start
-      -> (Int, Int)  -- previous position (for chaining)
-      -> ((Int, Int), (String, RealSrcSpan))
-      -> ((Int, Int), (Comment, DeltaPos))
-    buildRelativeDP (_childLine, _childCol) prev ((comLine, _comCol), (content, spanR)) =
-      let -- layoutMoveToCommentPos uses indLevelLinger + x for column positioning.
-          -- indLevelLinger already equals the child's indent level, so x=0
-          -- places the comment at the correct indent. y must be >= 1 to preserve
-          -- the pending newline from docPar.
-          dp = if fst prev == comLine
-               then DP (0, 0)
-               else DP (max 1 (comLine - fst prev), 0)
-          nextPos = (SrcLoc.srcSpanEndLine spanR, SrcLoc.srcSpanEndCol spanR)
-          bComment = Comment
-            { commentOrigin = Nothing
-            , commentIdentifier = realSpanToSrcSpan spanR
-            , commentContents = content
-            }
-      in (nextPos, (bComment, dp))
 
 -- | Redistribute inner comments from HsDo to child statement annotations.
 -- GHC 9.14 stores all comments on the location annotation (EpAnn AnnListItem)
