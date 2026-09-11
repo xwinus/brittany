@@ -42,7 +42,7 @@ import           Language.Haskell.Brittany.Internal.ConstructorComments
 import           Language.Haskell.Brittany.Internal.CommentBoundary.Case
                                                           ( CaseBoundaryIndex
                                                           , buildCaseBoundaryIndex
-                                                          , caseAlternativeBoundaryFromIndex
+                                                          , caseAlternativeBoundaryWithPlacement
                                                           , materializeCaseComments
                                                           )
 import           Language.Haskell.Brittany.Internal.CommentBoundary.Delimiter
@@ -317,8 +317,8 @@ boundaryFor
   -> CommentBoundaryId
 boundaryFor module' boundaryIndex sourceComment placement =
   fromMaybe moduleBoundary
-    $   caseAlternativeBoundaryFromIndex
-          (boundaryCaseIndex boundaryIndex) commentSpan
+    $   caseAlternativeBoundaryWithPlacement
+          (boundaryCaseIndex boundaryIndex) placement commentSpan
     <|> delimiterBoundaryFromIndex
           (boundaryDelimiterIndex boundaryIndex) commentSpan
     <|> constructorBoundary declarations commentSpan
