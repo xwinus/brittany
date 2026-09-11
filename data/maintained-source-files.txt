@@ -38,6 +38,7 @@ source/library/Language/Haskell/Brittany/Internal/Layouters/Decl/Case.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Decl/Guard.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Decl/Infix.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Expr.hs
+source/library/Language/Haskell/Brittany/Internal/Layouters/Expr/TypeAnnotation.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/FixitySignature.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/IE.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Import.hs
@@ -91,6 +92,7 @@ source/test-suite/ConstructorFieldModifierSpec.hs
 source/test-suite/DataDeclSingleConstructorSpec.hs
 source/test-suite/DelimiterLayoutSpec.hs
 source/test-suite/ExactSourceFragmentSpec.hs
+source/test-suite/ExpressionTypeAnnotationSpec.hs
 source/test-suite/ExtractAnnsSpec.hs
 source/test-suite/FallbackSpec.hs
 source/test-suite/FallbackSweepSpec.hs
