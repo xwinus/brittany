@@ -38,6 +38,8 @@ import Language.Haskell.Brittany.Internal.ExpressionComments
   ( requiresExactSourceExpression )
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.Decl
+import Language.Haskell.Brittany.Internal.Layouters.Expr.BranchComments
+  ( reserveBranchSuffixWidth )
 import Language.Haskell.Brittany.Internal.Layouters.Expr.TypeAnnotation
 import Language.Haskell.Brittany.Internal.Layouters.Pattern
 import Language.Haskell.Brittany.Internal.Layouters.Stmt
@@ -753,7 +755,7 @@ layoutExprNative lexpr@(L _ expr) = do
       -- overlap.
       docSetIndentLevel $ runFilteredAlternative $ do
         -- if _ then _ else _
-        addAlternativeCond (not hasComments) $ docSeq
+        addAlternativeCond (not hasComments) $ reserveBranchSuffixWidth lexpr $ docSeq
           [ appSep $ docLit $ Text.pack "if"
           , appSep $ docForceSingleline ifExprDoc
           , appSep $ docLit $ Text.pack "then"
@@ -793,7 +795,7 @@ layoutExprNative lexpr@(L _ expr) = do
                   $ docPar (docLit $ Text.pack "then") thenExprDoc
                 ]
             , docAddBaseY BrIndentRegular $ docNonBottomSpacing $ docAlt
-              [ docSeq
+              [ reserveBranchSuffixWidth lexpr $ docSeq
                 [ appSep $ docLit $ Text.pack "else"
                 , docForceParSpacing elseExprDoc
                 ]
@@ -837,7 +839,7 @@ layoutExprNative lexpr@(L _ expr) = do
                   $ docPar (docLit $ Text.pack "then") thenExprDoc
                 ]
             , docAddBaseY BrIndentRegular $ docAlt
-              [ docSeq
+              [ reserveBranchSuffixWidth lexpr $ docSeq
                 [ appSep $ docLit $ Text.pack "else"
                 , docForceParSpacing elseExprDoc
                 ]

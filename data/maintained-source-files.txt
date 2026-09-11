@@ -123,3 +123,6 @@ source/test-suite/TupleSemanticNameSpec.hs
 source/test-suite/TypeOperatorRecordSpec.hs
 source/test-suite/StandaloneCommentAlignmentSpec.hs
 source/library/Language/Haskell/Brittany/Internal/Delimiter/RecordComments.hs
+source/library/Language/Haskell/Brittany/Internal/ExtractAnns/BranchComments.hs
+source/test-suite/InlineBranchCommentSpec.hs
+source/library/Language/Haskell/Brittany/Internal/Layouters/Expr/BranchComments.hs

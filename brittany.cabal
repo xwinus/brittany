@@ -142,6 +142,7 @@ library
     Language.Haskell.Brittany.Internal.Layouters.DataDecl.Constructor
     Language.Haskell.Brittany.Internal.Layouters.Decl
     Language.Haskell.Brittany.Internal.Layouters.Expr
+    Language.Haskell.Brittany.Internal.Layouters.Expr.BranchComments
     Language.Haskell.Brittany.Internal.Layouters.Expr.TypeAnnotation
     Language.Haskell.Brittany.Internal.Layouters.FixitySignature
     Language.Haskell.Brittany.Internal.Layouters.IE
@@ -184,6 +185,7 @@ library
     Language.Haskell.Brittany.Internal.CommentBoundary.Case
     Language.Haskell.Brittany.Internal.CommentBoundary.Trailing
     Language.Haskell.Brittany.Internal.ExpressionComments
+    Language.Haskell.Brittany.Internal.ExtractAnns.BranchComments
     Language.Haskell.Brittany.Internal.ExtractAnns.PostDocs
     Language.Haskell.Brittany.Internal.Layouters.DataDecl.Boundary
     Language.Haskell.Brittany.Internal.Layouters.DataDecl.Deriving
@@ -257,6 +259,7 @@ test-suite brittany-test-suite
     ExactPrintCompatSpec
     ExactSourceFragmentSpec
     ExpressionCommentIndentationSpec
+    InlineBranchCommentSpec
     StandaloneCommentAlignmentSpec
     ExpressionTypeAnnotationSpec
     FallbackSpec
