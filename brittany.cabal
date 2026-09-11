@@ -142,6 +142,7 @@ library
     Language.Haskell.Brittany.Internal.Layouters.DataDecl.Constructor
     Language.Haskell.Brittany.Internal.Layouters.Decl
     Language.Haskell.Brittany.Internal.Layouters.Expr
+    Language.Haskell.Brittany.Internal.Layouters.Expr.Application
     Language.Haskell.Brittany.Internal.Layouters.Expr.BranchComments
     Language.Haskell.Brittany.Internal.Layouters.Expr.TypeAnnotation
     Language.Haskell.Brittany.Internal.Layouters.FixitySignature
@@ -259,6 +260,7 @@ test-suite brittany-test-suite
     ExactPrintCompatSpec
     ExactSourceFragmentSpec
     ExpressionCommentIndentationSpec
+    HangingApplicationSpec
     InlineBranchCommentSpec
     StandaloneCommentAlignmentSpec
     ExpressionTypeAnnotationSpec

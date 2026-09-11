@@ -53,8 +53,8 @@ effectful firstInput secondInput =
         { runAction =
               do
                   firstResult  <- runFirstAction firstInput
-                  secondResult <- runSecondAction
-                      secondInput
+                  secondResult <-
+                      runSecondAction secondInput
                   combineResults firstResult secondResult
         }
 
@@ -63,8 +63,9 @@ listed firstValue secondValue =
         { values =
               [ transformFirstValue firstValue
                                     additionalArgument
-              , transformSecondValue secondValue
-                                     additionalArgument
+              , transformSecondValue
+                  secondValue
+                  additionalArgument
               ]
         }
 
