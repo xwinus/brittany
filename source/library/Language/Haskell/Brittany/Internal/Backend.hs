@@ -35,6 +35,7 @@ import Language.Haskell.Brittany.Internal.SourceComment.Continuation
   , startTrailingCommentRun
   , trailingCommentColumn
   )
+import Language.Haskell.Brittany.Internal.SourceComment.ExpressionBoundary
 import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Types
@@ -423,7 +424,9 @@ renderPlannedComment planned = do
           let NodeId owner = placementOwner placement
           layoutFinishPriorCommentBoundary
             $ sourceCommentBoundary owner (sourceCommentSpan source)
-      when (sourceCommentSyntax source == LineComment) $ case
+      if interruptsExpression planned && Maybe.isNothing continuedRun
+        then mModify $ finishExpressionComment $ lstate_baseY state
+        else when (sourceCommentSyntax source == LineComment) $ case
           (placementAnchor placement, placementOwner placement) of
             _ | placementLineRelation placement == InlineComment ->
               layoutFinishPriorCommentLine

@@ -130,3 +130,5 @@ source/library/Language/Haskell/Brittany/Internal/Layouters/Expr/Application.hs
 source/test-suite/HangingApplicationSpec.hs
 source/test-suite/UnfittableInfixRhsSpec.hs
 source/test-suite/ListDelimiterAlignmentSpec.hs
+source/library/Language/Haskell/Brittany/Internal/SourceComment/ExpressionBoundary.hs
+source/test-suite/ExpressionCommentBoundarySpec.hs

@@ -2,6 +2,8 @@
 
 module Language.Haskell.Brittany.Internal.Transformations.Alt.Comments
   ( containsLineComment
+  , containsExpressionBoundary
+  , containsCommentLineBreak
   , sequenceRequiresCommentLineBreak
   ) where
 
@@ -9,11 +11,26 @@ import qualified Control.Monad.Trans.State.Strict as StateS
 import qualified Data.IntSet as IntSet
 import Language.Haskell.Brittany.Internal.Delimiter.Types
 import Language.Haskell.Brittany.Internal.Prelude
+import Language.Haskell.Brittany.Internal.SourceComment.ExpressionBoundary
+  ( interruptsExpression
+  )
 import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.Types
 
 containsLineComment :: BriDocNumbered -> Bool
-containsLineComment document = StateS.evalState (visit document) IntSet.empty
+containsLineComment = containsComment $ \planned ->
+  sourceCommentSyntax (plannedCommentSource planned) == LineComment
+
+containsCommentLineBreak :: BriDocNumbered -> Bool
+containsCommentLineBreak = containsComment $ \planned ->
+  sourceCommentSyntax (plannedCommentSource planned) == LineComment
+    || interruptsExpression planned
+
+containsExpressionBoundary :: BriDocNumbered -> Bool
+containsExpressionBoundary = containsComment interruptsExpression
+
+containsComment :: (PlannedComment -> Bool) -> BriDocNumbered -> Bool
+containsComment predicate document = StateS.evalState (visit document) IntSet.empty
  where
   visit (nodeId, node) = do
     visited <- StateS.get
@@ -22,8 +39,7 @@ containsLineComment document = StateS.evalState (visit document) IntSet.empty
       else do
         StateS.put $ IntSet.insert nodeId visited
         case node of
-          BDFComment planned -> pure
-            $ sourceCommentSyntax (plannedCommentSource planned) == LineComment
+          BDFComment planned -> pure $ predicate planned
           BDFSeq children -> anyM visit children
           BDFCols _ children -> anyM visit children
           BDFAddBaseY _ child -> visit child
@@ -52,49 +68,52 @@ containsLineComment document = StateS.evalState (visit document) IntSet.empty
 
 sequenceRequiresCommentLineBreak :: Bool -> [BriDocNumbered] -> Bool
 sequenceRequiresCommentLineBreak False _ = False
-sequenceRequiresCommentLineBreak True documents = fst
-  $ foldr inspectDocument (False, False) documents
+sequenceRequiresCommentLineBreak True documents = first
+  $ foldr inspectDocument (False, False, False) documents
  where
-  inspectDocument document (requiresBreak, hasContentToRight) =
+  first (requiresBreak, _, _) = requiresBreak
+  inspectDocument document (requiresBreak, hasLayoutToRight, hasCodeToRight) =
     ( requiresBreak
-        || endsWithLineComment document && hasContentToRight
-    , hasContentToRight || hasLayoutContent document
+        || endsWithComment isInlineBoundary document && hasLayoutToRight
+        || endsWithComment interruptsExpression document && hasCodeToRight
+    , hasLayoutToRight || hasLayoutContent document
+    , hasCodeToRight || hasCodeContent document
     )
+  isInlineBoundary planned =
+    sourceCommentSyntax (plannedCommentSource planned) == LineComment
+      && (placementLineRelation (plannedCommentPlacement planned) == InlineComment
+        || commentBoundaryGap (plannedCommentBoundary planned) == BeforeCloseBoundary)
 
-endsWithLineComment :: BriDocNumbered -> Bool
-endsWithLineComment (_, document) = case document of
-  BDFComment planned -> sourceCommentSyntax (plannedCommentSource planned)
-    == LineComment
-    && ( placementLineRelation (plannedCommentPlacement planned) == InlineComment
-      || commentBoundaryGap (plannedCommentBoundary planned) == BeforeCloseBoundary
-      )
-  BDFSeq children -> maybe False endsWithLineComment
+endsWithComment :: (PlannedComment -> Bool) -> BriDocNumbered -> Bool
+endsWithComment predicate (_, document) = case document of
+  BDFComment planned -> predicate planned
+  BDFSeq children -> maybe False (endsWithComment predicate)
     $ lastLayoutChild children
-  BDFCols _ children -> maybe False endsWithLineComment
+  BDFCols _ children -> maybe False (endsWithComment predicate)
     $ lastLayoutChild children
-  BDFAddBaseY _ child -> endsWithLineComment child
-  BDFBaseYPushCur child -> endsWithLineComment child
-  BDFBaseYPop child -> endsWithLineComment child
-  BDFIndentLevelPushCur child -> endsWithLineComment child
-  BDFIndentLevelPop child -> endsWithLineComment child
-  BDFPar _ line indented -> endsWithLineComment indented
-    || not (hasLayoutContent indented) && endsWithLineComment line
-  BDFAlt alternatives -> any endsWithLineComment alternatives
-  BDFForwardLineMode child -> endsWithLineComment child
-  BDFAnnotationPrior _ _ child -> endsWithLineComment child
-  BDFAnnotationKW _ _ child -> endsWithLineComment child
-  BDFAnnotationRest _ child -> endsWithLineComment child
-  BDFMoveToKWDP _ _ _ child -> endsWithLineComment child
-  BDFLines children -> maybe False endsWithLineComment
+  BDFAddBaseY _ child -> endsWithComment predicate child
+  BDFBaseYPushCur child -> endsWithComment predicate child
+  BDFBaseYPop child -> endsWithComment predicate child
+  BDFIndentLevelPushCur child -> endsWithComment predicate child
+  BDFIndentLevelPop child -> endsWithComment predicate child
+  BDFPar _ line indented -> endsWithComment predicate indented
+    || not (hasLayoutContent indented) && endsWithComment predicate line
+  BDFAlt alternatives -> any (endsWithComment predicate) alternatives
+  BDFForwardLineMode child -> endsWithComment predicate child
+  BDFAnnotationPrior _ _ child -> endsWithComment predicate child
+  BDFAnnotationKW _ _ child -> endsWithComment predicate child
+  BDFAnnotationRest _ child -> endsWithComment predicate child
+  BDFMoveToKWDP _ _ _ child -> endsWithComment predicate child
+  BDFLines children -> maybe False (endsWithComment predicate)
     $ lastLayoutChild children
-  BDFEnsureIndent _ child -> endsWithLineComment child
-  BDFForceMultiline child -> endsWithLineComment child
-  BDFForceSingleline child -> endsWithLineComment child
-  BDFColumnsLimit _ child -> endsWithLineComment child
-  BDFNonBottomSpacing _ child -> endsWithLineComment child
-  BDFSetParSpacing child -> endsWithLineComment child
-  BDFForceParSpacing child -> endsWithLineComment child
-  BDFDebug _ child -> endsWithLineComment child
+  BDFEnsureIndent _ child -> endsWithComment predicate child
+  BDFForceMultiline child -> endsWithComment predicate child
+  BDFForceSingleline child -> endsWithComment predicate child
+  BDFColumnsLimit _ child -> endsWithComment predicate child
+  BDFNonBottomSpacing _ child -> endsWithComment predicate child
+  BDFSetParSpacing child -> endsWithComment predicate child
+  BDFForceParSpacing child -> endsWithComment predicate child
+  BDFDebug _ child -> endsWithComment predicate child
   _ -> False
 
 lastLayoutChild :: [BriDocNumbered] -> Maybe BriDocNumbered
@@ -105,9 +124,37 @@ lastLayoutChild = foldl' keepLast Nothing
     | otherwise = previous
 
 hasLayoutContent :: BriDocNumbered -> Bool
-hasLayoutContent (_, document) = case document of
+hasLayoutContent = hasContent True
+
+hasCodeContent :: BriDocNumbered -> Bool
+hasCodeContent = hasContent False
+
+hasContent :: Bool -> BriDocNumbered -> Bool
+hasContent includeComments (_, document) = case document of
+  BDFComment{} -> includeComments
   BDFEmpty -> False
   BDFSeparator -> False
-  BDFSeq children -> any hasLayoutContent children
-  BDFCols _ children -> any hasLayoutContent children
+  BDFSeq children -> any (hasContent includeComments) children
+  BDFCols _ children -> any (hasContent includeComments) children
+  BDFLines children -> any (hasContent includeComments) children
+  BDFPar _ line indented -> any (hasContent includeComments) [line, indented]
+  BDFAddBaseY _ child -> hasContent includeComments child
+  BDFBaseYPushCur child -> hasContent includeComments child
+  BDFBaseYPop child -> hasContent includeComments child
+  BDFIndentLevelPushCur child -> hasContent includeComments child
+  BDFIndentLevelPop child -> hasContent includeComments child
+  BDFAlt alternatives -> any (hasContent includeComments) alternatives
+  BDFForwardLineMode child -> hasContent includeComments child
+  BDFAnnotationPrior _ _ child -> hasContent includeComments child
+  BDFAnnotationKW _ _ child -> hasContent includeComments child
+  BDFAnnotationRest _ child -> hasContent includeComments child
+  BDFMoveToKWDP _ _ _ child -> hasContent includeComments child
+  BDFEnsureIndent _ child -> hasContent includeComments child
+  BDFForceMultiline child -> hasContent includeComments child
+  BDFForceSingleline child -> hasContent includeComments child
+  BDFColumnsLimit _ child -> hasContent includeComments child
+  BDFNonBottomSpacing _ child -> hasContent includeComments child
+  BDFSetParSpacing child -> hasContent includeComments child
+  BDFForceParSpacing child -> hasContent includeComments child
+  BDFDebug _ child -> hasContent includeComments child
   _ -> True

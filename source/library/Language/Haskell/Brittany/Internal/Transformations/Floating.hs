@@ -8,6 +8,9 @@ import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.Delimiter.Types (mapDelimitedGroup)
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
+import Language.Haskell.Brittany.Internal.SourceComment.ExpressionBoundary
+  ( retainExpressionCommentBase
+  )
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Utils
 
@@ -122,7 +125,9 @@ transformSimplifyFloating = stepBO .> stepFull
       Just $ BDLines $ BDAddBaseY indent <$> lines
     -- AddIndent floats into last column
     BDAddBaseY indent (BDCols sig cols) ->
-      Just $ BDCols sig $ List.init cols ++ [BDAddBaseY indent $ List.last cols]
+      Just $ BDCols sig
+        $ map (retainExpressionCommentBase indent) (List.init cols)
+        ++ [BDAddBaseY indent $ List.last cols]
     -- merge AddIndent and Par
     BDAddBaseY ind1 (BDPar ind2 line indented) ->
       Just $ BDPar (mergeIndents ind1 ind2) line indented
@@ -133,7 +138,9 @@ transformSimplifyFloating = stepBO .> stepFull
     BDAddBaseY ind (BDAnnotationKW annKey1 kw x) ->
       Just $ BDAnnotationKW annKey1 kw (BDAddBaseY ind x)
     BDAddBaseY ind (BDSeq list) ->
-      Just $ BDSeq $ List.init list ++ [BDAddBaseY ind (List.last list)]
+      Just $ BDSeq
+        $ map (retainExpressionCommentBase ind) (List.init list)
+        ++ [BDAddBaseY ind (List.last list)]
     BDAddBaseY _ lit@BDLit{} -> Just $ lit
     BDAddBaseY ind (BDBaseYPushCur x) ->
       Just $ BDBaseYPushCur (BDAddBaseY ind x)
@@ -170,9 +177,13 @@ transformSimplifyFloating = stepBO .> stepFull
       Just $ BDLines $ BDAddBaseY indent <$> lines
     -- AddIndent floats into last column
     BDAddBaseY indent (BDCols sig cols) ->
-      Just $ BDCols sig $ List.init cols ++ [BDAddBaseY indent $ List.last cols]
+      Just $ BDCols sig
+        $ map (retainExpressionCommentBase indent) (List.init cols)
+        ++ [BDAddBaseY indent $ List.last cols]
     BDAddBaseY ind (BDSeq list) ->
-      Just $ BDSeq $ List.init list ++ [BDAddBaseY ind (List.last list)]
+      Just $ BDSeq
+        $ map (retainExpressionCommentBase ind) (List.init list)
+        ++ [BDAddBaseY ind (List.last list)]
     -- merge AddIndent and Par
     BDAddBaseY ind1 (BDPar ind2 line indented) ->
       Just $ BDPar (mergeIndents ind1 ind2) line indented

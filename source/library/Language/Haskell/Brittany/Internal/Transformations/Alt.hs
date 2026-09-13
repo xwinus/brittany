@@ -102,7 +102,7 @@ transformAlts
   -> MultiRWSS.MultiRWS r w s BriDoc
 transformAlts document = transformAltsWithComments
   Nothing
-  (containsLineComment document)
+  (containsCommentLineBreak document)
   document
 
 transformAltsMeasured
@@ -115,7 +115,7 @@ transformAltsMeasured
   -> MultiRWSS.MultiRWS r w s BriDoc
 transformAltsMeasured metrics document = transformAltsWithComments
   metrics
-  (containsLineComment document)
+  (containsCommentLineBreak document)
   document
 
 transformAltsWithComments
@@ -335,7 +335,12 @@ transformAltsWithComments metrics hasLineComments =
         reWrap . BDFDebug s <$> rec bd
   chooseAlternative alts = do
     altChooser <- mAsk <&> _conf_layout .> _lconfig_altChooser .> confUnpack
-    case altChooser of
+    -- Even the quick chooser needs a structural base for comment followers.
+    let effectiveChooser = case altChooser of
+          AltChooserSimpleQuick | any containsExpressionBoundary alts ->
+            AltChooserShallowBest
+          _ -> altChooser
+    case effectiveChooser of
       AltChooserSimpleQuick -> return $ head alts
       AltChooserShallowBest -> do
         spacings <- alts `forM` getSpacingWithComments metrics hasLineComments
@@ -455,7 +460,7 @@ getSpacing
   -> m (LineModeValidity VerticalSpacing)
 getSpacing bridoc = getSpacingWithComments
   Nothing
-  (containsLineComment bridoc)
+  (containsCommentLineBreak bridoc)
   bridoc
 
 getSpacingWithComments
@@ -719,7 +724,7 @@ getSpacings
   -> Memo.MemoT Int [VerticalSpacing] m [VerticalSpacing]
 getSpacings limit bridoc = getSpacingsWithComments
   Nothing
-  (containsLineComment bridoc)
+  (containsCommentLineBreak bridoc)
   limit
   bridoc
 
