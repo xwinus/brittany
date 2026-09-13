@@ -42,6 +42,7 @@ import Language.Haskell.Brittany.Internal.Layouters.Expr.Application
   ( balancedHangingApplication )
 import Language.Haskell.Brittany.Internal.Layouters.Expr.BranchComments
   ( reserveBranchSuffixWidth )
+import Language.Haskell.Brittany.Internal.Layouters.Expr.OperatorGrouping
 import Language.Haskell.Brittany.Internal.Layouters.Expr.TypeAnnotation
 import Language.Haskell.Brittany.Internal.Layouters.Pattern
 import Language.Haskell.Brittany.Internal.Layouters.Stmt
@@ -164,13 +165,10 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
     opDoc <- docSharedWrapper layoutInfixOperator op
     operandDoc <- docSharedWrapper layoutExpr' (toL operand)
     reducesIndent <- operatorRhsBreakReducesIndent op
-    pure
-      ( opDoc
-      , operandDoc
-      , reducesIndent && supportsOperatorRhsBreak (unLoc operand)
-      , isUnparenthesizedBlockExpression $ unLoc operand
-      , isIndivisibleRhsLiteral $ unLoc operand
-      )
+    pure $ OperatorChainPart (operatorName op) opDoc operandDoc
+      (reducesIndent && supportsOperatorRhsBreak (unLoc operand))
+      (isUnparenthesizedBlockExpression $ unLoc operand)
+      (isIndivisibleRhsLiteral $ unLoc operand)
   lastReducesIndent <- operatorRhsBreakReducesIndent expOp
   let lastAllowsBreak =
         lastReducesIndent && supportsOperatorRhsBreak (unLoc expRight)
@@ -181,29 +179,39 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
           | occNameString occname == "$" -> True
         (_, L _ (HsApp _ _ (L _ HsVar{}))) -> False
         _ -> True
-  let layoutChain =
+  lastHasComments <- (||) <$> hasAnyCommentsConnected (toL expOp)
+    <*> hasAnyCommentsConnected (toL expRight)
+  let lastPart = OperatorChainPart (operatorName expOp) lastOpDoc lastOperandDoc
+        lastAllowsBreak (isUnparenthesizedBlockExpression $ unLoc expRight)
+        (isIndivisibleRhsLiteral $ unLoc expRight)
+      parts = appListDocs ++ [lastPart]
+      continue part = layoutOperatorContinuation
+        (chainAllowsBreak part) (chainBlockOperand part) (chainLiteralOperand part)
+        (chainOperatorDoc part) (chainOperandDoc part)
+      layoutChain =
         -- Merge pending indentation instead of counting it again in the paragraph.
-        docAddBaseY BrIndentRegular $ docPar leftOperandDoc $ docLines
-          $ (appListDocs <&> \(opDoc, operandDoc, breakableOperand, blockOperand, literalOperand) ->
-              layoutOperatorContinuation
-                breakableOperand blockOperand literalOperand opDoc operandDoc)
-          ++ [layoutOperatorContinuation
-                lastAllowsBreak
-                (isUnparenthesizedBlockExpression $ unLoc expRight)
-                (isIndivisibleRhsLiteral $ unLoc expRight)
-                lastOpDoc lastOperandDoc]
+        docAddBaseY BrIndentRegular $ docPar leftOperandDoc
+          $ docLines $ map continue parts
+      grouped = if lastHasComments then Nothing
+        else groupedOperatorChain continue leftOperandDoc parts
   runFilteredAlternative $ do
     addAlternative $ docSeq
       [ appSep $ docForceSingleline leftOperandDoc
-      , docSeq $ appListDocs <&> \(opDoc, operandDoc, _, _, _) -> docSeq
-        [ appSep $ docForceSingleline opDoc
-        , appSep $ docForceSingleline operandDoc
+      , docSeq $ appListDocs <&> \part -> docSeq
+        [ appSep $ docForceSingleline $ chainOperatorDoc part
+        , appSep $ docForceSingleline $ chainOperandDoc part
         ]
       , appSep $ docForceSingleline lastOpDoc
       , (if allowPar then docForceParSpacing else docForceSingleline)
         lastOperandDoc
       ]
-    addAlternative layoutChain
+    -- Groups resolve their own wrapping at the actual cursor. A flat fallback
+    -- here would discard fitting units when bounded whole-chain search prunes
+    -- a viable combination of locally broken operands.
+    addAlternative $ fromMaybe layoutChain grouped
+ where
+  operatorName (L _ (HsVar _ (L _ (Unqual name)))) = Just $ occNameString name
+  operatorName _ = Nothing
 
 -- Add literal continuations without expanding the bounded-search alternatives
 -- of fitting variable chains or changing block and compound-expression layouts.
