@@ -134,3 +134,4 @@ source/library/Language/Haskell/Brittany/Internal/SourceComment/ExpressionBounda
 source/test-suite/ExpressionCommentBoundarySpec.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Expr/OperatorGrouping.hs
 source/test-suite/MixedOperatorGroupingSpec.hs
+source/test-suite/InfixLambdaIndentationSpec.hs

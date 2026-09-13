@@ -231,6 +231,7 @@ test-suite brittany-test-suite
     TransactionalInplaceSpec
     GeneratorRhsWrappingSpec
     NestedLambdaPatternSpec
+    InfixLambdaIndentationSpec
     UnfittableInfixRhsSpec
     MixedOperatorGroupingSpec
     NonListInfixRhsSpec
