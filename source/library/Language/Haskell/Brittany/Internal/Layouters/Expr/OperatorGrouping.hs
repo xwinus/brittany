@@ -19,6 +19,7 @@ data OperatorChainPart = OperatorChainPart
   , chainAllowsBreak :: Bool
   , chainBlockOperand :: Bool
   , chainLiteralOperand :: Bool
+  , chainOrdinaryLambdaOperand :: Bool
   }
 
 groupedOperatorChain
@@ -70,6 +71,7 @@ groupedOperatorChain continuation left parts = do
           -- rather than adding that operator's hanging column to every row.
           , chainBlockOperand = not (null rest) || chainBlockOperand first
           , chainLiteralOperand = null rest && chainLiteralOperand first
+          , chainOrdinaryLambdaOperand = null rest && chainOrdinaryLambdaOperand first
           }
     in if null rest then continuation grouped
       else docSetBaseY $ continuation grouped

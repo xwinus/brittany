@@ -125,6 +125,13 @@ isUnparenthesizedBlockExpression = \case
   HsPar{} -> False
   expression -> isBlockLikeExpression expression
 
+-- An ordinary lambda after an infix operator owns a body continuation, just
+-- like a block RHS. Parenthesized lambdas retain their explicit hanging base.
+isOrdinaryInfixLambda :: HsExpr GhcPs -> Bool
+isOrdinaryInfixLambda = \case
+  HsLam _ LamSingle _ -> True
+  _ -> False
+
 layoutOperatorLeftOperand
   :: LHsExpr GhcPs -> ToBriDocM (ToBriDocM BriDocNumbered)
 layoutOperatorLeftOperand expLeft@(L _ (HsPar _ inner))
@@ -169,6 +176,7 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
       (reducesIndent && supportsOperatorRhsBreak (unLoc operand))
       (isUnparenthesizedBlockExpression $ unLoc operand)
       (isIndivisibleRhsLiteral $ unLoc operand)
+      (isOrdinaryInfixLambda $ unLoc operand)
   lastReducesIndent <- operatorRhsBreakReducesIndent expOp
   let lastAllowsBreak =
         lastReducesIndent && supportsOperatorRhsBreak (unLoc expRight)
@@ -184,9 +192,12 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
   let lastPart = OperatorChainPart (operatorName expOp) lastOpDoc lastOperandDoc
         lastAllowsBreak (isUnparenthesizedBlockExpression $ unLoc expRight)
         (isIndivisibleRhsLiteral $ unLoc expRight)
+        (isOrdinaryInfixLambda $ unLoc expRight)
       parts = appListDocs ++ [lastPart]
       continue part = layoutOperatorContinuation
-        (chainAllowsBreak part) (chainBlockOperand part) (chainLiteralOperand part)
+        (chainAllowsBreak part)
+        (chainBlockOperand part || chainOrdinaryLambdaOperand part)
+        (chainLiteralOperand part)
         (chainOperatorDoc part) (chainOperandDoc part)
       layoutChain =
         -- Merge pending indentation instead of counting it again in the paragraph.
@@ -270,8 +281,9 @@ layoutOperatorApplication expLeft expOp expRight = do
         _ -> False
       leftIsParenthesizedBlock =
         isParenthesizedBlockExpression $ unLoc expLeft
-      -- Block bodies inherit the enclosing base, not the cursor after the operator.
-      layoutRight = if isBlockLikeExpression $ unLoc expRight
+      -- Block and ordinary lambda bodies inherit the enclosing continuation base.
+      layoutRight = if isBlockLikeExpression (unLoc expRight)
+          || isOrdinaryInfixLambda (unLoc expRight)
         then expDocRight
         else docSetBaseY expDocRight
       layoutMultiline opAndRight
