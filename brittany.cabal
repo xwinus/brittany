@@ -168,6 +168,7 @@ library
     Language.Haskell.Brittany.Internal.PreludeUtils
     Language.Haskell.Brittany.Internal.SemanticFingerprint
     Language.Haskell.Brittany.Internal.TransactionalWrite
+    Language.Haskell.Brittany.Internal.SourceComment.ExpressionBoundary
     Language.Haskell.Brittany.Internal.SourceComment.Types
     Language.Haskell.Brittany.Internal.Transformations.Alt
     Language.Haskell.Brittany.Internal.Transformations.Alt.Comments
@@ -238,6 +239,7 @@ test-suite brittany-test-suite
     InfixFunctionHeadSpec
     InlineCommentSpacingSpec
     ConstructorCommentContinuationSpec
+    ExpressionCommentBoundarySpec
     ExpressionCommentContinuationSpec
     TrailingCommentContinuationSpec
     CaseAlternativeCommentSpec

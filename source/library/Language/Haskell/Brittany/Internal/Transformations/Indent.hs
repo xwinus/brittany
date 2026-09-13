@@ -6,6 +6,9 @@ module Language.Haskell.Brittany.Internal.Transformations.Indent where
 import qualified Data.Generics.Uniplate.Direct as Uniplate
 import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.Prelude
+import Language.Haskell.Brittany.Internal.SourceComment.ExpressionBoundary
+  ( retainExpressionCommentBase
+  )
 import Language.Haskell.Brittany.Internal.Types
 
 
@@ -46,9 +49,13 @@ transformSimplifyIndent = Uniplate.rewrite $ \case
   BDAddBaseY i (BDAnnotationRest k x) ->
     Just $ BDAnnotationRest k (BDAddBaseY i x)
   BDAddBaseY i (BDSeq l) ->
-    Just $ BDSeq $ List.init l ++ [BDAddBaseY i $ List.last l]
+    Just $ BDSeq
+      $ map (retainExpressionCommentBase i) (List.init l)
+      ++ [BDAddBaseY i $ List.last l]
   BDAddBaseY i (BDCols sig l) ->
-    Just $ BDCols sig $ List.init l ++ [BDAddBaseY i $ List.last l]
+    Just $ BDCols sig
+      $ map (retainExpressionCommentBase i) (List.init l)
+      ++ [BDAddBaseY i $ List.last l]
   BDAddBaseY _ lit@BDLit{} -> Just lit
 
   _ -> Nothing

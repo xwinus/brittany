@@ -76,6 +76,7 @@ import qualified FunctionHeadWrappingSpec
 import qualified InfixFunctionHeadSpec
 import qualified InlineCommentSpacingSpec
 import qualified ConstructorCommentContinuationSpec
+import qualified ExpressionCommentBoundarySpec
 import qualified ExpressionCommentContinuationSpec
 import qualified TrailingCommentContinuationSpec
 import qualified TypeOperatorRecordSpec
@@ -193,6 +194,7 @@ main = Hspec.hspec $ do
   InfixFunctionHeadSpec.spec projectRoot
   InlineCommentSpacingSpec.spec
   ConstructorCommentContinuationSpec.spec
+  ExpressionCommentBoundarySpec.spec projectRoot
   ExpressionCommentContinuationSpec.spec projectRoot
   TrailingCommentContinuationSpec.spec
   TypeOperatorRecordSpec.spec projectRoot
