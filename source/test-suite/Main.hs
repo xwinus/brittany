@@ -68,6 +68,7 @@ import qualified TransactionalInplaceSpec
 import qualified GeneratorRhsWrappingSpec
 import qualified NestedLambdaPatternSpec
 import qualified InfixLambdaIndentationSpec
+import qualified ListPatternLayoutSpec
 import qualified UnfittableInfixRhsSpec
 import qualified MixedOperatorGroupingSpec
 import qualified NonListInfixRhsSpec
@@ -188,6 +189,7 @@ main = Hspec.hspec $ do
   GeneratorRhsWrappingSpec.spec projectRoot
   NestedLambdaPatternSpec.spec projectRoot
   InfixLambdaIndentationSpec.spec projectRoot
+  ListPatternLayoutSpec.spec projectRoot
   UnfittableInfixRhsSpec.spec projectRoot
   MixedOperatorGroupingSpec.spec projectRoot
   NonListInfixRhsSpec.spec projectRoot

@@ -18,6 +18,8 @@ import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
 import Language.Haskell.Brittany.Internal.Layouters.Expr.Application
   ( preferCompactRhs )
 import Language.Haskell.Brittany.Internal.Layouters.Pattern
+import Language.Haskell.Brittany.Internal.Layouters.Pattern.Types
+  ( indentBoundaryListPattern )
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.TopLevelSpacing
@@ -67,7 +69,12 @@ layoutStmtWithGeneratorBase generatorBase lstmt@(L _ stmt) = do
     LastStmt _ body Nothing _ -> do
       layoutExpr (toL body)
     BindStmt _ lPat expr -> do
-      patDoc <- fmap pure $ patternDocument =<< layoutPattern lPat
+      originalPatLayout <- layoutPattern lPat
+      let patLayout = case unLoc lPat of
+            ListPat{} | not generatorBase ->
+              indentBoundaryListPattern originalPatLayout
+            _ -> originalPatLayout
+      patDoc <- fmap pure $ patternDocument patLayout
       expDoc <- docSharedWrapper layoutExpr (toL expr)
       hasComments <- (||) <$> hasAnyCommentsBelow lstmt
         <*> hasAnyCommentsConnected lstmt
