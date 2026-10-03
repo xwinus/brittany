@@ -59,6 +59,7 @@ import qualified SiblingBindingAlignmentSpec
 import qualified StandaloneDerivingSpec
 import qualified StandaloneKindSignatureSpec
 import qualified StructuralCommentSpec
+import qualified LambdaCaseCommentSpec
 import qualified StructuralCaseDoSpec
 import qualified System.Directory as Directory
 import qualified System.FilePath as FilePath
@@ -143,6 +144,7 @@ main = Hspec.hspec $ do
   StandaloneDerivingSpec.spec projectRoot
   StandaloneKindSignatureSpec.spec projectRoot
   StructuralCommentSpec.spec
+  LambdaCaseCommentSpec.spec projectRoot
   StructuralCaseDoSpec.spec projectRoot
   DataDeclSingleConstructorSpec.spec projectRoot
   DeclarationSpanIndexSpec.spec

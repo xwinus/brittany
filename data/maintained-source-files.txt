@@ -141,3 +141,5 @@ source/test-suite/ListPatternLayoutFixtures.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Pattern/Delimited.hs
 source/test-suite/StructuralCaseDoSpec.hs
 source/test-suite/StructuralCaseDoFixtures.hs
+source/test-suite/LambdaCaseCommentSpec.hs
+source/test-suite/LambdaCaseCommentFixtures.hs

@@ -22,12 +22,15 @@ import           GHC                                      ( GenLocated(L)
                                                           , unLoc
                                                           )
 import           GHC.Hs                                   ( EpAnnHsCase(..)
+                                                          , EpAnnLam(..)
+                                                          , HsLamVariant(..)
                                                           , HsExpr(..)
                                                           , LHsExpr
                                                           , LMatch
                                                           , MatchGroup(..)
                                                           )
-import           GHC.Parser.Annotation                    ( getEpTokenSrcSpan
+import           GHC.Parser.Annotation                    ( EpaLocation'(EpaSpan)
+                                                          , getEpTokenSrcSpan
                                                           , getLocA
                                                           )
 import qualified GHC.Types.SrcLoc                        as SrcLoc
@@ -37,12 +40,19 @@ import           Language.Haskell.Brittany.Internal.CommentBoundary.Trailing
 import           Language.Haskell.Brittany.Internal.Prelude
 import           Language.Haskell.Brittany.Internal.SourceComment.Types
 
+type CaseCommentPolicy :: Type
+data CaseCommentPolicy
+  = RelocateAllComments
+  | RelocateOrdinarySuffix
+  | RelocateOrdinaryRegion
+  deriving (Eq)
+
 type CaseRegion :: Type
 data CaseRegion = CaseRegion
-  { regionMatchGroupOwner :: AnnKey
-  , regionOfSpan          :: SrcLoc.RealSrcSpan
-  , regionFirstMatchSpan  :: SrcLoc.RealSrcSpan
-  , regionFollowsMatch    :: Bool
+  { regionOwner              :: AnnKey
+  , regionPrecedingSpan       :: SrcLoc.RealSrcSpan
+  , regionFollowingMatchSpan  :: SrcLoc.RealSrcSpan
+  , regionCommentPolicy      :: CaseCommentPolicy
   }
 
 type CaseBoundaryIndex :: Type
@@ -83,9 +93,10 @@ caseBoundaryForPlacement (CaseBoundaryIndex indexedRegions) placement commentSpa
   pure $ CommentBoundaryId (CaseAlternativeBoundaryPath index) BeforeBoundary
  where
   matchesRegion region = commentWithinRegion commentSpan region
-    && (not (regionFollowsMatch region) || maybe False (ownsComment region) placement)
+    && (regionCommentPolicy region == RelocateAllComments
+        || maybe False (ownsComment region) placement)
   ownsComment region current =
-    placementOwner current == NodeId (regionMatchGroupOwner region)
+    placementOwner current == NodeId (regionOwner region)
       && placementAnchor current == BeforeNode
       && placementRole current == LeadingOrdinary
       && placementLineRelation current == CommentOwnLine
@@ -99,21 +110,40 @@ caseRegionQuery = Generics.mkQ [] caseRegion
 
 caseRegion :: HsExpr GhcPs -> [CaseRegion]
 caseRegion = \case
-  HsCase annotations _ (MG _ matches@(L _ matchList@(firstMatch : _))) ->
-    maybeToList (do
-      ofSpan <- srcSpanToRealSpan $ getEpTokenSrcSpan $ hsCaseAnnOf annotations
+  HsCase annotations _ matches -> matchRegions False
+    (srcSpanToRealSpan $ getEpTokenSrcSpan $ hsCaseAnnOf annotations) matches
+  HsLam annotations LamCase matches -> matchRegions True
+    (case epl_case annotations of
+      Just (EpaSpan span') -> srcSpanToRealSpan span'
+      _ -> Nothing)
+    matches
+  _ -> []
+
+matchRegions
+  :: Bool
+  -> Maybe SrcLoc.RealSrcSpan
+  -> MatchGroup GhcPs (LHsExpr GhcPs)
+  -> [CaseRegion]
+matchRegions protectFirst keywordSpan (MG _ matches@(L _ matchList)) =
+  case matchList of
+    [] -> []
+    firstMatch : _ -> maybeToList (do
+      precedingSpan <- keywordSpan
       firstMatchSpan <- srcSpanToRealSpan $ getLocA firstMatch
-      pure
-        CaseRegion
-          { regionMatchGroupOwner = mkNamedAnnKey "MatchGroup" (getLocA matches)
-          , regionOfSpan          = ofSpan
-          , regionFirstMatchSpan  = firstMatchSpan
-          , regionFollowsMatch    = False
-          })
+      pure CaseRegion
+        { regionOwner = if protectFirst
+            then matchOwner firstMatch
+            else mkNamedAnnKey "MatchGroup" (getLocA matches)
+        , regionPrecedingSpan = precedingSpan
+        , regionFollowingMatchSpan = firstMatchSpan
+        , regionCommentPolicy = if protectFirst
+            then RelocateOrdinaryRegion
+            else RelocateAllComments
+        })
       ++ List.concatMap (maybeToList . betweenMatches)
         (zip matchList $ drop 1 matchList)
-  _ -> []
  where
+  matchOwner match = mkAnnKey $ L (getLocA match) $ unLoc match
   betweenMatches
     :: (LMatch GhcPs (LHsExpr GhcPs), LMatch GhcPs (LHsExpr GhcPs))
     -> Maybe CaseRegion
@@ -121,10 +151,10 @@ caseRegion = \case
     previousSpan <- srcSpanToRealSpan $ getLocA previous
     currentSpan <- srcSpanToRealSpan $ getLocA current
     pure CaseRegion
-      { regionMatchGroupOwner = mkAnnKey $ L (getLocA current) $ unLoc current
-      , regionOfSpan = previousSpan
-      , regionFirstMatchSpan = currentSpan
-      , regionFollowsMatch = True
+      { regionOwner = matchOwner current
+      , regionPrecedingSpan = previousSpan
+      , regionFollowingMatchSpan = currentSpan
+      , regionCommentPolicy = RelocateOrdinarySuffix
       }
 
 relocateComments :: Anns -> CaseRegion -> Anns
@@ -134,7 +164,7 @@ relocateComments annotations region
   | otherwise
   = Map.alter
       (Just . addPriorComments region regionComments moved . fromMaybe emptyAnnotation)
-      (regionMatchGroupOwner region)
+      (regionOwner region)
     $ removeComments moved annotations
  where
   regionComments = commentsInRegion region annotations
@@ -144,7 +174,7 @@ addPriorComments :: CaseRegion -> [Comment] -> [Comment] -> Annotation -> Annota
 addPriorComments region regionComments moved annotation =
   annotation
     { annPriorComments =
-        if regionFollowsMatch region
+        if regionCommentPolicy region /= RelocateAllComments
           then rebaseFrom precedingPosition priorComments
           else rebaseComments region moved ++ annPriorComments annotation
     }
@@ -152,8 +182,8 @@ addPriorComments region regionComments moved annotation =
   priorComments = List.sortOn commentPosition
     $ moved ++ fmap fst (annPriorComments annotation)
   precedingPosition = case priorComments of
-    [] -> spanEnd $ regionOfSpan region
-    first : _ -> foldl max (spanEnd $ regionOfSpan region)
+    [] -> spanEnd $ regionPrecedingSpan region
+    first : _ -> foldl max (spanEnd $ regionPrecedingSpan region)
       [ commentEnd earlier
       | earlier <- regionComments
       , commentEnd earlier <= commentStart first
@@ -168,14 +198,19 @@ commentsInRegion region annotations = distinctComments
 
 commentsToRelocate :: CaseRegion -> [Comment] -> [Comment]
 commentsToRelocate region comments
-  | not $ regionFollowsMatch region = comments
+  | regionCommentPolicy region == RelocateAllComments = comments
+  -- First-pattern comments render inside the match. Moving only a suffix to the
+  -- match would put it before protected comments retained on the pattern.
+  | regionCommentPolicy region == RelocateOrdinaryRegion =
+      if all ordinaryStandaloneRun runs then comments else []
   -- Earlier prose must not cross a protected run that keeps its original owner.
   | otherwise = List.concat $ reverse
-      $ takeWhile ordinaryStandaloneRun $ reverse $ commentRuns comments
+      $ takeWhile ordinaryStandaloneRun $ reverse runs
  where
+  runs = commentRuns comments
   ordinaryStandaloneRun comments = not (null comments)
     && all ordinaryComment comments
-    && all ((> SrcLoc.srcSpanEndLine (regionOfSpan region)) . fst . commentStart)
+    && all ((> SrcLoc.srcSpanEndLine (regionPrecedingSpan region)) . fst . commentStart)
       comments
     && all ((== snd (commentStart $ head comments)) . snd . commentStart) comments
 
@@ -227,7 +262,7 @@ removeComments comments = Map.map remove
     _ -> True
 
 rebaseComments :: CaseRegion -> [Comment] -> [(Comment, DeltaPos)]
-rebaseComments region = rebaseFrom $ spanEnd $ regionOfSpan region
+rebaseComments region = rebaseFrom $ spanEnd $ regionPrecedingSpan region
 
 rebaseFrom :: (Int, Int) -> [Comment] -> [(Comment, DeltaPos)]
 rebaseFrom previousPosition = snd . mapAccumL rebase previousPosition
@@ -266,9 +301,9 @@ commentWithinRegion' region comment = fromMaybe False $ do
 commentWithinRegion :: SrcLoc.RealSrcSpan -> CaseRegion -> Bool
 commentWithinRegion commentSpan region =
   spanStart commentSpan
-    >= spanEnd (regionOfSpan region)
+    >= spanEnd (regionPrecedingSpan region)
     && spanEnd commentSpan
-    <= spanStart (regionFirstMatchSpan region)
+    <= spanStart (regionFollowingMatchSpan region)
 
 commentPosition :: Comment -> (String, Int, Int, Int, Int)
 commentPosition comment = case srcSpanToRealSpan $ commentIdentifier comment of
@@ -283,7 +318,7 @@ commentPosition comment = case srcSpanToRealSpan $ commentIdentifier comment of
 
 regionPosition :: CaseRegion -> ((Int, Int), (Int, Int))
 regionPosition region =
-  (spanStart $ regionOfSpan region, spanStart $ regionFirstMatchSpan region)
+  (spanStart $ regionPrecedingSpan region, spanStart $ regionFollowingMatchSpan region)
 
 commentStart :: Comment -> (Int, Int)
 commentStart comment =
