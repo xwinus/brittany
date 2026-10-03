@@ -50,7 +50,7 @@ spec projectRoot = Hspec.describe "multiline list pattern layout" $ do
     assertOuterAlignment "BDComment planned" 2 output
     output `Hspec.shouldContain` "BDAnnotationPrior PriorCommentSource ownerKey"
     closing <- uniqueLine "] ->" output
-    dropWhile (== ' ') closing `Hspec.shouldBe` "] ->"
+    dropWhile (== ' ') closing `Hspec.shouldBe` "] -> do"
 
   Hspec.it "aligns the maintained pattern in the complete CommentIRSpec module" $ do
     source <- readFile $ projectRoot </> "source/test-suite/CommentIRSpec.hs"

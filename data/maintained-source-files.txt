@@ -139,3 +139,5 @@ source/library/Language/Haskell/Brittany/Internal/Layouters/Pattern/Prefix.hs
 source/test-suite/ListPatternLayoutSpec.hs
 source/test-suite/ListPatternLayoutFixtures.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Pattern/Delimited.hs
+source/test-suite/StructuralCaseDoSpec.hs
+source/test-suite/StructuralCaseDoFixtures.hs

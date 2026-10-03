@@ -300,6 +300,8 @@ test-suite brittany-test-suite
     StandaloneDerivingSpec
     StandaloneKindSignatureSpec
     StructuralCommentSpec
+    StructuralCaseDoSpec
+    StructuralCaseDoFixtures
     TemplateHaskellFallbackSpec
     TopLevelSpacingSpec
     TypeOperatorRecordSpec
