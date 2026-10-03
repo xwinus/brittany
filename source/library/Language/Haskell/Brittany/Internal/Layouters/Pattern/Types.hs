@@ -4,6 +4,7 @@
 module Language.Haskell.Brittany.Internal.Layouters.Pattern.Types
   ( PatternLayout(..)
   , colsWrapPat
+  , indentBoundaryListPattern
   , patternCompactDocument
   , patternDocument
   , omitPatternTrailingLineBreak
@@ -22,6 +23,35 @@ data PatternLayout = PatternLayout
   { patternCompactColumns     :: Seq.Seq BriDocNumbered
   , patternStructuralDocument :: Maybe BriDocNumbered
   }
+
+indentBoundaryListPattern :: PatternLayout -> PatternLayout
+indentBoundaryListPattern layout = layout
+  { patternStructuralDocument = indentBoundaryListDocument
+      <$> patternStructuralDocument layout
+  }
+
+-- A bare list opens at the layout item's starting column. Its continuation
+-- punctuation must remain farther right, or GHC inserts a new layout item.
+indentBoundaryListDocument :: BriDocNumbered -> BriDocNumbered
+indentBoundaryListDocument (nodeId, document) = (nodeId, case document of
+  BDFAnnotationPrior mode key child ->
+    BDFAnnotationPrior mode key $ indentBoundaryListDocument child
+  BDFAnnotationRest key child ->
+    BDFAnnotationRest key $ indentBoundaryListDocument child
+  BDFAnnotationKW key keyword child ->
+    BDFAnnotationKW key keyword $ indentBoundaryListDocument child
+  BDFDelimited group
+    | delimiterSequenceKind (delimitedSequence group) == SquareBracketsDelimiter
+    , delimiterSequenceProfile (delimitedSequence group)
+        == LeadingDelimiterSeparators ->
+        BDFDelimited group
+          { delimitedAllowedLayouts = map indentLayout
+              $ delimitedAllowedLayouts group
+          }
+  _ -> document)
+ where
+  indentLayout DelimiterAttached = DelimiterHanging
+  indentLayout layout = layout
 
 colsWrapPat :: Seq.Seq BriDocNumbered -> ToBriDocM BriDocNumbered
 colsWrapPat documents = case Foldable.toList documents of

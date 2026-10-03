@@ -33,6 +33,8 @@ import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.IE (toL)
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
 import Language.Haskell.Brittany.Internal.Layouters.Pattern.Comments
+import Language.Haskell.Brittany.Internal.Layouters.Pattern.Delimited
+import Language.Haskell.Brittany.Internal.Layouters.Pattern.Prefix
 import Language.Haskell.Brittany.Internal.Layouters.Pattern.Record
 import Language.Haskell.Brittany.Internal.Layouters.Pattern.Types
 import Language.Haskell.Brittany.Internal.Layouters.Type
@@ -45,9 +47,12 @@ import Language.Haskell.Brittany.Internal.Types
 
 
 layoutPattern :: LPat GhcPs -> ToBriDocM PatternLayout
-layoutPattern pattern' = do
+layoutPattern = layoutPatternWithPrefix False
+
+layoutPatternWithPrefix :: Bool -> LPat GhcPs -> ToBriDocM PatternLayout
+layoutPatternWithPrefix keepPrefix pattern' = do
   compactColumns <- layoutPat pattern'
-  structuralDocument <- layoutPatStructural pattern'
+  structuralDocument <- layoutPatStructuralWithPrefix keepPrefix pattern'
   pure PatternLayout
     { patternCompactColumns = compactColumns
     , patternStructuralDocument = structuralDocument
@@ -285,22 +290,27 @@ layoutPatNative lpat@(L _ pat) = docWrapNode (toL lpat) $ case pat of
   _ -> return <$> briDocByExactInlineOnly PatternFallback (toL lpat)
 
 layoutPatStructural :: LPat GhcPs -> ToBriDocM (Maybe BriDocNumbered)
-layoutPatStructural lpat@(L _ pat)
+layoutPatStructural = layoutPatStructuralWithPrefix False
+
+layoutPatStructuralWithPrefix
+  :: Bool -> LPat GhcPs -> ToBriDocM (Maybe BriDocNumbered)
+layoutPatStructuralWithPrefix keepPrefix lpat@(L _ pat)
   | requiresExactSourcePattern pat = pure Nothing
   | otherwise = case pat of
   ConPat _ lname (PrefixCon args@(_ : _)) -> do
     nameDoc <- applyNameAdornment lname <$> lrdrNameToTextAnn (toL lname)
     argDocs <- args `forM` \arg -> do
-      patternDocument =<< layoutPattern arg
+      patternDocument =<< layoutPatternWithPrefix keepPrefix arg
     fmap Just $ docWrapNode (toL lpat)
-      $ docAddBaseY BrIndentRegular
-      $ docPar
+      $ if keepPrefix
+        then layoutStructuralPrefixPattern nameDoc argDocs
+        else docAddBaseY BrIndentRegular $ docPar
           (docLit nameDoc)
-          (docSetIndentLevel $ docLines $ return <$> argDocs)
+          (docSetIndentLevel $ docLines $ pure <$> argDocs)
   ConPat _ lname (InfixCon left right) -> do
     nameDoc <- applyNameAdornment lname <$> lrdrNameToTextAnn (toL lname)
-    leftDoc <- patternDocument =<< layoutPattern left
-    rightDoc <- patternDocument =<< layoutPattern right
+    leftDoc <- patternDocument =<< layoutPatternWithPrefix keepPrefix left
+    rightDoc <- patternDocument =<< layoutPatternWithPrefix keepPrefix right
     fmap Just $ docWrapNode (toL lpat)
       $ docAddBaseY BrIndentRegular
       $ docLines
@@ -311,9 +321,15 @@ layoutPatStructural lpat@(L _ pat)
           ]
         ]
   ConPat _ lname (RecCon fields) ->
-    Just <$> layoutRecordPattern layoutPattern lpat lname fields
+    Just <$> layoutRecordPattern (layoutPatternWithPrefix keepPrefix) lpat lname fields
   ParPat _ inner -> do
-    innerDoc <- patternDocument =<< layoutPattern inner
+    innerLayout <- layoutPatternWithPrefix keepPrefix inner
+    -- The complete parenthesized compact candidate has already been offered.
+    -- Reselecting its child alone can consume the closing parenthesis column.
+    innerDoc <- if keepPrefix
+      then maybe (patternCompactDocument innerLayout) pure
+        $ patternStructuralDocument innerLayout
+      else patternDocument innerLayout
     fmap Just $ docWrapNode (toL lpat)
       $ docDelimitedSequence
         ParenthesesDelimiter
@@ -330,21 +346,21 @@ layoutPatStructural lpat@(L _ pat)
         PatternBlockDelimiterChild
         [DelimiterCompact, DelimiterAttached]
   TuplePat _ elements boxity -> case boxity of
-    Boxed -> layoutDelimitedPattern
+    Boxed -> layoutDelimitedPattern (layoutPatternWithPrefix keepPrefix)
       lpat ParenthesesDelimiter (Text.pack "(") (Text.pack ")")
-      docParenL docParenR elements
-    Unboxed -> layoutDelimitedPattern
+      elements
+    Unboxed -> layoutDelimitedPattern (layoutPatternWithPrefix keepPrefix)
       lpat UnboxedParenthesesDelimiter (Text.pack "(#") (Text.pack "#)")
-      (docLit $ Text.pack "(#") (docLit $ Text.pack "#)") elements
-  ListPat _ elements -> layoutDelimitedPattern
+      elements
+  ListPat _ elements -> layoutDelimitedPattern (layoutPatternWithPrefix True)
     lpat SquareBracketsDelimiter (Text.pack "[") (Text.pack "]")
-    docBracketL docBracketR elements
-  AsPat _ name inner -> layoutPrefixedPattern
+    elements
+  AsPat _ name inner -> layoutPrefixedPattern (layoutPatternWithPrefix keepPrefix)
     lpat (docLit $ lrdrNameToText name <> Text.pack "@") inner
-  BangPat _ inner -> layoutPrefixedPattern lpat (docLit $ Text.pack "!") inner
-  LazyPat _ inner -> layoutPrefixedPattern lpat (docLit $ Text.pack "~") inner
+  BangPat _ inner -> layoutPrefixedPattern (layoutPatternWithPrefix keepPrefix) lpat (docLit $ Text.pack "!") inner
+  LazyPat _ inner -> layoutPrefixedPattern (layoutPatternWithPrefix keepPrefix) lpat (docLit $ Text.pack "~") inner
   SigPat _ inner (HsPS _ signatureType) -> do
-    innerDoc <- patternDocument =<< layoutPattern inner
+    innerDoc <- patternDocument =<< layoutPatternWithPrefix keepPrefix inner
     typeDoc <- docSharedWrapper layoutType $ toL signatureType
     fmap Just $ docWrapNode (toL lpat)
       $ docAddBaseY BrIndentRegular
@@ -357,7 +373,7 @@ layoutPatStructural lpat@(L _ pat)
         )
   ViewPat _ expression inner -> do
     expressionDoc <- docSharedWrapper layoutExpr $ toL expression
-    innerDoc <- patternDocument =<< layoutPattern inner
+    innerDoc <- patternDocument =<< layoutPatternWithPrefix keepPrefix inner
     fmap Just $ docWrapNode (toL lpat)
       $ docAddBaseY BrIndentRegular
       $ docPar
@@ -368,7 +384,7 @@ layoutPatStructural lpat@(L _ pat)
         )
         (pure innerDoc)
   OrPat _ patterns -> do
-    patternDocs <- mapM (layoutPattern >=> patternDocument)
+    patternDocs <- mapM (layoutPatternWithPrefix keepPrefix >=> patternDocument)
       $ NonEmpty.toList patterns
     fmap Just $ docWrapNode (toL lpat)
       $ docSetBaseY
@@ -385,51 +401,17 @@ layoutPatStructural lpat@(L _ pat)
   _ -> return Nothing
 
 layoutPrefixedPattern
-  :: LPat GhcPs
+  :: (LPat GhcPs -> ToBriDocM PatternLayout)
+  -> LPat GhcPs
   -> ToBriDocM BriDocNumbered
   -> LPat GhcPs
   -> ToBriDocM (Maybe BriDocNumbered)
-layoutPrefixedPattern outer prefix inner = do
-  innerLayout <- layoutPattern inner
+layoutPrefixedPattern layoutChild outer prefix inner = do
+  innerLayout <- layoutChild inner
   case patternStructuralDocument innerLayout of
     Nothing -> pure Nothing
     Just structuralDocument -> fmap Just $ docWrapNode (toL outer)
       $ docSeq [prefix, pure structuralDocument]
-
-layoutDelimitedPattern
-  :: LPat GhcPs
-  -> DelimiterKind
-  -> Text
-  -> Text
-  -> ToBriDocM BriDocNumbered
-  -> ToBriDocM BriDocNumbered
-  -> [LPat GhcPs]
-  -> ToBriDocM (Maybe BriDocNumbered)
-layoutDelimitedPattern _ _ _ _ _ _ [] = pure Nothing
-layoutDelimitedPattern outer kind openToken closeToken _ _ elements = do
-  elementDocs <- mapM (layoutPattern >=> patternDocument) elements
-  fmap Just $ docWrapNode (toL outer)
-    $ docDelimitedSequence
-      kind
-      openToken
-      closeToken
-      (Just $ ExactPrintCompat.mkAnnKey $ toL outer)
-      (zipWith
-        (\element document ->
-          ( Just $ ExactPrintCompat.mkAnnKey $ toL element
-          , PresentDelimiterChild
-          , pure document
-          )
-        )
-        elements
-        elementDocs)
-      (replicate (max 0 $ length elements - 1)
-        (RepeatedDelimiterSeparator, Text.pack ",", AttachSeparatorLeft))
-      DelimiterIndentRegular
-      TrailingDelimiterSeparators
-      (if length elements == 1
-        then [DelimiterCompact]
-        else [DelimiterAttached])
 
 layoutPatMultiline :: LPat GhcPs -> ToBriDocM (Maybe BriDocNumbered)
 layoutPatMultiline = layoutPatStructural

@@ -135,3 +135,7 @@ source/test-suite/ExpressionCommentBoundarySpec.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Expr/OperatorGrouping.hs
 source/test-suite/MixedOperatorGroupingSpec.hs
 source/test-suite/InfixLambdaIndentationSpec.hs
+source/library/Language/Haskell/Brittany/Internal/Layouters/Pattern/Prefix.hs
+source/test-suite/ListPatternLayoutSpec.hs
+source/test-suite/ListPatternLayoutFixtures.hs
+source/library/Language/Haskell/Brittany/Internal/Layouters/Pattern/Delimited.hs

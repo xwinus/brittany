@@ -58,6 +58,8 @@ import Language.Haskell.Brittany.Internal.Layouters.Decl.Infix
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
 import Language.Haskell.Brittany.Internal.Layouters.FixitySignature
 import Language.Haskell.Brittany.Internal.Layouters.Pattern
+import Language.Haskell.Brittany.Internal.Layouters.Pattern.Types
+  ( indentBoundaryListPattern )
 import Language.Haskell.Brittany.Internal.Layouters.LocalComments
 import Language.Haskell.Brittany.Internal.Layouters.StandaloneKindSignature
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Stmt
@@ -668,9 +670,17 @@ layoutBindWithComments declarationComments lbind@(L _ bind) = case bind of
         remainingComments = filter
           (`notElem` separatorComments)
           availableComments
-    patLayout <- layoutPattern pat
+    originalPatLayout <- layoutPattern pat
+    let patLayout = case unLoc pat of
+          ListPat{} -> indentBoundaryListPattern originalPatLayout
+          _ -> originalPatLayout
     patDocs <- patternCompactDocument patLayout
     let multilinePatDoc = patternStructuralDocument patLayout
+        -- Keep the list head selectable even if a bounded enclosing search
+        -- reaches the conservative binding fallback.
+        fallbackPatDoc = case unLoc pat of
+          ListPat{} -> multilinePatDoc
+          _ -> Nothing
     clauseDocs <- layoutGrhs remainingComments `mapM` grhss
     mWhereDocs <- layoutLocalBinds (L (localBindsSpan whereBinds) whereBinds)
     let mWhereArg = mWhereDocs <&> (,) (mkAnnKey (toL lbind)) -- TODO: is this the right AnnKey?
@@ -679,7 +689,7 @@ layoutBindWithComments declarationComments lbind@(L _ bind) = case bind of
     hasComments <- hasAnyCommentsBelow (toL lbind)
     formatted <- docWrapNode (toL lbind) $ layoutPatternBindFinal
       OptionalSiblingAlignment Nothing binderDoc (Just patDocs)
-      multilinePatDoc Nothing Nothing clauseDocs (hasSingleBooleanGuard grhss) mWhereArg
+      multilinePatDoc fallbackPatDoc Nothing clauseDocs (hasSingleBooleanGuard grhss) mWhereArg
       (hasComments || not (null separatorComments))
     Right <$> prependConsumedComments
       (separatorComments ++ handledClauseComments clauseDocs)
@@ -976,7 +986,15 @@ layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
   binderWithComments <- appendSourceComments
     (pure binderDoc)
     separatorComments
-  patLayouts <- mapM layoutPattern pats
+  let isCaseAlternative = case m_ctxt match of
+        CaseAlt -> True
+        LamAlt LamCase -> True
+        _ -> False
+  originalPatLayouts <- mapM layoutPattern pats
+  let patLayouts = case (isCaseAlternative, pats, originalPatLayouts) of
+        (True, [L _ ListPat{}], [layout]) ->
+          [indentBoundaryListPattern layout]
+        _ -> originalPatLayouts
   patDocs <- mapM (fmap pure . patternCompactDocument) patLayouts
   let isInfix = isInfixMatch match
   mIdStr <- case match of
@@ -1046,10 +1064,6 @@ layoutPatternBind declarationComments funId binderDoc lmatch@(L _ match) = do
           $ docWrapNodePrior (toL lmatch)
           $ return p
         _ -> return Nothing
-  let isCaseAlternative = case m_ctxt match of
-        CaseAlt -> True
-        LamAlt LamCase -> True
-        _ -> False
   mCaseHeadDoc <- case (isCaseAlternative, multilinePatDocs, grhss) of
     (True, [Just structural], [L _ (GRHS _ [] _)]) -> do
       structuralPat <- docWrapNodePrior (toL lmatch) $ pure structural
