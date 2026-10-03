@@ -1221,11 +1221,19 @@ layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilin
     indentAmount <-
       mAsk <&> _conf_layout .> _lconfig_indentAmount .> confUnpack
     let multilinePatternBodyIndent = BrIndentSpecial (2 * indentAmount)
+        caseBody headDocument body rawBody handledComments separatedBody =
+          case unLoc rawBody of
+            HsDo _ (DoExpr Nothing) _
+              | not hasComments
+              , not $ any (sourceCommentPrecedesNode $ toL rawBody) handledComments ->
+                  layoutCaseDoBody multilinePatternBodyIndent
+                    headDocument body separatedBody
+            _ -> docLines [pure headDocument, separatedBody]
 
     runFilteredAlternative $ do
 
       case clauseDocs of
-        [(guards, body, _bodyRaw, _)] -> do
+        [(guards, body, bodyRaw, handledComments)] -> do
           let guardPart = singleLineGuardsDoc guards
           let completeHead = docSeq $ patPartInline ++ if null guards
                 then [guardPart, pure binderDoc]
@@ -1321,20 +1329,23 @@ layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilin
             _ -> return ()
           case mMultilinePatDoc of
             Nothing -> return ()
-            Just patDoc ->
+            Just patDoc -> do
+              let separatedBody = docNonBottomSpacing
+                    $ docEnsureIndent multilinePatternBodyIndent $ pure body
               addAlternative
                 $ docLines
-                $ [ maybe
-                      (docSeq
-                        [ appSep $ return patDoc
-                        , if null guards
-                          then docSeq [guardPart, pure binderDoc]
-                          else layoutGuardedHeadTail guards guardPart binderDoc
-                        ])
-                      pure mCaseHeadDoc
-                  , docNonBottomSpacing
-                  $ docEnsureIndent multilinePatternBodyIndent
-                  $ return body
+                $ [ case mCaseHeadDoc of
+                      Just headDocument -> caseBody
+                        headDocument body bodyRaw handledComments separatedBody
+                      Nothing -> docLines
+                        [ docSeq
+                          [ appSep $ return patDoc
+                          , if null guards
+                            then docSeq [guardPart, pure binderDoc]
+                            else layoutGuardedHeadTail guards guardPart binderDoc
+                          ]
+                        , separatedBody
+                        ]
                   ]
                 ++ wherePartMultiLine
 
@@ -1467,9 +1478,9 @@ layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilin
         ++ wherePartMultiLine
       -- Preserve a structural case head when no whole-clause layout fits.
       let caseFallback fallback = case (mCaseHeadDoc, clauseDocs) of
-            (Just headDoc, [([], body, _, _)]) -> docLines
-              $ [ pure headDoc
-                , docNonBottomSpacing $ if hasComments
+            (Just headDoc, [([], body, rawBody, handledComments)]) -> docLines
+              $ [ caseBody headDoc body rawBody handledComments
+                  $ docNonBottomSpacing $ if hasComments
                   then docEnsureIndent BrIndentRegular
                     $ docAddBaseY BrIndentRegular $ pure body
                   else docEnsureIndent multilinePatternBodyIndent $ pure body

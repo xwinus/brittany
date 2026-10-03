@@ -59,6 +59,7 @@ import qualified SiblingBindingAlignmentSpec
 import qualified StandaloneDerivingSpec
 import qualified StandaloneKindSignatureSpec
 import qualified StructuralCommentSpec
+import qualified StructuralCaseDoSpec
 import qualified System.Directory as Directory
 import qualified System.FilePath as FilePath
 import qualified TemplateHaskellFallbackSpec
@@ -142,6 +143,7 @@ main = Hspec.hspec $ do
   StandaloneDerivingSpec.spec projectRoot
   StandaloneKindSignatureSpec.spec projectRoot
   StructuralCommentSpec.spec
+  StructuralCaseDoSpec.spec projectRoot
   DataDeclSingleConstructorSpec.spec projectRoot
   DeclarationSpanIndexSpec.spec
   ListDelimiterAlignmentSpec.spec projectRoot
