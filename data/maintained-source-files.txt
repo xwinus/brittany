@@ -133,6 +133,7 @@ source/test-suite/ListDelimiterAlignmentSpec.hs
 source/library/Language/Haskell/Brittany/Internal/SourceComment/ExpressionBoundary.hs
 source/test-suite/ExpressionCommentBoundarySpec.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Expr/OperatorGrouping.hs
+source/library/Language/Haskell/Brittany/Internal/Layouters/Expr/OperatorRhs.hs
 source/test-suite/MixedOperatorGroupingSpec.hs
 source/test-suite/InfixLambdaIndentationSpec.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Pattern/Prefix.hs
@@ -151,3 +152,5 @@ source/library/Language/Haskell/Brittany/Internal/Transformations/Alt/SourceFrag
 source/test-suite/FunctionTypeColumnSpec.hs
 source/test-suite/FunctionTypeColumnFixtures.hs
 source/test-suite/TypeArgumentCommentSpec.hs
+source/test-suite/CompactInfixRhsSpec.hs
+source/test-suite/CompactInfixRhsFixtures.hs

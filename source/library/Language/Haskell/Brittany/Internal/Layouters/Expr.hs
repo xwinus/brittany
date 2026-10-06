@@ -43,6 +43,7 @@ import Language.Haskell.Brittany.Internal.Layouters.Expr.Application
 import Language.Haskell.Brittany.Internal.Layouters.Expr.BranchComments
   ( reserveBranchSuffixWidth )
 import Language.Haskell.Brittany.Internal.Layouters.Expr.OperatorGrouping
+import Language.Haskell.Brittany.Internal.Layouters.Expr.OperatorRhs
 import Language.Haskell.Brittany.Internal.Layouters.Expr.TypeAnnotation
 import Language.Haskell.Brittany.Internal.Layouters.Pattern
 import Language.Haskell.Brittany.Internal.Layouters.Stmt
@@ -251,14 +252,7 @@ layoutOperatorContinuation
 layoutOperatorContinuation allowBreak blockOperand literalOperand operator operand = do
   let layoutRight = if blockOperand then operand else docSetBaseY operand
   attached <- docCols ColOpPrefix [appSep operator, layoutRight]
-  if allowBreak
-    then docAlt $
-      [ pure attached
-      -- Even an indivisible RHS should not inherit the operator's extra width.
-      , docParIndented BrIndentRegular operator operand
-      ]
-      ++ [pure attached | not literalOperand]
-    else pure attached
+  layoutOperatorRhs allowBreak literalOperand operator operand $ pure attached
 
 layoutOperatorApplication
   :: LHsExpr GhcPs
@@ -310,15 +304,9 @@ layoutOperatorApplication expLeft expOp expRight = do
       , appSep $ docForceSingleline expDocOp'
       , docForceParSpacing expDocRight
       ]
-    addAlternative $ layoutMultiline $
-      if allowRhsBreak
-        then docAlt $
-          [ pure attached
-          -- The separate RHS also minimizes unavoidable literal overflow.
-          , docParIndented BrIndentRegular expDocOp' expDocRight
-          ]
-          ++ [pure attached | not $ isIndivisibleRhsLiteral $ unLoc expRight]
-        else pure attached
+    addAlternative $ layoutMultiline $ layoutOperatorRhs
+      allowRhsBreak (isIndivisibleRhsLiteral $ unLoc expRight)
+      expDocOp' expDocRight $ pure attached
 
 layoutExpr :: ToBriDoc HsExpr
 layoutExpr lexpr = layoutExpr' (toL lexpr)
