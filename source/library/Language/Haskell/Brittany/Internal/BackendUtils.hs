@@ -16,6 +16,7 @@ import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
+import qualified Language.Haskell.Brittany.Internal.SourceComment.LineBoundary as LineBoundary
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Utils
 import Language.Haskell.Brittany.Internal.ExactPrintCompat (AnnKey, Annotation)
@@ -248,11 +249,7 @@ priorCommentFollowerColumn state = fromMaybe
   (_lstate_commentCol state)
 
 priorCommentRequiresLineBoundary :: String -> Bool
-priorCommentRequiresLineBoundary comment = case
-  dropWhile (`elem` [' ', '\t']) comment of
-  '-' : '-' : _ -> True
-  '#' : _ -> True
-  _ -> False
+priorCommentRequiresLineBoundary = LineBoundary.priorCommentRequiresLineBoundary
 
 priorCommentSourceBoundary :: AnnKey -> ExactPrint.Comment -> Int
 priorCommentSourceBoundary annKey comment = fromMaybe 0 $ do

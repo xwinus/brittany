@@ -22,8 +22,11 @@ import Language.Haskell.Brittany.Internal.Delimiter.Types
 import Language.Haskell.Brittany.Internal.Performance
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
+import Language.Haskell.Brittany.Internal.SourceComment.LineBoundary
+  ( sourceFragmentRequiresLineBoundary )
 import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.Transformations.Alt.Comments
+import Language.Haskell.Brittany.Internal.Transformations.Alt.SourceFragments
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Utils
 import System.IO.Unsafe (unsafePerformIO)
@@ -34,6 +37,7 @@ data AltCurPos = AltCurPos
   { _acp_line :: Int -- chars in the current line
   , _acp_indent :: Int -- current indentation level
   , _acp_indentPrep :: Int -- indentChange affecting the next Par
+  , _acp_pendingFragmentLine :: Bool -- line holds the pending follower column
   , _acp_forceMLFlag :: AltLineModeState
   }
   deriving Show
@@ -128,7 +132,7 @@ transformAltsWithComments
   -> BriDocNumbered
   -> MultiRWSS.MultiRWS r w s BriDoc
 transformAltsWithComments metrics hasLineComments =
-  MultiRWSS.withMultiStateA (AltCurPos 0 0 0 AltLineModeStateNone)
+  MultiRWSS.withMultiStateA (AltCurPos 0 0 0 False AltLineModeStateNone)
     . Memo.startEvalMemoT
     . fmap unwrapBriDocNumbered
     . rec
@@ -185,13 +189,16 @@ transformAltsWithComments metrics hasLineComments =
       --   acp <- mGet
       --   mSet $ acp { _acp_forceMLFlag = altLineModeDecay $ _acp_forceMLFlag acp }
       --   BDWrapAnnKey annKey <$> rec bd
-      BDFEmpty{} -> processSpacingSimple bdX $> bdX
+      BDFEmpty{} -> pure bdX
       BDFBlankLine{} -> processSpacingSimple bdX $> bdX
       BDFLit{} -> processSpacingSimple bdX $> bdX
       BDFComment{} -> pure bdX
       BDFSeq list -> reWrap . BDFSeq <$> list `forM` rec
       BDFCols sig list -> reWrap . BDFCols sig <$> list `forM` rec
-      BDFSeparator -> processSpacingSimple bdX $> bdX
+      BDFSeparator -> do
+        pending <- _acp_pendingFragmentLine <$> mGet
+        unless pending $ processSpacingSimple bdX
+        pure bdX
       BDFAddBaseY indent bd -> do
         acp <- mGet
         indAdd <- fixIndentationForMultiple acp indent
@@ -205,7 +212,12 @@ transformAltsWithComments metrics hasLineComments =
           BrIndentSpecial i -> reWrap $ BDFAddBaseY (BrIndentSpecial i) r
       BDFBaseYPushCur bd -> do
         acp <- mGet
-        mSet $ acp { _acp_indent = _acp_line acp }
+        mSet $ if _acp_pendingFragmentLine acp
+          then acp
+            { _acp_indent = _acp_indent acp + _acp_indentPrep acp
+            , _acp_indentPrep = 0
+            }
+          else acp { _acp_indent = _acp_line acp }
         r <- rec bd
         return $ reWrap $ BDFBaseYPushCur r
       BDFBaseYPop bd -> do
@@ -230,7 +242,11 @@ transformAltsWithComments metrics hasLineComments =
         let ind = _acp_indent acp + _acp_indentPrep acp + indAdd
         mSet $ acp { _acp_indent = ind, _acp_indentPrep = 0 }
         sameLine' <- rec sameLine
-        mModify $ \acp' -> acp' { _acp_line = ind, _acp_indent = ind }
+        mModify $ \acp' -> acp'
+          { _acp_line = ind
+          , _acp_indent = ind
+          , _acp_pendingFragmentLine = False
+          }
         indented' <- rec indented
         let resolvedIndent = case indent of
               BrIndentRegular -> BrIndentSpecial indAdd
@@ -277,6 +293,15 @@ transformAltsWithComments metrics hasLineComments =
         acp' <- mGet
         mSet $ acp' { _acp_forceMLFlag = _acp_forceMLFlag acp }
         return $ x
+      BDFExternal _ _ (SourceFragment fragment) -> do
+        processSpacingSimple bdX
+        when (sourceFragmentRequiresLineBoundary fragment) $ do
+          acp <- mGet
+          mSet $ acp
+            { _acp_line = _acp_indent acp + _acp_indentPrep acp
+            , _acp_pendingFragmentLine = True
+            }
+        pure bdX
       BDFExternal{} -> processSpacingSimple bdX $> bdX
       BDFPlain{} -> processSpacingSimple bdX $> bdX
       BDFAnnotationPrior priorMode annKey bd -> do
@@ -296,7 +321,11 @@ transformAltsWithComments metrics hasLineComments =
         ind <- _acp_indent <$> mGet
         l' <- rec l
         lr' <- lr `forM` \x -> do
-          mModify $ \acp -> acp { _acp_line = ind, _acp_indent = ind }
+          mModify $ \acp -> acp
+            { _acp_line = ind
+            , _acp_indent = ind
+            , _acp_pendingFragmentLine = False
+            }
           rec x
         return $ reWrap $ BDFLines (l' : lr')
       BDFEnsureIndent indent bd -> do
@@ -400,7 +429,10 @@ transformAltsWithComments metrics hasLineComments =
     LineModeInvalid -> error "processSpacingSimple inv"
     LineModeValid (VerticalSpacing i VerticalSpacingParNone _) -> do
       acp <- mGet
-      mSet $ acp { _acp_line = _acp_line acp + i }
+      mSet $ acp
+        { _acp_line = _acp_line acp + i
+        , _acp_pendingFragmentLine = False
+        }
     LineModeValid VerticalSpacing{} -> error "processSpacingSimple par"
     _ -> error "ghc exhaustive check is insufficient"
   hasSpace1For
@@ -425,7 +457,7 @@ transformAltsWithComments metrics hasLineComments =
   alternativeColumnLimit _ _ = Nothing
   hasSpaceFromCurrent :: Int -> AltCurPos -> VerticalSpacing -> Bool
   hasSpaceFromCurrent
-    colMax (AltCurPos line _ _ _) (VerticalSpacing sameLine paragraph _) =
+    colMax (AltCurPos line _ _ _ _) (VerticalSpacing sameLine paragraph _) =
     line + sameLine <= colMax && case paragraph of
       VerticalSpacingParNone -> True
       VerticalSpacingParSome par -> line + par <= colMax
@@ -433,12 +465,12 @@ transformAltsWithComments metrics hasLineComments =
   hasSpaceWithin :: Int -> AltCurPos -> VerticalSpacing -> Bool
   hasSpaceWithin
     colMax
-    (AltCurPos line _indent _ _)
+    (AltCurPos line _indent _ _ _)
     (VerticalSpacing sameLine VerticalSpacingParNone _) =
     line + sameLine <= colMax
   hasSpaceWithin
     colMax
-    (AltCurPos line indent indentPrep _)
+    (AltCurPos line indent indentPrep _ _)
     (VerticalSpacing sameLine (VerticalSpacingParSome par) _) =
     line
       + sameLine
@@ -449,7 +481,7 @@ transformAltsWithComments metrics hasLineComments =
       <= colMax
   hasSpaceWithin
     colMax
-    (AltCurPos line _indent _ _)
+    (AltCurPos line _indent _ _ _)
     (VerticalSpacing sameLine VerticalSpacingParAlways{} _) =
     line + sameLine <= colMax
 
@@ -490,15 +522,21 @@ getSpacingWithComments metrics hasLineComments !bridoc = do
         False
       BDFComment comment -> return $ LineModeValid $ commentSpacing comment
       BDFSeq list -> do
-        spacing <- sumVs <$> rec `mapM` list
-        pure $ if sequenceRequiresCommentLineBreak hasLineComments list
-          then forceCommentLineBreak <$> spacing
-          else spacing
+        let finishSpacing = if sequenceRequiresCommentLineBreak hasLineComments list
+              then forceCommentLineBreak
+              else id
+            combine = if hasLineComments
+              then sourceFragmentSequenceSpacing list sumVs finishSpacing
+              else sumVs
+        fmap combine . sequence <$> rec `mapM` list
       BDFCols _sig list -> do
-        spacing <- sumVs <$> rec `mapM` list
-        pure $ if sequenceRequiresCommentLineBreak hasLineComments list
-          then forceCommentLineBreak <$> spacing
-          else spacing
+        let finishSpacing = if sequenceRequiresCommentLineBreak hasLineComments list
+              then forceCommentLineBreak
+              else id
+            combine = if hasLineComments
+              then sourceFragmentSequenceSpacing list sumVs finishSpacing
+              else sumVs
+        fmap combine . sequence <$> rec `mapM` list
       BDFSeparator ->
         return $ LineModeValid $ VerticalSpacing 1 VerticalSpacingParNone False
       BDFAddBaseY indent bd -> do
@@ -675,8 +713,8 @@ getSpacingWithComments metrics hasLineComments !bridoc = do
     )
     (LineModeValid $ VerticalSpacing 0 VerticalSpacingParNone False)
   sumVs
-    :: [LineModeValidity VerticalSpacing] -> LineModeValidity VerticalSpacing
-  sumVs sps = foldl' (liftM2 go) initial sps
+    :: [VerticalSpacing] -> VerticalSpacing
+  sumVs sps = foldl' go initial sps
    where
     go (VerticalSpacing x1 x2 x3) (VerticalSpacing y1 y2 _) = VerticalSpacing
       (x1 + y1)
@@ -693,14 +731,12 @@ getSpacingWithComments metrics hasLineComments !bridoc = do
           VerticalSpacingParSome $ x + y
       )
       x3
-    singleline (LineModeValid x) = _vs_paragraph x == VerticalSpacingParNone
-    singleline _ = False
-    isPar (LineModeValid x) = _vs_parFlag x
-    isPar _ = False
+    singleline x = _vs_paragraph x == VerticalSpacingParNone
+    isPar x = _vs_parFlag x
     parFlag = case sps of
       [] -> True
       _ -> all singleline (List.init sps) && isPar (List.last sps)
-    initial = LineModeValid $ VerticalSpacing 0 VerticalSpacingParNone parFlag
+    initial = VerticalSpacing 0 VerticalSpacingParNone parFlag
   getMaxVS :: LineModeValidity VerticalSpacing -> LineModeValidity Int
   getMaxVS = fmap $ \(VerticalSpacing x1 x2 _) -> x1 `max` case x2 of
     VerticalSpacingParSome i -> i
@@ -841,15 +877,21 @@ getSpacingsWithComments metrics hasLineComments limit bridoc = do
         return $ [VerticalSpacing (Text.length t) VerticalSpacingParNone False]
       BDFComment comment -> return [commentSpacing comment]
       BDFSeq list -> do
-        spacings <- fmap sumVs . mapM filterAndLimit <$> rec `mapM` list
-        pure $ if sequenceRequiresCommentLineBreak hasLineComments list
-          then forceCommentLineBreak <$> spacings
-          else spacings
+        let finishSpacing = if sequenceRequiresCommentLineBreak hasLineComments list
+              then forceCommentLineBreak
+              else id
+            combine = if hasLineComments
+              then sourceFragmentSequenceSpacing list sumVs finishSpacing
+              else sumVs
+        fmap combine . mapM filterAndLimit <$> rec `mapM` list
       BDFCols _sig list -> do
-        spacings <- fmap sumVs . mapM filterAndLimit <$> rec `mapM` list
-        pure $ if sequenceRequiresCommentLineBreak hasLineComments list
-          then forceCommentLineBreak <$> spacings
-          else spacings
+        let finishSpacing = if sequenceRequiresCommentLineBreak hasLineComments list
+              then forceCommentLineBreak
+              else id
+            combine = if hasLineComments
+              then sourceFragmentSequenceSpacing list sumVs finishSpacing
+              else sumVs
+        fmap combine . mapM filterAndLimit <$> rec `mapM` list
       BDFSeparator -> return $ [VerticalSpacing 1 VerticalSpacingParNone False]
       BDFAddBaseY indent bd -> do
         mVs <- rec bd

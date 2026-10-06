@@ -35,6 +35,8 @@ import Language.Haskell.Brittany.Internal.SourceComment.Continuation
   , startTrailingCommentRun
   , trailingCommentColumn
   )
+import Language.Haskell.Brittany.Internal.SourceComment.LineBoundary
+  ( sourceFragmentRequiresLineBoundary )
 import Language.Haskell.Brittany.Internal.SourceComment.ExpressionBoundary
 import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.PreludeUtils
@@ -601,13 +603,6 @@ briDocIsMultiLine briDoc = rec briDoc
     BDForceParSpacing bd -> rec bd
     BDNonBottomSpacing _ bd -> rec bd
     BDDebug _ bd -> rec bd
-
-sourceFragmentRequiresLineBoundary :: ExactSourceFragment -> Bool
-sourceFragmentRequiresLineBoundary fragment = case reverse
-  $ Text.lines
-  $ fragmentText fragment <> Text.singleton '\n' of
-  lastLine : _ -> priorCommentRequiresLineBoundary $ Text.unpack lastLine
-  [] -> False
 
 consumeSourceFragment
   :: Set.Set ExactPrintCompat.AnnKey

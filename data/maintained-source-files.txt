@@ -143,3 +143,8 @@ source/test-suite/StructuralCaseDoSpec.hs
 source/test-suite/StructuralCaseDoFixtures.hs
 source/test-suite/LambdaCaseCommentSpec.hs
 source/test-suite/LambdaCaseCommentFixtures.hs
+source/library/Language/Haskell/Brittany/Internal/SourceComment/LineBoundary.hs
+source/test-suite/SourceFragmentBoundarySpec.hs
+source/test-suite/SourceFragmentBoundaryFixtures.hs
+source/test-suite/SourceFragmentBoundaryAltSpec.hs
+source/library/Language/Haskell/Brittany/Internal/Transformations/Alt/SourceFragments.hs

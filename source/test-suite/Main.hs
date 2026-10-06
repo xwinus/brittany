@@ -60,6 +60,8 @@ import qualified StandaloneDerivingSpec
 import qualified StandaloneKindSignatureSpec
 import qualified StructuralCommentSpec
 import qualified LambdaCaseCommentSpec
+import qualified SourceFragmentBoundaryAltSpec
+import qualified SourceFragmentBoundarySpec
 import qualified StructuralCaseDoSpec
 import qualified System.Directory as Directory
 import qualified System.FilePath as FilePath
@@ -145,6 +147,8 @@ main = Hspec.hspec $ do
   StandaloneKindSignatureSpec.spec projectRoot
   StructuralCommentSpec.spec
   LambdaCaseCommentSpec.spec projectRoot
+  SourceFragmentBoundaryAltSpec.spec
+  SourceFragmentBoundarySpec.spec projectRoot
   StructuralCaseDoSpec.spec projectRoot
   DataDeclSingleConstructorSpec.spec projectRoot
   DeclarationSpanIndexSpec.spec
