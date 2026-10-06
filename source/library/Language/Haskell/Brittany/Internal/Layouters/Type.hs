@@ -118,9 +118,9 @@ layoutType ltype = layoutType' (toL ltype)
             (DelimiterIndentFixed 2)
             TypeDelimiterSeparators
             [DelimiterCompact, DelimiterHanging]
-      let multilineDoc = docPar
-            forallDoc
-            (docLines
+      let multilineDoc = docLines
+            [ forallDoc
+            , docLines
               $ (layoutTypeSourceComment <$> binderComments)
               ++ [ docCols
                    ColTyOpPrefix
@@ -133,7 +133,7 @@ layoutType ltype = layoutType' (toL ltype)
                    , docAddBaseY (BrIndentSpecial 3) $ maybeForceML $ typeDoc
                    ]
                  ]
-            )
+            ]
       if null binderComments
         then docAlt
         -- :: forall a b c . (Foo a b c) => a b -> c
@@ -177,9 +177,9 @@ layoutType ltype = layoutType' (toL ltype)
           separatorSpace
             | hasForallComments && null binderComments = docEmpty
             | otherwise = docSeparator
-          commentedDoc = docPar
-            (docSeq $ docLit (Text.pack "forall") : tyVarDocLineList)
-            (docLines
+          commentedDoc = docLines
+            [ docSeq $ docLit (Text.pack "forall") : tyVarDocLineList
+            , docLines
               $ (layoutTypeSourceComment <$> binderComments)
               ++ [ docCols
                    ColTyOpPrefix
@@ -187,7 +187,7 @@ layoutType ltype = layoutType' (toL ltype)
                    , docSeq [separatorSpace, maybeForceML $ return typeDoc]
                    ]
                  ]
-            )
+            ]
       if null binderComments
         then docAlt
         -- forall x . x  /  forall x -> x
@@ -204,36 +204,35 @@ layoutType ltype = layoutType' (toL ltype)
           ]
         -- :: forall x
         --  . x
-        , docPar
-          (docSeq $ docLit (Text.pack "forall") : tyVarDocLineList)
-          (docCols
+        , docLines
+          [ docSeq $ docLit (Text.pack "forall") : tyVarDocLineList
+          , docCols
             ColTyOpPrefix
             [  separatorDoc
             , docSeq [separatorSpace, maybeForceML $ return typeDoc]
             ]
-          )
+          ]
         -- :: forall
         --      (x :: *)
         --  . x
-        , docPar
-          (docLit (Text.pack "forall"))
-          (docLines
-          $ (tyVarDocs <&> \case
-              (tname, Nothing) ->
-                docEnsureIndent BrIndentRegular $ docLit tname
-              (tname, Just doc) -> docEnsureIndent BrIndentRegular $ docLines
-                [ docCols ColTyOpPrefix [docParenLSep, docLit tname]
-                , docCols ColTyOpPrefix [docLit $ Text.pack ":: ", doc]
-                , docLit $ Text.pack ")"
-                ]
-            )
-          ++ [ docCols
-                 ColTyOpPrefix
-                 [  separatorDoc
-                 , docSeq [separatorSpace, maybeForceML $ return typeDoc]
-                 ]
-             ]
-          )
+        , docLines
+          [ docPar
+              (docLit (Text.pack "forall"))
+              (docLines $ tyVarDocs <&> \case
+                (tname, Nothing) ->
+                  docEnsureIndent BrIndentRegular $ docLit tname
+                (tname, Just doc) -> docEnsureIndent BrIndentRegular $ docLines
+                  [ docCols ColTyOpPrefix [docParenLSep, docLit tname]
+                  , docCols ColTyOpPrefix [docLit $ Text.pack ":: ", doc]
+                  , docLit $ Text.pack ")"
+                  ]
+              )
+          , docCols
+              ColTyOpPrefix
+              [ separatorDoc
+              , docSeq [separatorSpace, maybeForceML $ return typeDoc]
+              ]
+          ]
           ]
         else commentedDoc
     HsQualTy _ lcntxts typ1 -> do
@@ -280,14 +279,14 @@ layoutType ltype = layoutType' (toL ltype)
         --    (Foo a b c)
         -- => a b
         -- -> c
-        , docPar
-          (docForceSingleline contextDoc)
-          (docCols
+        , docLines
+          [ docForceSingleline contextDoc
+          , docCols
             ColTyOpPrefix
             [ docLit $ Text.pack "=> "
             , docAddBaseY (BrIndentSpecial 3) $ maybeForceML typeDoc
             ]
-          )
+          ]
         ]
     HsFunTy _ _ typ1 typ2 -> do
       typeDoc1 <- docSharedWrapper layoutType (toL typ1)
@@ -302,9 +301,11 @@ layoutType ltype = layoutType' (toL ltype)
           [ appSep $ docLit $ Text.pack "->"
           , docAddBaseY (BrIndentSpecial 3) $ maybeForceML typeDoc2
           ]
-        multilineType = docPar
-          (docNodeAnnKW ltype Nothing typeDoc1)
-          continuation
+        -- Arrow rows share a base before the later column-flattening pass.
+        multilineType = docLines
+          [ docNodeAnnKW ltype Nothing typeDoc1
+          , continuation
+          ]
         multilineTypeWithPostDocs = case trailingComments of
           [] -> multilineType
           _ -> docSeq

@@ -148,3 +148,6 @@ source/test-suite/SourceFragmentBoundarySpec.hs
 source/test-suite/SourceFragmentBoundaryFixtures.hs
 source/test-suite/SourceFragmentBoundaryAltSpec.hs
 source/library/Language/Haskell/Brittany/Internal/Transformations/Alt/SourceFragments.hs
+source/test-suite/FunctionTypeColumnSpec.hs
+source/test-suite/FunctionTypeColumnFixtures.hs
+source/test-suite/TypeArgumentCommentSpec.hs
