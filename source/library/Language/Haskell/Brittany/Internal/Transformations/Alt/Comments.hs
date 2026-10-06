@@ -14,6 +14,8 @@ import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.SourceComment.ExpressionBoundary
   ( interruptsExpression
   )
+import Language.Haskell.Brittany.Internal.SourceComment.LineBoundary
+  ( sourceFragmentRequiresLineBoundary )
 import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.Types
 
@@ -40,6 +42,8 @@ containsComment predicate document = StateS.evalState (visit document) IntSet.em
         StateS.put $ IntSet.insert nodeId visited
         case node of
           BDFComment planned -> pure $ predicate planned
+          BDFExternal _ _ (SourceFragment fragment) ->
+            pure $ sourceFragmentRequiresLineBoundary fragment
           BDFSeq children -> anyM visit children
           BDFCols _ children -> anyM visit children
           BDFAddBaseY _ child -> visit child
@@ -87,6 +91,8 @@ sequenceRequiresCommentLineBreak True documents = first
 endsWithComment :: (PlannedComment -> Bool) -> BriDocNumbered -> Bool
 endsWithComment predicate (_, document) = case document of
   BDFComment planned -> predicate planned
+  BDFExternal _ _ (SourceFragment fragment) ->
+    sourceFragmentRequiresLineBoundary fragment
   BDFSeq children -> maybe False (endsWithComment predicate)
     $ lastLayoutChild children
   BDFCols _ children -> maybe False (endsWithComment predicate)
