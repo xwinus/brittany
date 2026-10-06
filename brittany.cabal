@@ -143,6 +143,7 @@ library
     Language.Haskell.Brittany.Internal.Layouters.Decl
     Language.Haskell.Brittany.Internal.Layouters.Expr
     Language.Haskell.Brittany.Internal.Layouters.Expr.OperatorGrouping
+    Language.Haskell.Brittany.Internal.Layouters.Expr.OperatorRhs
     Language.Haskell.Brittany.Internal.Layouters.Expr.Application
     Language.Haskell.Brittany.Internal.Layouters.Expr.BranchComments
     Language.Haskell.Brittany.Internal.Layouters.Expr.TypeAnnotation
@@ -246,6 +247,8 @@ test-suite brittany-test-suite
     LocalTrailingCommentSpec
     FunctionHeadWrappingSpec
     TypeArgumentCommentSpec
+    CompactInfixRhsSpec
+    CompactInfixRhsFixtures
     FunctionTypeColumnSpec
     FunctionTypeColumnFixtures
     InfixFunctionHeadSpec
