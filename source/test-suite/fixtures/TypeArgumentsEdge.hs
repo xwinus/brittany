@@ -26,7 +26,7 @@ identity
    = value :: typeArgument
 requiredIdentity
   :: forall a
-     -- Keep the required binder comment.
+  -- Keep the required binder comment.
    -> a
   -> a
 requiredIdentity (type typeArgument)

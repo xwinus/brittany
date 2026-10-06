@@ -11,6 +11,7 @@ import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.SourceComment.ExpressionBoundary
   ( retainExpressionCommentBase
   )
+import Language.Haskell.Brittany.Internal.SourceComment.Types
 import Language.Haskell.Brittany.Internal.Types
 import Language.Haskell.Brittany.Internal.Utils
 
@@ -120,6 +121,8 @@ transformSimplifyFloating = stepBO .> stepFull
     _ -> Nothing
   descendAddB = transformDownMay $ \case
     BDAddBaseY BrIndentNone x -> Just x
+    BDAddBaseY _ comment@(BDComment planned)
+      | isOwnLineTypeArgumentComment planned -> Just comment
     -- AddIndent floats into Lines.
     BDAddBaseY indent (BDLines lines) ->
       Just $ BDLines $ BDAddBaseY indent <$> lines
@@ -172,6 +175,8 @@ transformSimplifyFloating = stepBO .> stepFull
   stepFull = -- traceFunctionWith "stepFull" (show . briDocToDocWithAnns) (show . briDocToDocWithAnns) $
              Uniplate.rewrite $ \case
     BDAddBaseY BrIndentNone x -> Just $ x
+    BDAddBaseY _ comment@(BDComment planned)
+      | isOwnLineTypeArgumentComment planned -> Just comment
     -- AddIndent floats into Lines.
     BDAddBaseY indent (BDLines lines) ->
       Just $ BDLines $ BDAddBaseY indent <$> lines
@@ -229,3 +234,13 @@ transformSimplifyFloating = stepBO .> stepFull
         $ List.init cols
         ++ [BDAnnotationRest annKey1 $ List.last cols]
     _ -> Nothing
+
+-- Parameter post-docs align with the arrow row, independently of any
+-- continuation indentation prepared for the type component itself.
+isOwnLineTypeArgumentComment :: PlannedComment -> Bool
+isOwnLineTypeArgumentComment planned =
+  plannedCommentIndentPolicy planned == SourceColumnIndent
+    && placementRole placement == HaddockPostDoc SignatureArgument
+    && placementLineRelation placement == CommentOwnLine
+ where
+  placement = plannedCommentPlacement planned

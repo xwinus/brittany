@@ -424,9 +424,9 @@ layoutSigWithSourceComments hasOuterComments sourceComments
               --  . Foo
               -- => ColMap2
               -- -> ColInfo
-              , docPar
-                  forallNoDot
-                  (docLines
+              , docLines
+                  [ forallNoDot
+                  , docLines
                     [ docCols ColTyOpPrefix
                       [ docLit $ Text.pack " . "
                       , docAddBaseY (BrIndentSpecial 3) contextDoc
@@ -436,7 +436,7 @@ layoutSigWithSourceComments hasOuterComments sourceComments
                       , docAddBaseY (BrIndentSpecial 3) $ maybeForceML innerTypeDoc
                       ]
                     ]
-                  )
+                  ]
               ]
           _ -> do
             let maybeForceML' = case unLoc typ of
@@ -444,14 +444,14 @@ layoutSigWithSourceComments hasOuterComments sourceComments
                   _ -> id
             return $ docAlt
               [ docSeq [forallWithDot, docForceSingleline typeDoc]
-              , docPar
-                  forallNoDot
-                  (docCols
+              , docLines
+                  [ forallNoDot
+                  , docCols
                     ColTyOpPrefix
                     [ docLit $ Text.pack " . "
                     , docAddBaseY (BrIndentSpecial 3) $ maybeForceML' typeDoc
                     ]
-                  )
+                  ]
               ]
     hasNestedComments <- hasAnyCommentsBelow (toL lsig)
     let hasComments = hasOuterComments || hasNestedComments
