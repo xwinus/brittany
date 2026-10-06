@@ -154,3 +154,5 @@ source/test-suite/FunctionTypeColumnFixtures.hs
 source/test-suite/TypeArgumentCommentSpec.hs
 source/test-suite/CompactInfixRhsSpec.hs
 source/test-suite/CompactInfixRhsFixtures.hs
+source/test-suite/MembershipPredicateSpec.hs
+source/test-suite/MembershipPredicateFixtures.hs

@@ -240,6 +240,8 @@ test-suite brittany-test-suite
     ListPatternLayoutSpec
     ListPatternLayoutFixtures
     UnfittableInfixRhsSpec
+    MembershipPredicateSpec
+    MembershipPredicateFixtures
     MixedOperatorGroupingSpec
     NonListInfixRhsSpec
     InfixRhsWrappingSpec

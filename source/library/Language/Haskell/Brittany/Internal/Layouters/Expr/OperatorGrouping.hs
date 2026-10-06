@@ -37,10 +37,23 @@ groupedOperatorChain continuation left parts = do
           groups = splitGroups priority remaining
       if null headParts && all ((<= 1) . length) groups
         then Nothing
-        else Just $ docAddBaseY BrIndentRegular
-          $ docPar (unit BrIndentNone left headParts)
-          $ docLines $ map row groups
+        else Just $ if any membershipPart headParts
+            && all ((== Just 3) . partPriority) headParts
+          then docAlt
+            [ docAddBaseY BrIndentRegular $ docPar
+                (docForceSingleline $ docSeq $ List.intersperse docSeparator
+                  $ left : List.concatMap inlinePart headParts)
+                (docLines $ map row groups)
+            -- An unfit first predicate shares the existing continuation base;
+            -- a nested paragraph would add the outer indentation to it again.
+            , docAddBaseY BrIndentRegular $ docPar left
+                $ docLines $ map continuation headParts ++ map row groups
+            ]
+          else docAddBaseY BrIndentRegular
+            $ docPar (unit BrIndentNone left headParts)
+            $ docLines $ map row groups
  where
+  membershipPart part = chainOperatorName part `elem` [Just "elem", Just "notElem"]
   partPriority = chainOperatorName >=> groupingPriority
   minimumMaybe [] = Nothing
   minimumMaybe values = Just $ minimum values
@@ -55,10 +68,14 @@ groupedOperatorChain continuation left parts = do
     ]
     -- Each nested unit has a strictly higher break priority, so recursion is
     -- bounded by the fixed priority tiers rather than the chain's length.
-    ++ [fromMaybe
-          (docAddBaseY indent $ docPar first
-            $ docLines $ map continuation rest)
-          (groupedOperatorChain continuation first rest)]
+    ++ case groupedOperatorChain continuation first rest of
+      Just grouped -> [grouped]
+      Nothing ->
+        let multiline = docPar first $ docLines $ map continuation rest
+        in [docAddBaseY indent multiline]
+          -- A terminal predicate may need the boolean row's full width.
+          -- Keep this fallback local so other fitting groups stay cohesive.
+          ++ [multiline | indent /= BrIndentNone && any membershipPart rest]
 
   inlinePart part = [chainOperatorDoc part, chainOperandDoc part]
   row [] = docEmpty
@@ -84,5 +101,7 @@ groupingPriority operator
   | operator `elem` ["||", "&&"] = Just 1
   | operator `elem` ["<$>", "<$", "$>", "<*>", "<*", "*>", "<|>"] = Just 2
   | operator `elem`
-      ["==", "/=", "<", "<=", ">", ">=", ".:", ".:?", ".!=", ".="] = Just 3
+      [ "==", "/=", "<", "<=", ">", ">=", "elem", "notElem"
+      , ".:", ".:?", ".!=", ".="
+      ] = Just 3
   | otherwise = Nothing
