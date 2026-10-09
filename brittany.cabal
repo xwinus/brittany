@@ -291,6 +291,8 @@ test-suite brittany-test-suite
     GuardLayoutSpec
     CaseHeadWidthSpec
     GuardedClauseWrappingSpec
+    GuardedBlockHeaderSpec
+    GuardedBlockHeaderFixtures
     InstanceHeadSpec
     InfixContinuationAlignmentSpec
     LetStatementBoundarySpec
