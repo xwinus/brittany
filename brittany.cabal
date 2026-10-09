@@ -157,6 +157,7 @@ library
     Language.Haskell.Brittany.Internal.Layouters.StandaloneDeriving
     Language.Haskell.Brittany.Internal.Layouters.StandaloneKindSignature
     Language.Haskell.Brittany.Internal.Layouters.Stmt
+    Language.Haskell.Brittany.Internal.Layouters.Stmt.LetComments
     Language.Haskell.Brittany.Internal.Layouters.Type
     Language.Haskell.Brittany.Internal.Obfuscation
     Language.Haskell.Brittany.Internal.ParseModule
@@ -293,6 +294,9 @@ test-suite brittany-test-suite
     GuardedClauseWrappingSpec
     GuardedBlockHeaderSpec
     GuardedBlockHeaderFixtures
+    DoLetCommentRunSpec
+    DoLetCommentRunFixtures
+    ExplicitCommentReservationSpec
     InstanceHeadSpec
     InfixContinuationAlignmentSpec
     LetStatementBoundarySpec

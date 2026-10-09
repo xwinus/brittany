@@ -24,10 +24,10 @@ import qualified Test.Hspec as Hspec
 
 spec :: Hspec.Spec
 spec = Hspec.describe "structurally anchored comments" $ do
-  Hspec.it "canonicalizes inline token comments without growing whitespace" $ do
+  Hspec.it "canonicalizes token comments without growing whitespace" $ do
     firstPass <- formatChecked inlineSource
     firstPass `Hspec.shouldContain` "do -- after do"
-    firstPass `Hspec.shouldContain` "let -- after let"
+    firstPass `Hspec.shouldContain` "let\n      -- after let\n      result ="
     firstPass `Hspec.shouldContain` "= -- after equals"
     firstPass `Hspec.shouldContain` "= -- after function equals"
     firstPass `Hspec.shouldContain` "= -- disabled tuple binding"

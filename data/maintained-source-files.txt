@@ -51,6 +51,7 @@ source/library/Language/Haskell/Brittany/Internal/Layouters/Pattern/Types.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/StandaloneDeriving.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/StandaloneKindSignature.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Stmt.hs
+source/library/Language/Haskell/Brittany/Internal/Layouters/Stmt/LetComments.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Type.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Type/Operator.hs
 source/library/Language/Haskell/Brittany/Internal/Obfuscation.hs
@@ -158,3 +159,6 @@ source/test-suite/MembershipPredicateSpec.hs
 source/test-suite/MembershipPredicateFixtures.hs
 source/test-suite/GuardedBlockHeaderSpec.hs
 source/test-suite/GuardedBlockHeaderFixtures.hs
+source/test-suite/DoLetCommentRunSpec.hs
+source/test-suite/DoLetCommentRunFixtures.hs
+source/test-suite/ExplicitCommentReservationSpec.hs
