@@ -22,6 +22,8 @@ import Language.Haskell.Brittany.Internal.Layouters.Pattern.Types
   ( indentBoundaryListPattern )
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
+import Language.Haskell.Brittany.Internal.Layouters.Stmt.LetComments
+  ( layoutLetComments )
 import Language.Haskell.Brittany.Internal.TopLevelSpacing
 import Language.Haskell.Brittany.Internal.Types
 
@@ -98,15 +100,14 @@ layoutStmtWithGeneratorBase generatorBase lstmt@(L _ stmt) = do
       let locatedBinds = L (localBindsSpan binds) binds
       letComments <- filter (sourceCommentPrecedesNode locatedBinds)
         <$> sourceCommentsWithinNode lstmt
-      let letDoc = appendSourceComments
-            (docLit $ Text.pack "let")
-            letComments
-          commentedBindDocs bindDocs = prependConsumedComments letComments
-            $ docAddBaseY BrIndentRegular
+      let letDoc = docLit $ Text.pack "let"
+          commentedBindDocs bindDocs = docAddBaseY BrIndentRegular
             $ docPar letDoc
             $ docSetBaseAndIndent
-            $ docLines
-            $ return <$> bindDocs
+            $ docSeq
+                [ layoutLetComments letComments
+                , docLines $ return <$> bindDocs
+                ]
       layoutLocalBinds locatedBinds >>= \case
         Nothing -> prependConsumedComments letComments letDoc
           -- i just tested the above, and it is indeed allowed. heh.

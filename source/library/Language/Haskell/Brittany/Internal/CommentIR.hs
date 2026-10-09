@@ -5,6 +5,7 @@ module Language.Haskell.Brittany.Internal.CommentIR
   ( CommentIRError(..)
   , lowerPlannedComments
   , planComment
+  , planSourceCommentWithDelta
   , plannedCommentKeys
   , validatePlannedCommentNodes
   ) where
@@ -40,7 +41,7 @@ data LowerState = LowerState
   , lowerTransported :: Set SourceCommentKey
   , lowerCollecting :: Bool
   }
-type LowerCache = Map (Int, Set SourceCommentKey, String)
+type LowerCache = Map (Int, Set SourceCommentKey, Set SourceCommentKey, String)
   (BriDocNumbered, LowerState)
 type LowerM = StateS.StateT LowerCache (Either [CommentIRError])
 lowerPlannedComments
@@ -132,7 +133,7 @@ lowerNode annotations plan state numbered@(nodeId, document)
   | Nothing <- cacheDiscriminator document = compute
   | Just discriminator <- cacheDiscriminator document = do
       cache <- StateS.get
-      let cacheKey = (nodeId, lowerClaimed state, discriminator)
+      let cacheKey = (nodeId, lowerClaimed state, lowerTransported state, discriminator)
       case Map.lookup cacheKey cache of
         Just cached -> pure cached
         Nothing -> do
@@ -228,11 +229,16 @@ lowerNode annotations plan state numbered@(nodeId, document)
     BDFDebug label child -> childNode (BDFDebug label) child
     BDFComment planned ->
       let key = sourceCommentKey $ plannedCommentSource planned
-      in if Set.member key $ lowerClaimed state
+      -- Explicit placement reserves the comment before annotation lowering,
+      -- even when an earlier node has a coarse following-comment annotation.
+      in if Set.member key (lowerClaimed state) && not (lowerCollecting state)
         then throwLower [DuplicatePlannedComment key]
         else pure
           ( (nodeId, BDFComment planned)
-          , state { lowerClaimed = Set.insert key $ lowerClaimed state }
+          , state
+              { lowerClaimed = Set.insert key $ lowerClaimed state
+              , lowerTransported = Set.insert key $ lowerTransported state
+              }
           )
   leaf value = pure ((nodeId, value), state)
   childNode constructor child = do
@@ -264,10 +270,15 @@ lowerNode annotations plan state numbered@(nodeId, document)
           , coverage == target
           ] of
         [] -> throwLower [AlternativeCommentMismatch coverages]
-        selected@((_, selectedState) : _) -> pure
-          ( (nodeId, constructor $ fst <$> selected)
-          , selectedState
-          )
+        selected@((_, selectedState) : _) ->
+          let reserved = Set.unions $ lowerTransported . snd <$> selected
+              mergedState = if lowerCollecting state
+                then selectedState { lowerTransported = reserved }
+                else selectedState
+          in pure
+            ( (nodeId, constructor $ fst <$> selected)
+            , mergedState
+            )
       _ -> throwLower [AlternativeCommentMismatch coverages]
   plannedNodes current comments = Monad.foldM add ([], current)
     $ relativeCommentDeltas plan comments

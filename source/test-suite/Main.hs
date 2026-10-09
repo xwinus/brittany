@@ -39,6 +39,8 @@ import qualified FixitySignatureSpec
 import qualified CaseHeadWidthSpec
 import qualified GuardedClauseWrappingSpec
 import qualified GuardedBlockHeaderSpec
+import qualified DoLetCommentRunSpec
+import qualified ExplicitCommentReservationSpec
 import qualified GuardLayoutSpec
 import qualified InstanceHeadSpec
 import qualified InfixContinuationAlignmentSpec
@@ -184,6 +186,8 @@ main = Hspec.hspec $ do
   CaseHeadWidthSpec.spec projectRoot
   GuardedClauseWrappingSpec.spec projectRoot
   GuardedBlockHeaderSpec.spec projectRoot
+  DoLetCommentRunSpec.spec projectRoot
+  ExplicitCommentReservationSpec.spec
   GuardLayoutSpec.spec
   InstanceHeadSpec.spec projectRoot
   InfixContinuationAlignmentSpec.spec
