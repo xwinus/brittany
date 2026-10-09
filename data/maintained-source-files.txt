@@ -156,3 +156,5 @@ source/test-suite/CompactInfixRhsSpec.hs
 source/test-suite/CompactInfixRhsFixtures.hs
 source/test-suite/MembershipPredicateSpec.hs
 source/test-suite/MembershipPredicateFixtures.hs
+source/test-suite/GuardedBlockHeaderSpec.hs
+source/test-suite/GuardedBlockHeaderFixtures.hs

@@ -22,6 +22,10 @@ layoutGuardedBody binder body attached = docAlt
   [ docForceSingleline attached
   , docAddBaseY BrIndentRegular
     $ docPar (pure binder) (docForceSingleline $ pure body)
+  -- Paragraph-compatible layouts keep a cohesive header with a multiline body.
+  , docForceParSpacing attached
+  , docAddBaseY BrIndentRegular
+    $ docPar (pure binder) (docForceParSpacing $ pure body)
   , attached
   , docAddBaseY BrIndentRegular
     $ docPar (pure binder) (docNonBottomSpacing $ pure body)
