@@ -57,13 +57,12 @@ spec projectRoot = Hspec.describe "membership predicate grouping" $ do
         forM_ units $ \unit -> assertCohesive unit output
         assertWithinColumns 80 output
     forM_ ["`List.elem`", "`List.notElem`", "`contains`", "<~>", "+", "++", "."] $ \operator ->
-      Hspec.it ("retains the conservative grouping barrier at " ++ operator ++ context) $ do
+      Hspec.it ("preserves opaque operators without fragmenting adjacent known predicates at " ++ operator ++ context) $ do
         let member = "name " ++ operator ++ " matrixCaseFeatures matrixCase"
             comparison = "matrixCaseExpectedResult matrixCase == Formats"
         output <- checkedSource 80 indent policy $ moduleSource
           ["selected = " ++ member ++ " && " ++ comparison]
-        output `Hspec.shouldNotContain` member
-        output `Hspec.shouldNotContain` comparison
+        assertCohesive comparison output
         output `Hspec.shouldContain` operator
         assertWithinColumns 80 output
     forM_ shadowedCases $ \(name, declarations) ->

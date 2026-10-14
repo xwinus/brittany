@@ -241,6 +241,8 @@ test-suite brittany-test-suite
     ListPatternLayoutSpec
     ListPatternLayoutFixtures
     UnfittableInfixRhsSpec
+    CohesiveOperatorChainSpec
+    CohesiveOperatorChainFixtures
     MembershipPredicateSpec
     MembershipPredicateFixtures
     MixedOperatorGroupingSpec

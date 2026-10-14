@@ -162,3 +162,5 @@ source/test-suite/GuardedBlockHeaderFixtures.hs
 source/test-suite/DoLetCommentRunSpec.hs
 source/test-suite/DoLetCommentRunFixtures.hs
 source/test-suite/ExplicitCommentReservationSpec.hs
+source/test-suite/CohesiveOperatorChainSpec.hs
+source/test-suite/CohesiveOperatorChainFixtures.hs
