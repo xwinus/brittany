@@ -10,9 +10,7 @@ readMergePersConfig path shouldCreate conf = do
         Left e -> do
           liftIO
             $ putStrErrLn
-            $ "error reading in brittany config from "
-            ++ path
-            ++ ":"
+            $ "error reading in brittany config from " ++ path ++ ":"
           liftIO $ putStrErrLn e
           mzero
         Right x -> return x

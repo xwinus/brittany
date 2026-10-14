@@ -185,7 +185,7 @@ edgeExpected = renderLines
   , "    $ (valuesWithLongName"
   , "      >>= normalizeLongValue"
   , "      )"
-  , "    <|> fallbackWithLongName"
+  , "      <|> fallbackWithLongName"
   , ""
   , "commented values allowed ="
   , "  consumeLongResult"

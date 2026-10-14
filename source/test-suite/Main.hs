@@ -77,6 +77,7 @@ import qualified NestedLambdaPatternSpec
 import qualified InfixLambdaIndentationSpec
 import qualified ListPatternLayoutSpec
 import qualified UnfittableInfixRhsSpec
+import qualified CohesiveOperatorChainSpec
 import qualified MembershipPredicateSpec
 import qualified MixedOperatorGroupingSpec
 import qualified NonListInfixRhsSpec
@@ -209,6 +210,7 @@ main = Hspec.hspec $ do
   InfixLambdaIndentationSpec.spec projectRoot
   ListPatternLayoutSpec.spec projectRoot
   UnfittableInfixRhsSpec.spec projectRoot
+  CohesiveOperatorChainSpec.spec projectRoot
   MembershipPredicateSpec.spec projectRoot
   MixedOperatorGroupingSpec.spec projectRoot
   NonListInfixRhsSpec.spec projectRoot
