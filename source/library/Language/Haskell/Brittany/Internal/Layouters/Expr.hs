@@ -174,13 +174,13 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
     operandDoc <- docSharedWrapper layoutExpr' (toL operand)
     reducesIndent <- operatorRhsBreakReducesIndent op
     pure $ OperatorChainPart (operatorName op) opDoc operandDoc
-      (reducesIndent && supportsOperatorRhsBreak (unLoc operand))
+      (operatorRhsBreakStyle reducesIndent $ unLoc operand)
       (isUnparenthesizedBlockExpression $ unLoc operand)
       (isIndivisibleRhsLiteral $ unLoc operand)
       (isOrdinaryInfixLambda $ unLoc operand)
   lastReducesIndent <- operatorRhsBreakReducesIndent expOp
-  let lastAllowsBreak =
-        lastReducesIndent && supportsOperatorRhsBreak (unLoc expRight)
+  let lastRhsBreak =
+        operatorRhsBreakStyle lastReducesIndent $ unLoc expRight
   lastOpDoc <- docSharedWrapper layoutInfixOperator expOp
   lastOperandDoc <- docSharedWrapper layoutExpr' (toL expRight)
   let allowPar = case (expOp, expRight) of
@@ -191,12 +191,12 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
   lastHasComments <- (||) <$> hasAnyCommentsConnected (toL expOp)
     <*> hasAnyCommentsConnected (toL expRight)
   let lastPart = OperatorChainPart (operatorName expOp) lastOpDoc lastOperandDoc
-        lastAllowsBreak (isUnparenthesizedBlockExpression $ unLoc expRight)
+        lastRhsBreak (isUnparenthesizedBlockExpression $ unLoc expRight)
         (isIndivisibleRhsLiteral $ unLoc expRight)
         (isOrdinaryInfixLambda $ unLoc expRight)
       parts = appListDocs ++ [lastPart]
       continue part = layoutOperatorContinuation
-        (chainAllowsBreak part)
+        (chainRhsBreak part)
         (chainBlockOperand part || chainOrdinaryLambdaOperand part)
         (chainLiteralOperand part)
         (chainOperatorDoc part) (chainOperandDoc part)
@@ -225,15 +225,22 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
   operatorName (L _ (HsVar _ (L _ (Unqual name)))) = Just $ occNameString name
   operatorName _ = Nothing
 
--- Add literal continuations without expanding the bounded-search alternatives
--- of fitting variable chains or changing block and compound-expression layouts.
-supportsOperatorRhsBreak :: HsExpr GhcPs -> Bool
-supportsOperatorRhsBreak = \case
-  ExplicitList{} -> True
-  HsLit{} -> True
-  HsOverLit{} -> True
-  HsPar _ inner -> supportsOperatorRhsBreak $ unLoc inner
-  _ -> False
+-- Preserve the multiline layouts of compound predicates while offering a
+-- complete predicate at a lower continuation column when it fits there.
+operatorRhsBreakStyle :: Bool -> HsExpr GhcPs -> OperatorRhsBreak
+operatorRhsBreakStyle False _ = NoRhsBreak
+operatorRhsBreakStyle True expression = case expression of
+  ExplicitList{} -> FlexibleRhsBreak
+  HsLit{} -> FlexibleRhsBreak
+  HsOverLit{} -> FlexibleRhsBreak
+  SectionL{} -> CompactRhsBreak
+  SectionR{} -> CompactRhsBreak
+  HsPar _ inner -> case unLoc inner of
+    OpApp{} -> CompactRhsBreak
+    HsApp{} -> CompactRhsBreak
+    HsAppType{} -> CompactRhsBreak
+    nested -> operatorRhsBreakStyle True nested
+  _ -> NoRhsBreak
 
 isIndivisibleRhsLiteral :: HsExpr GhcPs -> Bool
 isIndivisibleRhsLiteral = \case
@@ -243,16 +250,16 @@ isIndivisibleRhsLiteral = \case
   _ -> False
 
 layoutOperatorContinuation
-  :: Bool
+  :: OperatorRhsBreak
   -> Bool
   -> Bool
   -> ToBriDocM BriDocNumbered
   -> ToBriDocM BriDocNumbered
   -> ToBriDocM BriDocNumbered
-layoutOperatorContinuation allowBreak blockOperand literalOperand operator operand = do
+layoutOperatorContinuation rhsBreak blockOperand literalOperand operator operand = do
   let layoutRight = if blockOperand then operand else docSetBaseY operand
   attached <- docCols ColOpPrefix [appSep operator, layoutRight]
-  layoutOperatorRhs allowBreak literalOperand operator operand $ pure attached
+  layoutOperatorRhs rhsBreak literalOperand operator operand $ pure attached
 
 layoutOperatorApplication
   :: LHsExpr GhcPs
@@ -264,7 +271,7 @@ layoutOperatorApplication expLeft expOp expRight = do
   reducesIndent <- operatorRhsBreakReducesIndent expOp
   expDocOp' <- docSharedWrapper layoutInfixOperator expOp
   expDocRight <- docSharedWrapper layoutExpr' (toL expRight)
-  let allowRhsBreak = reducesIndent && supportsOperatorRhsBreak (unLoc expRight)
+  let rhsBreak = operatorRhsBreakStyle reducesIndent $ unLoc expRight
       allowPar = case (expOp, expRight) of
         (L _ (HsVar _ (L _ (Unqual occname))), _)
           | occNameString occname == "$" -> True
@@ -294,7 +301,7 @@ layoutOperatorApplication expLeft expOp expRight = do
       ]
     -- Eligible RHS operands must retain their break choice at the actual operator
     -- column; the parent estimate may rely on a different multiline LHS layout.
-    addAlternativeCond (not allowRhsBreak) $ do
+    addAlternativeCond (rhsBreak == NoRhsBreak) $ do
       let expDocOpAndRight = docForceSingleline $ docCols
             ColOpPrefix
             [appSep expDocOp', layoutRight]
@@ -305,7 +312,7 @@ layoutOperatorApplication expLeft expOp expRight = do
       , docForceParSpacing expDocRight
       ]
     addAlternative $ layoutMultiline $ layoutOperatorRhs
-      allowRhsBreak (isIndivisibleRhsLiteral $ unLoc expRight)
+      rhsBreak (isIndivisibleRhsLiteral $ unLoc expRight)
       expDocOp' expDocRight $ pure attached
 
 layoutExpr :: ToBriDoc HsExpr

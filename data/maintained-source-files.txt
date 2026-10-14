@@ -164,3 +164,5 @@ source/test-suite/DoLetCommentRunFixtures.hs
 source/test-suite/ExplicitCommentReservationSpec.hs
 source/test-suite/CohesiveOperatorChainSpec.hs
 source/test-suite/CohesiveOperatorChainFixtures.hs
+source/test-suite/DetachedPredicateSpec.hs
+source/test-suite/DetachedPredicateFixtures.hs

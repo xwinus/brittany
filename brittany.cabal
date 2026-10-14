@@ -252,6 +252,8 @@ test-suite brittany-test-suite
     LocalTrailingCommentSpec
     FunctionHeadWrappingSpec
     TypeArgumentCommentSpec
+    DetachedPredicateSpec
+    DetachedPredicateFixtures
     CompactInfixRhsSpec
     CompactInfixRhsFixtures
     FunctionTypeColumnSpec

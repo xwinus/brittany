@@ -8,6 +8,8 @@ module Language.Haskell.Brittany.Internal.Layouters.Expr.OperatorGrouping
 import Data.Char (isAlpha)
 import qualified Data.List as List
 import Data.Maybe (isNothing, mapMaybe)
+import Language.Haskell.Brittany.Internal.Layouters.Expr.OperatorRhs
+  ( OperatorRhsBreak(..) )
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.Types
@@ -18,7 +20,7 @@ data OperatorChainPart = OperatorChainPart
   { chainOperatorName :: Maybe String
   , chainOperatorDoc :: ToBriDocM BriDocNumbered
   , chainOperandDoc :: ToBriDocM BriDocNumbered
-  , chainAllowsBreak :: Bool
+  , chainRhsBreak :: OperatorRhsBreak
   , chainBlockOperand :: Bool
   , chainLiteralOperand :: Bool
   , chainOrdinaryLambdaOperand :: Bool
@@ -106,7 +108,7 @@ groupedOperatorChain continuation left parts = do
     let operand = unit BrIndentRegular (chainOperandDoc first) rest
         grouped = first
           { chainOperandDoc = operand
-          , chainAllowsBreak = null rest && chainAllowsBreak first
+          , chainRhsBreak = if null rest then chainRhsBreak first else NoRhsBreak
           -- Capture the structured group's base before its outer operator,
           -- rather than adding that operator's hanging column to every row.
           , chainBlockOperand = not (null rest) || chainBlockOperand first
