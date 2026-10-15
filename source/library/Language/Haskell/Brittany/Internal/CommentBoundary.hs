@@ -8,58 +8,41 @@ module Language.Haskell.Brittany.Internal.CommentBoundary
   , materializeCommentBoundaries
   ) where
 
-import qualified Data.Char                               as Char
-import qualified Data.Generics                           as Generics
-import qualified Data.List                               as List
-import           Data.Kind                               ( Type )
-import qualified Data.Map                                as Map
-import qualified Data.Maybe                              as Maybe
-import qualified Data.Set                                as Set
-import qualified Data.Text                               as Text
-import           GHC                                      ( GenLocated(L)
-                                                          , HsModule(..)
-                                                          , ParsedSource
-                                                          , moduleNameString
-                                                          , unLoc
-                                                          )
-import           GHC.Hs                                   ( DataDefnCons(..)
-                                                          , HsDataDefn(..)
-                                                          , HsDecl(..)
-                                                          , ImportDecl(..)
-                                                          , LConDecl
-                                                          , LHsExpr
-                                                          , LHsDecl
-                                                          , LImportDecl
-                                                          , TyClDecl(..)
-                                                          )
-import           GHC.Parser.Annotation                    ( HasLoc
-                                                          , getLocA
-                                                          )
-import qualified GHC.Types.SrcLoc                        as SrcLoc
-import           Language.Haskell.Brittany.Internal.ConstructorComments
-                                                          ( normalizeConstructorComments
-                                                          )
-import           Language.Haskell.Brittany.Internal.CommentBoundary.Case
-                                                          ( CaseBoundaryIndex
-                                                          , buildCaseBoundaryIndex
-                                                          , caseAlternativeBoundaryWithPlacement
-                                                          , materializeCaseComments
-                                                          )
-import           Language.Haskell.Brittany.Internal.CommentBoundary.Delimiter
-                                                          ( DelimiterBoundaryIndex
-                                                          , buildDelimiterBoundaryIndex
-                                                          , delimiterBoundaryFromIndex
-                                                          )
-import           Language.Haskell.Brittany.Internal.CommentBoundary.Trailing
-                                                          ( takeTrailingContinuationRun
-                                                          , normalizeFinalTrailingRun )
-import           Language.Haskell.Brittany.Internal.ExactPrintCompat
-import           Language.Haskell.Brittany.Internal.Prelude
-import           Language.Haskell.Brittany.Internal.SourceComment.Types
+import qualified Data.Char as Char
+import qualified Data.Generics as Generics
+import qualified Data.List as List
+import Data.Kind (Type)
+import qualified Data.Map as Map
+import qualified Data.Maybe as Maybe
+import qualified Data.Set as Set
+import qualified Data.Text as Text
+import GHC (GenLocated(L), HsModule(..), ParsedSource, moduleNameString, unLoc)
+import GHC.Hs
+  ( DataDefnCons(..), HsDataDefn(..), HsDecl(..), ImportDecl(..)
+  , LConDecl, LHsExpr, LHsDecl, LImportDecl, TyClDecl(..)
+  )
+import GHC.Parser.Annotation (HasLoc, getLocA)
+import qualified GHC.Types.SrcLoc as SrcLoc
+import Language.Haskell.Brittany.Internal.ConstructorComments
+  ( normalizeConstructorComments )
+import Language.Haskell.Brittany.Internal.CommentBoundary.BindArrow
+  ( BindArrowIndex, buildBindArrowIndex, bindArrowBoundary
+  , materializeBindArrowComments )
+import Language.Haskell.Brittany.Internal.CommentBoundary.Case
+  ( CaseBoundaryIndex, buildCaseBoundaryIndex
+  , caseAlternativeBoundaryWithPlacement, materializeCaseComments )
+import Language.Haskell.Brittany.Internal.CommentBoundary.Delimiter
+  ( DelimiterBoundaryIndex, buildDelimiterBoundaryIndex, delimiterBoundaryFromIndex )
+import Language.Haskell.Brittany.Internal.CommentBoundary.Trailing
+  ( takeTrailingContinuationRun, normalizeFinalTrailingRun )
+import Language.Haskell.Brittany.Internal.ExactPrintCompat
+import Language.Haskell.Brittany.Internal.Prelude
+import Language.Haskell.Brittany.Internal.SourceComment.Types
 
 materializeCommentBoundaries :: ParsedSource -> Anns -> Anns
 materializeCommentBoundaries (L _ module') annotations =
-  normalizeConstructorComments declarations
+  materializeBindArrowComments module'
+    $ normalizeConstructorComments declarations
     $ normalizeFinalTrailingRun declarations
     $ foldl materializeDeclarationGap
       (materializeCaseComments module' annotations)
@@ -264,14 +247,16 @@ attachCommentBoundaries (L _ module') plan = plan
 
 type BoundaryIndex :: Type
 data BoundaryIndex = BoundaryIndex
-  { boundaryCaseIndex :: CaseBoundaryIndex
+  { boundaryBindArrowIndex :: BindArrowIndex
+  , boundaryCaseIndex :: CaseBoundaryIndex
   , boundaryDelimiterIndex :: DelimiterBoundaryIndex
   , boundaryExpressionOwners :: Map NodeId Int
   }
 
 buildBoundaryIndex :: HsModule GhcPs -> BoundaryIndex
 buildBoundaryIndex module' = BoundaryIndex
-  { boundaryCaseIndex = buildCaseBoundaryIndex module'
+  { boundaryBindArrowIndex = buildBindArrowIndex module'
+  , boundaryCaseIndex = buildCaseBoundaryIndex module'
   , boundaryDelimiterIndex = buildDelimiterBoundaryIndex module'
   , boundaryExpressionOwners = expressionOwnerIndices module'
   }
@@ -317,7 +302,8 @@ boundaryFor
   -> CommentBoundaryId
 boundaryFor module' boundaryIndex sourceComment placement =
   fromMaybe moduleBoundary
-    $   caseAlternativeBoundaryWithPlacement
+    $   bindArrowBoundary (boundaryBindArrowIndex boundaryIndex) commentSpan
+    <|> caseAlternativeBoundaryWithPlacement
           (boundaryCaseIndex boundaryIndex) placement commentSpan
     <|> delimiterBoundaryFromIndex
           (boundaryDelimiterIndex boundaryIndex) commentSpan

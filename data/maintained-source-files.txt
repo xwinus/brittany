@@ -7,6 +7,7 @@ source/library/Language/Haskell/Brittany/Internal/Alignment.hs
 source/library/Language/Haskell/Brittany/Internal/Backend.hs
 source/library/Language/Haskell/Brittany/Internal/BackendUtils.hs
 source/library/Language/Haskell/Brittany/Internal/CommentBoundary.hs
+source/library/Language/Haskell/Brittany/Internal/CommentBoundary/BindArrow.hs
 source/library/Language/Haskell/Brittany/Internal/CommentBoundary/Delimiter.hs
 source/library/Language/Haskell/Brittany/Internal/CommentIR.hs
 source/library/Language/Haskell/Brittany/Internal/CommentPlan.hs
@@ -51,6 +52,7 @@ source/library/Language/Haskell/Brittany/Internal/Layouters/Pattern/Types.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/StandaloneDeriving.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/StandaloneKindSignature.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Stmt.hs
+source/library/Language/Haskell/Brittany/Internal/Layouters/Stmt/BindComments.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Stmt/LetComments.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Type.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Type/Operator.hs
@@ -166,3 +168,5 @@ source/test-suite/CohesiveOperatorChainSpec.hs
 source/test-suite/CohesiveOperatorChainFixtures.hs
 source/test-suite/DetachedPredicateSpec.hs
 source/test-suite/DetachedPredicateFixtures.hs
+source/test-suite/BindArrowCommentSpec.hs
+source/test-suite/BindArrowCommentFixtures.hs

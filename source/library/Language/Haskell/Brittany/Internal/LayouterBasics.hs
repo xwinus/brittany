@@ -394,6 +394,7 @@ hasAnyRegularCommentsConnected ast =
 -- Trailing comments at end-of-line don't prevent single-line layout.
 hasAnyRegularCommentsConnectedNoFollowing :: Data ast => GHC.Located ast -> ToBriDocM Bool
 hasAnyRegularCommentsConnectedNoFollowing ast = do
+  plan <- mAsk
   anns <- filterAnns ast <$> mAsk
   let extractNoFollow ann =
         ExactPrintCompat.annPriorComments ann
@@ -401,7 +402,14 @@ hasAnyRegularCommentsConnectedNoFollowing ast = do
                (ExactPrintCompat.AnnComment com, dp) -> [(com, dp)]
                _ -> []
              )
-  pure $ any isRegularComment $ extractNoFollow =<< Map.elems anns
+  -- Bind-arrow comments have an explicit layout inside the statement. They
+  -- must not force the enclosing function header away from its do keyword.
+  let requiresOuterBreak comment@(source, _) = isRegularComment comment
+        && case Map.lookup (SourceCommentKey $ ExactPrintCompat.commentIdentifier source)
+            (commentPlanBoundaries plan) of
+          Just (CommentBoundaryId BindArrowBoundaryPath{} _) -> False
+          _ -> True
+  pure $ any requiresOuterBreak $ extractNoFollow =<< Map.elems anns
 
 -- | Regular comments are comments that are actually "source code comments",
 -- i.e. things that start with "--" or "{-". In contrast to comment-annotations

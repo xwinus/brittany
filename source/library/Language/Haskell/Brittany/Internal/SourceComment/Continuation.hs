@@ -33,6 +33,10 @@ startTrailingCommentRun :: PlannedComment -> Int -> Maybe TrailingCommentRun
 startTrailingCommentRun planned column = do
   let source = plannedCommentSource planned
       placement = plannedCommentPlacement planned
+  -- Bind-arrow runs already carry explicit relative marker offsets.
+  guard $ case commentBoundaryPath $ plannedCommentBoundary planned of
+    BindArrowBoundaryPath{} -> False
+    _ -> True
   guard $ ordinarySource source
   guard $ placementLineRelation placement == InlineComment
   pure $ TrailingCommentRun planned source column Nothing

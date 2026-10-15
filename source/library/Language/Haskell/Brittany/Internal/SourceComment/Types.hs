@@ -53,6 +53,7 @@ data CommentBoundaryPath
   | ExpressionBoundaryPath Int
   | CaseAlternativeBoundaryPath Int
   | DelimiterBoundaryPath Int
+  | BindArrowBoundaryPath Int
   deriving (Data.Data.Data, Eq, Ord, Show)
 
 data CommentBoundaryGap

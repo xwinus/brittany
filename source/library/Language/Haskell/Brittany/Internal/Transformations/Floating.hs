@@ -145,6 +145,8 @@ transformSimplifyFloating = stepBO .> stepFull
         $ map (retainExpressionCommentBase ind) (List.init list)
         ++ [BDAddBaseY ind (List.last list)]
     BDAddBaseY _ lit@BDLit{} -> Just $ lit
+    BDAddBaseY _ (BDBaseYPushCur x) | startsBindArrowComments x ->
+      Just $ BDBaseYPushCur x
     BDAddBaseY ind (BDBaseYPushCur x) ->
       Just $ BDBaseYPushCur (BDAddBaseY ind x)
     BDAddBaseY ind (BDBaseYPop x) -> Just $ BDBaseYPop (BDAddBaseY ind x)
@@ -193,6 +195,8 @@ transformSimplifyFloating = stepBO .> stepFull
     BDAddBaseY ind1 (BDPar ind2 line indented) ->
       Just $ BDPar (mergeIndents ind1 ind2) line indented
     BDAddBaseY _ lit@BDLit{} -> Just $ lit
+    BDAddBaseY _ (BDBaseYPushCur x) | startsBindArrowComments x ->
+      Just $ BDBaseYPushCur x
     BDAddBaseY ind (BDBaseYPushCur x) ->
       Just $ BDBaseYPushCur (BDAddBaseY ind x)
     BDAddBaseY ind (BDBaseYPop x) -> Just $ BDBaseYPop (BDAddBaseY ind x)
@@ -244,3 +248,14 @@ isOwnLineTypeArgumentComment planned =
     && placementLineRelation placement == CommentOwnLine
  where
   placement = plannedCommentPlacement planned
+
+-- A post-arrow run captures its actual rendered column. Floating a surrounding
+-- comprehension indent inside that anchor would add it again on every pass.
+startsBindArrowComments :: BriDoc -> Bool
+startsBindArrowComments document = case document of
+  BDPar _ first _ -> startsBindArrowComments first
+  BDSeq (first : _) -> startsBindArrowComments first
+  BDComment planned -> case commentBoundaryPath $ plannedCommentBoundary planned of
+    BindArrowBoundaryPath _ -> True
+    _ -> False
+  _ -> False
