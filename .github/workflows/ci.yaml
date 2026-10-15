@@ -33,6 +33,16 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
+      - name: Use matching Xcode tools and SDK
+        if: runner.os == 'macOS'
+        run: |
+          # The standalone Command Line Tools SDK can be newer than Xcode's linker.
+          developer_dir=/Applications/Xcode.app/Contents/Developer
+          sdk_root=$(DEVELOPER_DIR="$developer_dir" xcrun --sdk macosx --show-sdk-path)
+          test -d "$sdk_root"
+          echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
+          echo "SDKROOT=$sdk_root" >> "$GITHUB_ENV"
+
       - name: Set up Haskell
         id: setup-haskell
         uses: haskell-actions/setup@v2.11.0
