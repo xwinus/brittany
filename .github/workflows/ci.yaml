@@ -50,6 +50,28 @@ jobs:
           ghc-version: ${{ env.GHC_VERSION }}
           cabal-version: ${{ env.CABAL_VERSION }}
 
+      - name: Align GHC package paths with the selected SDK
+        if: runner.os == 'macOS'
+        run: |
+          # GHC bindists retain absolute SDK paths in the rts/ghci package metadata.
+          python3 - <<'PYTHON'
+          import os
+          from pathlib import Path
+          import subprocess
+
+          package_db = Path(subprocess.check_output(
+              ["ghc", "--print-global-package-db"], text=True).strip())
+          old_sdk = "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
+          for package in package_db.glob("*.conf"):
+              original = package.read_text()
+              updated = original.replace(old_sdk, os.environ["SDKROOT"])
+              if updated != original:
+                  package.write_text(updated)
+                  print("Updated SDK paths in", package.name)
+          PYTHON
+          ghc-pkg recache --global
+          ghc-pkg check --global
+
       - name: Cache Cabal store
         uses: actions/cache@v6
         with:
