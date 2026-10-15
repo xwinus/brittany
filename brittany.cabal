@@ -157,6 +157,7 @@ library
     Language.Haskell.Brittany.Internal.Layouters.StandaloneDeriving
     Language.Haskell.Brittany.Internal.Layouters.StandaloneKindSignature
     Language.Haskell.Brittany.Internal.Layouters.Stmt
+    Language.Haskell.Brittany.Internal.Layouters.Stmt.BindComments
     Language.Haskell.Brittany.Internal.Layouters.Stmt.LetComments
     Language.Haskell.Brittany.Internal.Layouters.Type
     Language.Haskell.Brittany.Internal.Obfuscation
@@ -189,6 +190,7 @@ library
   other-modules:
     Language.Haskell.Brittany.Internal.CommentUtils
     Language.Haskell.Brittany.Internal.ConstructorComments
+    Language.Haskell.Brittany.Internal.CommentBoundary.BindArrow
     Language.Haskell.Brittany.Internal.CommentBoundary.Case
     Language.Haskell.Brittany.Internal.CommentBoundary.Trailing
     Language.Haskell.Brittany.Internal.ExpressionComments
@@ -252,6 +254,8 @@ test-suite brittany-test-suite
     LocalTrailingCommentSpec
     FunctionHeadWrappingSpec
     TypeArgumentCommentSpec
+    BindArrowCommentSpec
+    BindArrowCommentFixtures
     DetachedPredicateSpec
     DetachedPredicateFixtures
     CompactInfixRhsSpec

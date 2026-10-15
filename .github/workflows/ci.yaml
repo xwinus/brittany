@@ -16,7 +16,7 @@ concurrency:
 env:
   GHC_VERSION: 9.14.1
   CABAL_VERSION: 3.16.1.0
-  EXPECTED_TEST_SUMMARY: 4546 examples, 0 failures
+  EXPECTED_TEST_SUMMARY: 4637 examples, 0 failures
 
 jobs:
   build:
@@ -33,12 +33,44 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
+      - name: Use matching Xcode tools and SDK
+        if: runner.os == 'macOS'
+        run: |
+          # The standalone Command Line Tools SDK can be newer than Xcode's linker.
+          developer_dir=/Applications/Xcode.app/Contents/Developer
+          sdk_root=$(DEVELOPER_DIR="$developer_dir" xcrun --sdk macosx --show-sdk-path)
+          test -d "$sdk_root"
+          echo "DEVELOPER_DIR=$developer_dir" >> "$GITHUB_ENV"
+          echo "SDKROOT=$sdk_root" >> "$GITHUB_ENV"
+
       - name: Set up Haskell
         id: setup-haskell
         uses: haskell-actions/setup@v2.11.0
         with:
           ghc-version: ${{ env.GHC_VERSION }}
           cabal-version: ${{ env.CABAL_VERSION }}
+
+      - name: Align GHC package paths with the selected SDK
+        if: runner.os == 'macOS'
+        run: |
+          # GHC bindists retain absolute SDK paths in the rts/ghci package metadata.
+          python3 - <<'PYTHON'
+          import os
+          from pathlib import Path
+          import subprocess
+
+          package_db = Path(subprocess.check_output(
+              ["ghc", "--print-global-package-db"], text=True).strip())
+          old_sdk = "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
+          for package in package_db.glob("*.conf"):
+              original = package.read_text()
+              updated = original.replace(old_sdk, os.environ["SDKROOT"])
+              if updated != original:
+                  package.write_text(updated)
+                  print("Updated SDK paths in", package.name)
+          PYTHON
+          ghc-pkg recache --global
+          ghc-pkg check --global
 
       - name: Cache Cabal store
         uses: actions/cache@v6

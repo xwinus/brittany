@@ -85,6 +85,7 @@ import qualified InfixRhsWrappingSpec
 import qualified InfixBlockIndentationSpec
 import qualified LocalTrailingCommentSpec
 import qualified TypeArgumentCommentSpec
+import qualified BindArrowCommentSpec
 import qualified DetachedPredicateSpec
 import qualified CompactInfixRhsSpec
 import qualified FunctionTypeColumnSpec
@@ -219,6 +220,7 @@ main = Hspec.hspec $ do
   InfixBlockIndentationSpec.spec projectRoot
   LocalTrailingCommentSpec.spec
   TypeArgumentCommentSpec.spec
+  BindArrowCommentSpec.spec projectRoot
   DetachedPredicateSpec.spec projectRoot
   CompactInfixRhsSpec.spec projectRoot
   FunctionTypeColumnSpec.spec projectRoot

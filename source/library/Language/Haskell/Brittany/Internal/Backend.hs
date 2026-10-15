@@ -330,6 +330,11 @@ renderPlannedComment planned = do
         layoutSetCommentCol
       let continuedRun = _lstate_trailingCommentRun state
             >>= continueTrailingCommentRun planned
+      -- Each side of a bind arrow starts at its current rendered token column.
+      -- A preceding comment run must not supply the next side's inline anchor.
+      when (not ownLine && case commentBoundaryPath $ plannedCommentBoundary planned of
+          BindArrowBoundaryPath{} -> True
+          _ -> False) $ mModify $ \current -> current { _lstate_commentCol = Nothing }
       case continuedRun of
         Just run -> layoutMoveToAbsoluteCommentPos
           (max 1 lineDelta) (trailingCommentColumn run) lineCount
@@ -411,6 +416,12 @@ renderPlannedComment planned = do
             <|> startTrailingCommentRun planned commentColumn
         }
       layoutWriteAppendMultiline commentLines
+      -- A block in an explicit arrow gap does not itself end the code line.
+      -- Leaving its anchor set would make the next token restore a new line.
+      when (sourceCommentSyntax source == BlockComment
+          && case commentBoundaryPath $ plannedCommentBoundary planned of
+            BindArrowBoundaryPath{} -> True
+            _ -> False) $ mModify $ \current -> current { _lstate_commentCol = Nothing }
       -- Comment alignment must not become the following code's indentation.
       when (Maybe.isJust continuedRun) $ mModify $ \current -> current
           { _lstate_commentCol = _lstate_commentCol state }

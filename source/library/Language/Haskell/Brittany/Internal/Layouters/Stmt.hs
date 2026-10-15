@@ -22,6 +22,8 @@ import Language.Haskell.Brittany.Internal.Layouters.Pattern.Types
   ( indentBoundaryListPattern )
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
+import Language.Haskell.Brittany.Internal.Layouters.Stmt.BindComments
+  ( layoutBindArrowRhs )
 import Language.Haskell.Brittany.Internal.Layouters.Stmt.LetComments
   ( layoutLetComments )
 import Language.Haskell.Brittany.Internal.TopLevelSpacing
@@ -78,6 +80,7 @@ layoutStmtWithGeneratorBase generatorBase lstmt@(L _ stmt) = do
             _ -> originalPatLayout
       patDoc <- fmap pure $ patternDocument patLayout
       expDoc <- docSharedWrapper layoutExpr (toL expr)
+      commentedRhs <- layoutBindArrowRhs stmt expDoc
       hasComments <- (||) <$> hasAnyCommentsBelow lstmt
         <*> hasAnyCommentsConnected lstmt
       -- Choose the RHS continuation after laying out the pattern.
@@ -86,13 +89,13 @@ layoutStmtWithGeneratorBase generatorBase lstmt@(L _ stmt) = do
       let withBase = if generatorBase then docSetBaseY else id
       withBase $ docCols ColBindStmt
         [ appSep patDoc
-        , preferCompactRhs (not hasComments)
+        , maybe (preferCompactRhs (not hasComments)
           (\body -> docSeq
             [ appSep $ docLit $ Text.pack "<-"
             , docAddBaseY BrIndentRegular body
             ])
           (docAddBaseY BrIndentRegular . docPar (docLit $ Text.pack "<-"))
-          expDoc
+          expDoc) pure commentedRhs
         ]
     LetStmt _ binds -> do
       let isFree = indentPolicy == IndentPolicyFree

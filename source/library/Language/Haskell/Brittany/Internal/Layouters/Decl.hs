@@ -50,6 +50,8 @@ import qualified Language.Haskell.Brittany.Internal.ExactPrintCompat as ExactPri
 import Language.Haskell.Brittany.Internal.ExactPrintUtils
 import Language.Haskell.Brittany.Internal.ExactSource (sourceCommentFragment)
 import Language.Haskell.Brittany.Internal.Fallbacks (FallbackId(..))
+import Language.Haskell.Brittany.Internal.Layouters.Stmt.BindComments
+  ( layoutBindArrowRhs )
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.DataDecl
 import Language.Haskell.Brittany.Internal.Layouters.Decl.Case
@@ -622,10 +624,11 @@ layoutGuardLStmt lgstmt@(L _ stmtLR) = docWrapNode (toL lgstmt) $ case stmtLR of
   BindStmt _ lPat expr -> do
     patDoc <- patternDocument =<< layoutPattern lPat
     expDoc <- docSharedWrapper layoutExpr (toL expr)
+    commentedRhs <- layoutBindArrowRhs stmtLR expDoc
     docCols
       ColBindStmt
       [ appSep $ pure patDoc
-      , docSeq [appSep $ docLit $ Text.pack "<-", expDoc]
+      , maybe (docSeq [appSep $ docLit $ Text.pack "<-", expDoc]) pure commentedRhs
       ]
   _ -> unknownNodeError "" lgstmt -- TODO
 
@@ -878,6 +881,7 @@ layoutGrhs declarationComments lgrhs@(L _ (GRHS _ guards body)) = do
           sourceCommentStartsWithinNode (toL lgrhs) sourceComment
             && sourceCommentPrecedesNode (toL body) sourceComment
             && sourceComment `notElem` boundaryComments
+            && not (any (\guard -> sourceCommentWithinNodeSpan (toL guard) sourceComment) guards)
         )
         declarationComments
       handledComments = List.nubBy
