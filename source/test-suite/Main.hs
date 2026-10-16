@@ -85,6 +85,8 @@ import qualified InfixRhsWrappingSpec
 import qualified InfixBlockIndentationSpec
 import qualified LocalTrailingCommentSpec
 import qualified TypeArgumentCommentSpec
+import qualified SignatureSuffixCommentSpec
+import qualified TrailingSignatureCommentSpec
 import qualified BindArrowCommentSpec
 import qualified DetachedPredicateSpec
 import qualified CompactInfixRhsSpec
@@ -220,6 +222,8 @@ main = Hspec.hspec $ do
   InfixBlockIndentationSpec.spec projectRoot
   LocalTrailingCommentSpec.spec
   TypeArgumentCommentSpec.spec
+  SignatureSuffixCommentSpec.spec
+  TrailingSignatureCommentSpec.spec projectRoot
   BindArrowCommentSpec.spec projectRoot
   DetachedPredicateSpec.spec projectRoot
   CompactInfixRhsSpec.spec projectRoot

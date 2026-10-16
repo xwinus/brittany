@@ -141,6 +141,7 @@ library
     Language.Haskell.Brittany.Internal.Layouters.DataDecl
     Language.Haskell.Brittany.Internal.Layouters.DataDecl.Constructor
     Language.Haskell.Brittany.Internal.Layouters.Decl
+    Language.Haskell.Brittany.Internal.Layouters.Decl.SignatureComments
     Language.Haskell.Brittany.Internal.Layouters.Expr
     Language.Haskell.Brittany.Internal.Layouters.Expr.OperatorGrouping
     Language.Haskell.Brittany.Internal.Layouters.Expr.OperatorRhs
@@ -254,6 +255,9 @@ test-suite brittany-test-suite
     LocalTrailingCommentSpec
     FunctionHeadWrappingSpec
     TypeArgumentCommentSpec
+    SignatureSuffixCommentSpec
+    TrailingSignatureCommentSpec
+    TrailingSignatureCommentFixtures
     BindArrowCommentSpec
     BindArrowCommentFixtures
     DetachedPredicateSpec
