@@ -36,6 +36,7 @@ source/library/Language/Haskell/Brittany/Internal/Layouters/DataDecl/Deriving.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/DataDecl/Support.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Decl.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Decl/Case.hs
+source/library/Language/Haskell/Brittany/Internal/Layouters/Decl/SignatureComments.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Decl/Guard.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Decl/Infix.hs
 source/library/Language/Haskell/Brittany/Internal/Layouters/Expr.hs
@@ -170,3 +171,6 @@ source/test-suite/DetachedPredicateSpec.hs
 source/test-suite/DetachedPredicateFixtures.hs
 source/test-suite/BindArrowCommentSpec.hs
 source/test-suite/BindArrowCommentFixtures.hs
+source/test-suite/TrailingSignatureCommentSpec.hs
+source/test-suite/TrailingSignatureCommentFixtures.hs
+source/test-suite/SignatureSuffixCommentSpec.hs

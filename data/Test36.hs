@@ -1,3 +1,1 @@
-func
-  ::
-  a -> b -- comment
+func :: a -> b -- comment

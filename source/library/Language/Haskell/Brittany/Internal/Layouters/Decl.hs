@@ -54,6 +54,8 @@ import Language.Haskell.Brittany.Internal.Layouters.Stmt.BindComments
   ( layoutBindArrowRhs )
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.DataDecl
+import Language.Haskell.Brittany.Internal.Layouters.Decl.SignatureComments
+  ( appendSignatureSuffix )
 import Language.Haskell.Brittany.Internal.Layouters.Decl.Case
 import Language.Haskell.Brittany.Internal.Layouters.Decl.Guard
 import Language.Haskell.Brittany.Internal.Layouters.Decl.Infix
@@ -463,17 +465,19 @@ layoutSigWithSourceComments hasOuterComments sourceComments
           , followingComments
           ) =
           signatureBoundaryComments names (toL sigType) sourceComments
-        hasBoundaryComments = any (not . null)
-          [ nameComments
-          , separatorComments
-          , trailingSameLineComments
-          , followingComments
-          ]
+        hasLeadingBoundaryComments = any (not . null)
+          [nameComments, separatorComments]
+        typeWithTrailingComments = case trailingSameLineComments of
+          [] -> fullTypeDoc
+          _ -> appendSignatureSuffix
+            (Set.fromList $ sourceCommentKey <$> trailingSameLineComments)
+            fullTypeDoc
+            $ appendSourceComments docEmpty trailingSameLineComments
         lhsDoc = appSep . docWrapNodeRest (toL lsig) . docSeq
           $ keyDoc <> [docLit nameStr]
     shouldBeHanging <-
       mAsk <&> _conf_layout .> _lconfig_hangingTypeSignature .> confUnpack
-    if hasBoundaryComments
+    if hasLeadingBoundaryComments
       then layoutCommentedSignature
         lhsDoc
         nameComments
@@ -481,23 +485,35 @@ layoutSigWithSourceComments hasOuterComments sourceComments
         fullTypeDoc
         trailingSameLineComments
         followingComments
-      else if shouldBeHanging
-      then
-        docSeq
-          $ [ lhsDoc
-            , docSetBaseY $ docLines
-              [ docCols
-                  ColTyOpPrefix
-                  [ docLit $ Text.pack ":: "
-                  , docAddBaseY (BrIndentSpecial 3) $ fullTypeDoc
+      else do
+        -- Comments after the completed type do not separate :: from its first
+        -- component. Keep the ordinary width/hanging alternatives available.
+        let signatureDoc = if shouldBeHanging
+              then docSeq
+                [ lhsDoc
+                , docSetBaseY $ docLines
+                  [ docCols ColTyOpPrefix
+                    [ docLitS ":: "
+                    , docAddBaseY (BrIndentSpecial 3) typeWithTrailingComments
+                    ]
                   ]
+                ]
+              else layoutLhsAndType hasComments lhsDoc "::" typeWithTrailingComments
+            withFollowingComments = case followingComments of
+              [] -> signatureDoc
+              _ -> docLines $ signatureDoc
+                : [ docAddBaseY BrIndentRegular $ layoutPatSynComment comment
+                  | comment <- followingComments
+                  ]
+        if null trailingSameLineComments && null followingComments
+          then signatureDoc
+          else do
+            columns <- mAsk <&> _conf_layout .> _lconfig_cols .> confUnpack
+            docAlt
+              [ docColumnsLimit columns withFollowingComments
+              , layoutCommentedSignature lhsDoc [] [] fullTypeDoc
+                  trailingSameLineComments followingComments
               ]
-            ]
-      else layoutLhsAndType
-        hasComments
-        lhsDoc
-        "::"
-        fullTypeDoc
 
 signatureBoundaryComments
   :: [LocatedN RdrName]
