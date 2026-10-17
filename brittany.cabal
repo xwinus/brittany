@@ -259,6 +259,8 @@ test-suite brittany-test-suite
     SignatureSuffixCommentSpec
     CommentedInfixChainSpec
     CommentedInfixChainFixtures
+    TupleOpeningColumnSpec
+    TupleOpeningColumnFixtures
     TrailingSignatureCommentSpec
     TrailingSignatureCommentFixtures
     BindArrowCommentSpec

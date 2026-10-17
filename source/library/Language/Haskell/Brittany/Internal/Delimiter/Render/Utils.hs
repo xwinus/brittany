@@ -17,6 +17,7 @@ module Language.Haskell.Brittany.Internal.Delimiter.Render.Utils
   , separatorNode
   , sequenceNode
   , setBaseY
+  , setContentBaseY
   , setIndentLevel
   , isSingletonList
   , splitLeadingComments
@@ -119,6 +120,33 @@ forceSingleline = fresh . BDFForceSingleline
 
 setBaseY :: BriDocNumbered -> RenderM BriDocNumbered
 setBaseY document = fresh . BDFBaseYPop =<< fresh (BDFBaseYPushCur document)
+
+-- Keep boundary comments and annotations in the enclosing context while the
+-- operand captures its own rendered column. Only peel outer sequence edges;
+-- comments inside structural documents retain their layout and ownership.
+setContentBaseY :: BriDocNumbered -> RenderM BriDocNumbered
+setContentBaseY document@(nodeId, value) = case value of
+  BDFAnnotationPrior mode key child ->
+    (,) nodeId . BDFAnnotationPrior mode key <$> setContentBaseY child
+  BDFAnnotationRest key child ->
+    (,) nodeId . BDFAnnotationRest key <$> setContentBaseY child
+  BDFAnnotationKW key keyword child ->
+    (,) nodeId . BDFAnnotationKW key keyword <$> setContentBaseY child
+  BDFSeq children
+    | let (before, remaining) = List.span isComment children
+    , let (after, reversedContent) = List.span isComment $ reverse remaining
+    , not (null before && null after) -> case reverse reversedContent of
+        [] -> pure document
+        content -> do
+          inner <- case content of
+            [child] -> pure child
+            _ -> sequenceNode content
+          anchored <- setContentBaseY inner
+          pure (nodeId, BDFSeq $ before ++ [anchored] ++ reverse after)
+  _ -> setBaseY document
+ where
+  isComment (_, BDFComment{}) = True
+  isComment _ = False
 
 setIndentLevel :: BriDocNumbered -> RenderM BriDocNumbered
 setIndentLevel document = fresh . BDFIndentLevelPop
