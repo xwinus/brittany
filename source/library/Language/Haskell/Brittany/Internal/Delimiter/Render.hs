@@ -151,9 +151,9 @@ renderLeading sequence' = case delimiterSequenceChildren sequence' of
     spacedOpen <- openWithSpacing open
     let anchorChildren = delimiterSequenceKind sequence' == UnboxedParenthesesDelimiter
           && delimiterSequenceProfile sequence' == LeadingDelimiterSeparators
-    firstDocument <- if isSingletonList sequence' || anchorChildren
-      then setBaseY $ delimiterChildDocument firstChild
-      else pure $ delimiterChildDocument firstChild
+    firstDocument <- (if anchorChildren then setContentBaseY
+      else if isSingletonList sequence' then setBaseY else pure)
+      $ delimiterChildDocument firstChild
     firstLine <- columnsNode (rowColumns sequence')
       [spacedOpen, firstDocument]
     rows <- traverse (renderLeadingRowWithBase anchorChildren $ rowColumns sequence')
@@ -187,7 +187,7 @@ renderLeadingRowWithBase anchorChild columnStyle (separator, child) = do
   let (comments, content) = splitLeadingComments
         $ delimiterChildDocument child
   -- Unboxed tuple prefixes are wider than the normal two-space indentation.
-  content' <- if anchorChild then setBaseY content else pure content
+  content' <- if anchorChild then setContentBaseY content else pure content
   contentLine <- columnsNode columnStyle [separatorDocument, content']
   pure $ comments ++ [contentLine]
 

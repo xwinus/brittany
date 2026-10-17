@@ -73,6 +73,18 @@ spec projectRoot = Hspec.describe "tuple opening columns" $ do
       assertApplicationIndent "longSecondFunction" ["thirdArgument", "fourthArgument"] output
       assertWithin 40 output
 
+  forM_ policies $ \policy ->
+    Hspec.it ("retains the unboxed tuple comment base, " ++ show policy) $ do
+      let source = moduleSource
+            [ "f =", "  (# right", "    -- Keep the tuple expression comment."
+            , "  , left", "  #)"
+            ]
+      output <- checkedSource 80 2 policy source
+      assertGroup "right" 0 2 output
+      filter (List.isInfixOf "Keep the tuple expression comment.") (lines output)
+        `Hspec.shouldBe` ["    -- Keep the tuple expression comment."]
+      assertWithin 80 output
+
   forM_ ["f = (first, second", "f = (# first, second )"] $ \declaration ->
     Hspec.it ("rejects malformed tuples without inplace replacement: " ++ declaration) $ do
       let source = moduleSource [declaration]
