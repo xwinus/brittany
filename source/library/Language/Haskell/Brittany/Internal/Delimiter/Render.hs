@@ -149,16 +149,21 @@ renderLeading sequence' = case delimiterSequenceChildren sequence' of
     open <- token $ delimiterSequenceOpenToken sequence'
     close <- token $ delimiterSequenceCloseToken sequence'
     spacedOpen <- openWithSpacing open
-    firstDocument <- if isSingletonList sequence'
+    let anchorChildren = delimiterSequenceKind sequence' == UnboxedParenthesesDelimiter
+          && delimiterSequenceProfile sequence' == LeadingDelimiterSeparators
+    firstDocument <- if isSingletonList sequence' || anchorChildren
       then setBaseY $ delimiterChildDocument firstChild
       else pure $ delimiterChildDocument firstChild
     firstLine <- columnsNode (rowColumns sequence')
       [spacedOpen, firstDocument]
-    rows <- traverse (renderLeadingRow $ rowColumns sequence')
+    rows <- traverse (renderLeadingRowWithBase anchorChildren $ rowColumns sequence')
       $ zip (delimiterSequenceSeparators sequence') remainingChildren
     body <- linesNode $ firstLine : List.concat rows ++ [close]
     anchoredBody <- setBaseY body
     if delimiterSequenceKind sequence' == SquareBracketsDelimiter
+        || (delimiterSequenceProfile sequence' == LeadingDelimiterSeparators
+          && delimiterSequenceKind sequence' `elem`
+            [ParenthesesDelimiter, UnboxedParenthesesDelimiter])
       then do
         -- Materialize pending indentation before capturing the opening column.
         -- An enclosing infix chain may already have raised the inherited base.
@@ -170,11 +175,20 @@ renderLeadingRow
   :: ColSig
   -> (DelimiterSeparator, DelimiterChild BriDocNumbered)
   -> RenderM [BriDocNumbered]
-renderLeadingRow columnStyle (separator, child) = do
+renderLeadingRow = renderLeadingRowWithBase False
+
+renderLeadingRowWithBase
+  :: Bool
+  -> ColSig
+  -> (DelimiterSeparator, DelimiterChild BriDocNumbered)
+  -> RenderM [BriDocNumbered]
+renderLeadingRowWithBase anchorChild columnStyle (separator, child) = do
   separatorDocument <- leadingSeparator separator
   let (comments, content) = splitLeadingComments
         $ delimiterChildDocument child
-  contentLine <- columnsNode columnStyle [separatorDocument, content]
+  -- Unboxed tuple prefixes are wider than the normal two-space indentation.
+  content' <- if anchorChild then setBaseY content else pure content
+  contentLine <- columnsNode columnStyle [separatorDocument, content']
   pure $ comments ++ [contentLine]
 
 renderPromotedList
