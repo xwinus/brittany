@@ -42,6 +42,8 @@ import Language.Haskell.Brittany.Internal.Layouters.Expr.Application
   ( balancedHangingApplication )
 import Language.Haskell.Brittany.Internal.Layouters.Expr.BranchComments
   ( reserveBranchSuffixWidth )
+import Language.Haskell.Brittany.Internal.Layouters.Expr.OperatorChainComments
+  ( gatherOperatorChain, operatorEndsLine )
 import Language.Haskell.Brittany.Internal.Layouters.Expr.OperatorGrouping
 import Language.Haskell.Brittany.Internal.Layouters.Expr.OperatorRhs
 import Language.Haskell.Brittany.Internal.Layouters.Expr.TypeAnnotation
@@ -158,25 +160,26 @@ layoutOperatorLeftOperand expLeft@(L _ (HsPar _ inner))
 layoutOperatorLeftOperand expLeft = docSharedWrapper layoutExpr' (toL expLeft)
 
 layoutFlattenedOperatorApplication
-  :: LHsExpr GhcPs
+  :: Bool
+  -> LHsExpr GhcPs
   -> LHsExpr GhcPs
   -> LHsExpr GhcPs
   -> ToBriDocM BriDocNumbered
-layoutFlattenedOperatorApplication expLeft expOp expRight = do
-  let gather opExprList = \case
-        L _ (OpApp _ left op right) ->
-          gather ((op, right) : opExprList) left
-        final -> (final, opExprList)
-      (leftOperand, appList) = gather [] expLeft
-  leftOperandDoc <- docSharedWrapper layoutExpr' (toL leftOperand)
-  appListDocs <- appList `forM` \(op, operand) -> do
+layoutFlattenedOperatorApplication hasNestedComments expLeft expOp expRight = do
+  let layoutFirst operand = if hasNestedComments
+        then join $ layoutOperatorLeftOperand operand
+        else layoutExpr' $ toL operand
+  (leftOperandDoc, appList) <- gatherOperatorChain hasNestedComments layoutFirst
+    (layoutExpr' . toL) expLeft
+  appListDocs <- appList `forM` \(op, operand, operandDoc) -> do
     opDoc <- docSharedWrapper layoutInfixOperator op
-    operandDoc <- docSharedWrapper layoutExpr' (toL operand)
     reducesIndent <- operatorRhsBreakReducesIndent op
+    endsLine <- operatorEndsLine op operand
     pure $ OperatorChainPart (operatorName op) opDoc operandDoc
       (operatorRhsBreakStyle reducesIndent $ unLoc operand)
       (isUnparenthesizedBlockExpression $ unLoc operand)
       (isIndivisibleRhsLiteral $ unLoc operand)
+      endsLine
       (isOrdinaryInfixLambda $ unLoc operand)
   lastReducesIndent <- operatorRhsBreakReducesIndent expOp
   let lastRhsBreak =
@@ -190,24 +193,33 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
         _ -> True
   lastHasComments <- (||) <$> hasAnyCommentsConnected (toL expOp)
     <*> hasAnyCommentsConnected (toL expRight)
+  lastEndsLine <- operatorEndsLine expOp expRight
   let lastPart = OperatorChainPart (operatorName expOp) lastOpDoc lastOperandDoc
         lastRhsBreak (isUnparenthesizedBlockExpression $ unLoc expRight)
         (isIndivisibleRhsLiteral $ unLoc expRight)
+        lastEndsLine
         (isOrdinaryInfixLambda $ unLoc expRight)
       parts = appListDocs ++ [lastPart]
-      continue part = layoutOperatorContinuation
-        (chainRhsBreak part)
-        (chainBlockOperand part || chainOrdinaryLambdaOperand part)
-        (chainLiteralOperand part)
-        (chainOperatorDoc part) (chainOperandDoc part)
+      continue part
+        | hasNestedComments && chainOperatorEndsLine part =
+          docParIndented BrIndentRegular (chainOperatorDoc part)
+            $ docSetBaseAndIndent $ chainOperandDoc part
+        | otherwise = layoutOperatorContinuation
+          (chainRhsBreak part)
+          (chainBlockOperand part || chainOrdinaryLambdaOperand part)
+          (chainLiteralOperand part)
+          (chainOperatorDoc part) (chainOperandDoc part)
       layoutChain =
         -- Merge pending indentation instead of counting it again in the paragraph.
         docAddBaseY BrIndentRegular $ docPar leftOperandDoc
           $ docLines $ map continue parts
-      grouped = if lastHasComments then Nothing
+      grouped = if hasNestedComments || lastHasComments then Nothing
         else groupedOperatorChain continue leftOperandDoc parts
   runFilteredAlternative $ do
-    addAlternative $ docSeq
+    -- Comments may break between individually single-line operands. Validate
+    -- the complete compact chain, while retaining fitting inline block comments.
+    addAlternativeCond (not $ hasNestedComments && any chainOperatorEndsLine parts)
+      $ (if hasNestedComments then docForceSingleline else id) $ docSeq
       [ appSep $ docForceSingleline leftOperandDoc
       , docSeq $ appListDocs <&> \part -> docSeq
         [ appSep $ docForceSingleline $ chainOperatorDoc part
@@ -217,6 +229,24 @@ layoutFlattenedOperatorApplication expLeft expOp expRight = do
       , (if allowPar then docForceParSpacing else docForceSingleline)
         lastOperandDoc
       ]
+    -- A comment inside the first RHS may require a paragraph without breaking
+    -- its fitting left/operator header. Only that header must stay single-line;
+    -- later operators still use the shared continuation base.
+    case parts of
+      first : rest | hasNestedComments -> addAlternative
+        $ docAddBaseY BrIndentRegular
+        $ docPar
+            (let header = docForceSingleline $ docSeq
+                   [appSep leftOperandDoc, chainOperatorDoc first]
+             in if chainOperatorEndsLine first
+               then docParIndented BrIndentRegular header
+                 $ docSetBaseAndIndent $ chainOperandDoc first
+               else docSeq
+                 [ appSep header
+                 , docForceParSpacing $ chainOperandDoc first
+                 ])
+            (docLines $ map continue rest)
+      _ -> pure ()
     -- Groups resolve their own wrapping at the actual cursor. A flat fallback
     -- here would discard fitting units when bounded whole-chain search prunes
     -- a viable combination of locally broken operands.
@@ -634,9 +664,7 @@ layoutExprNative lexpr@(L _ expr) = do
         ]
     OpApp _ expLeft@(L _ OpApp{}) expOp expRight -> do
       hasNestedComments <- hasAnyCommentsConnected (toL expLeft)
-      if hasNestedComments
-        then layoutOperatorApplication expLeft expOp expRight
-        else layoutFlattenedOperatorApplication expLeft expOp expRight
+      layoutFlattenedOperatorApplication hasNestedComments expLeft expOp expRight
     OpApp _ expLeft expOp expRight ->
       layoutOperatorApplication expLeft expOp expRight
     NegApp _ op _ -> do

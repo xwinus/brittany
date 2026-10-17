@@ -86,6 +86,7 @@ import qualified InfixBlockIndentationSpec
 import qualified LocalTrailingCommentSpec
 import qualified TypeArgumentCommentSpec
 import qualified SignatureSuffixCommentSpec
+import qualified CommentedInfixChainSpec
 import qualified TrailingSignatureCommentSpec
 import qualified BindArrowCommentSpec
 import qualified DetachedPredicateSpec
@@ -223,6 +224,7 @@ main = Hspec.hspec $ do
   LocalTrailingCommentSpec.spec
   TypeArgumentCommentSpec.spec
   SignatureSuffixCommentSpec.spec
+  CommentedInfixChainSpec.spec projectRoot
   TrailingSignatureCommentSpec.spec projectRoot
   BindArrowCommentSpec.spec projectRoot
   DetachedPredicateSpec.spec projectRoot

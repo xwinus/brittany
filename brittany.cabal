@@ -146,6 +146,7 @@ library
     Language.Haskell.Brittany.Internal.Layouters.Expr.OperatorGrouping
     Language.Haskell.Brittany.Internal.Layouters.Expr.OperatorRhs
     Language.Haskell.Brittany.Internal.Layouters.Expr.Application
+    Language.Haskell.Brittany.Internal.Layouters.Expr.OperatorChainComments
     Language.Haskell.Brittany.Internal.Layouters.Expr.BranchComments
     Language.Haskell.Brittany.Internal.Layouters.Expr.TypeAnnotation
     Language.Haskell.Brittany.Internal.Layouters.FixitySignature
@@ -256,6 +257,8 @@ test-suite brittany-test-suite
     FunctionHeadWrappingSpec
     TypeArgumentCommentSpec
     SignatureSuffixCommentSpec
+    CommentedInfixChainSpec
+    CommentedInfixChainFixtures
     TrailingSignatureCommentSpec
     TrailingSignatureCommentFixtures
     BindArrowCommentSpec

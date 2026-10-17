@@ -174,3 +174,6 @@ source/test-suite/BindArrowCommentFixtures.hs
 source/test-suite/TrailingSignatureCommentSpec.hs
 source/test-suite/TrailingSignatureCommentFixtures.hs
 source/test-suite/SignatureSuffixCommentSpec.hs
+source/library/Language/Haskell/Brittany/Internal/Layouters/Expr/OperatorChainComments.hs
+source/test-suite/CommentedInfixChainSpec.hs
+source/test-suite/CommentedInfixChainFixtures.hs

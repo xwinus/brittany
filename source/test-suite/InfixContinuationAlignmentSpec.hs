@@ -189,9 +189,9 @@ edgeExpected = renderLines
   , ""
   , "commented values allowed ="
   , "  consumeLongResult"
-  , "      $ valuesWithLongName"
-  , "      >>= -- Normalize before intersecting."
-  , "          normalizeLongValues values"
+  , "    $ valuesWithLongName"
+  , "    >>= -- Normalize before intersecting."
+  , "      normalizeLongValues values"
   , "    `Data.List.intersect` allowedValues"
   ]
 
