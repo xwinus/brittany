@@ -23,6 +23,7 @@ data OperatorChainPart = OperatorChainPart
   , chainRhsBreak :: OperatorRhsBreak
   , chainBlockOperand :: Bool
   , chainLiteralOperand :: Bool
+  , chainOperatorEndsLine :: Bool
   , chainOrdinaryLambdaOperand :: Bool
   }
 
