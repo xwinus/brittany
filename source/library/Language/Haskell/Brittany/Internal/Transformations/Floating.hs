@@ -8,6 +8,8 @@ import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.Delimiter.Types (mapDelimitedGroup)
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
+import Language.Haskell.Brittany.Internal.SourceComment.ApplicationBoundary
+  ( isFollowingApplicationComment )
 import Language.Haskell.Brittany.Internal.SourceComment.ExpressionBoundary
   ( retainExpressionCommentBase
   )
@@ -122,7 +124,8 @@ transformSimplifyFloating = stepBO .> stepFull
   descendAddB = transformDownMay $ \case
     BDAddBaseY BrIndentNone x -> Just x
     BDAddBaseY _ comment@(BDComment planned)
-      | isOwnLineTypeArgumentComment planned -> Just comment
+      | isOwnLineTypeArgumentComment planned
+          || isFollowingApplicationComment planned -> Just comment
     -- AddIndent floats into Lines.
     BDAddBaseY indent (BDLines lines) ->
       Just $ BDLines $ BDAddBaseY indent <$> lines
@@ -178,7 +181,8 @@ transformSimplifyFloating = stepBO .> stepFull
              Uniplate.rewrite $ \case
     BDAddBaseY BrIndentNone x -> Just $ x
     BDAddBaseY _ comment@(BDComment planned)
-      | isOwnLineTypeArgumentComment planned -> Just comment
+      | isOwnLineTypeArgumentComment planned
+          || isFollowingApplicationComment planned -> Just comment
     -- AddIndent floats into Lines.
     BDAddBaseY indent (BDLines lines) ->
       Just $ BDLines $ BDAddBaseY indent <$> lines

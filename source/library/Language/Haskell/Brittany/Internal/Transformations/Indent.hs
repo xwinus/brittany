@@ -6,6 +6,8 @@ module Language.Haskell.Brittany.Internal.Transformations.Indent where
 import qualified Data.Generics.Uniplate.Direct as Uniplate
 import qualified GHC.OldList as List
 import Language.Haskell.Brittany.Internal.Prelude
+import Language.Haskell.Brittany.Internal.SourceComment.ApplicationBoundary
+  ( isFollowingApplicationComment )
 import Language.Haskell.Brittany.Internal.SourceComment.ExpressionBoundary
   ( retainExpressionCommentBase
   )
@@ -22,6 +24,8 @@ transformSimplifyIndent = Uniplate.rewrite $ \case
     Just $ BDEnsureIndent ind $ BDLines $ lines ++ [indented]
   BDPar ind (BDCols sig cols) indented ->
     Just $ BDCols sig (List.init cols ++ [BDPar ind (List.last cols) indented])
+  BDAddBaseY _ comment@(BDComment planned)
+    | isFollowingApplicationComment planned -> Just comment
   BDPar BrIndentNone _ _ -> Nothing
   BDPar ind x indented ->
     Just $ BDPar BrIndentNone (BDAddBaseY ind x) (BDEnsureIndent ind indented)

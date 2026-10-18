@@ -89,6 +89,7 @@ import qualified SignatureSuffixCommentSpec
 import qualified CommentedInfixChainSpec
 import qualified TupleOpeningColumnSpec
 import qualified GuardLeadingCommentSpec
+import qualified FollowingApplicationCommentSpec
 import qualified TrailingSignatureCommentSpec
 import qualified BindArrowCommentSpec
 import qualified DetachedPredicateSpec
@@ -229,6 +230,7 @@ main = Hspec.hspec $ do
   CommentedInfixChainSpec.spec projectRoot
   TupleOpeningColumnSpec.spec projectRoot
   GuardLeadingCommentSpec.spec projectRoot
+  FollowingApplicationCommentSpec.spec projectRoot
   TrailingSignatureCommentSpec.spec projectRoot
   BindArrowCommentSpec.spec projectRoot
   DetachedPredicateSpec.spec projectRoot

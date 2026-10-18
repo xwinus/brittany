@@ -90,6 +90,7 @@ source/library/Language/Haskell/Brittany/Internal/Preprocessor.hs
 source/library/Language/Haskell/Brittany/Internal/SemanticFingerprint.hs
 source/library/Language/Haskell/Brittany/Internal/SemanticFingerprint/Ghc.hs
 source/library/Language/Haskell/Brittany/Internal/SemanticModel.hs
+source/library/Language/Haskell/Brittany/Internal/SourceComment/ApplicationBoundary.hs
 source/library/Language/Haskell/Brittany/Internal/SourceComment/Continuation.hs
 source/library/Language/Haskell/Brittany/Internal/SourceComment/ExpressionBoundary.hs
 source/library/Language/Haskell/Brittany/Internal/SourceComment/Indentation.hs
@@ -155,6 +156,8 @@ source/test-suite/ExtractAnnsSpec.hs
 source/test-suite/FallbackSpec.hs
 source/test-suite/FallbackSweepSpec.hs
 source/test-suite/FixitySignatureSpec.hs
+source/test-suite/FollowingApplicationCommentFixtures.hs
+source/test-suite/FollowingApplicationCommentSpec.hs
 source/test-suite/FunctionHeadWrappingSpec.hs
 source/test-suite/FunctionTypeColumnFixtures.hs
 source/test-suite/FunctionTypeColumnSpec.hs

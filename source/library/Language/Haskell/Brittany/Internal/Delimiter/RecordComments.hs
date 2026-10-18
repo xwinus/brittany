@@ -65,7 +65,8 @@ hasStandaloneRecordComments = any (any isStandalone . fst)
 standaloneRecordComment :: PlannedComment -> Bool
 standaloneRecordComment planned =
   commentBoundaryGap (plannedCommentBoundary planned) == BetweenBoundary
-    && plannedCommentIndentPolicy planned == ContainerRelativeIndent
+    && plannedCommentIndentPolicy planned
+      `elem` [ContainerRelativeIndent, ApplicationSuffixIndent]
     && placementLineRelation placement == CommentOwnLine
     && placementAnchor placement == AfterNode
     && placementRole placement == Unattached

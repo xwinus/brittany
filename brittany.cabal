@@ -178,6 +178,7 @@ library
     Language.Haskell.Brittany.Internal.SourceComment.ExpressionBoundary
     Language.Haskell.Brittany.Internal.SourceComment.LineBoundary
     Language.Haskell.Brittany.Internal.SourceComment.Types
+    Language.Haskell.Brittany.Internal.SourceComment.ApplicationBoundary
     Language.Haskell.Brittany.Internal.Transformations.Alt
     Language.Haskell.Brittany.Internal.Transformations.Alt.SourceFragments
     Language.Haskell.Brittany.Internal.Transformations.Alt.Comments
@@ -264,6 +265,8 @@ test-suite brittany-test-suite
     CommentedInfixChainFixtures
     TupleOpeningColumnSpec
     TupleOpeningColumnFixtures
+    FollowingApplicationCommentSpec
+    FollowingApplicationCommentFixtures
     GuardLeadingCommentSpec
     GuardLeadingCommentFixtures
     TrailingSignatureCommentSpec

@@ -359,6 +359,9 @@ renderPlannedComment planned = do
             layoutMoveToAbsoluteCommentPos lineDelta
               (anchorColumn + max 0 (plannedCommentColumnDelta planned))
               lineCount
+          ApplicationSuffixIndent -> layoutMoveToAbsoluteCommentPos lineDelta
+            (lstate_baseY state + indentAmount + plannedCommentColumnDelta planned)
+            lineCount
           ContainerRelativeIndent ->
             let containerColumn = lstate_baseY state
                 contentColumn = containerColumn + indentAmount

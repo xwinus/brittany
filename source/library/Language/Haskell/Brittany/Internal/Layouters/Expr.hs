@@ -39,7 +39,7 @@ import Language.Haskell.Brittany.Internal.ExpressionComments
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Layouters.Decl
 import Language.Haskell.Brittany.Internal.Layouters.Expr.Application
-  ( balancedHangingApplication )
+  ( balancedHangingApplication, hasApplicationLayoutComments )
 import Language.Haskell.Brittany.Internal.Layouters.Expr.BranchComments
   ( reserveBranchSuffixWidth )
 import Language.Haskell.Brittany.Internal.Layouters.Expr.OperatorChainComments
@@ -585,9 +585,12 @@ layoutExprNative lexpr@(L _ expr) = do
         ( hasAnyCommentsConnected lexpr
         : map (hasAnyCommentsConnected . toL) (headE : paramEs)
         )
+      hasLayoutComments <- if hasComments
+        then hasApplicationLayoutComments lexpr $ toL <$> headE : paramEs
+        else pure False
       runFilteredAlternative $ do
         -- foo x y
-        addAlternativeCond (not hasComments)
+        addAlternativeCond (not hasLayoutComments)
           $ colsOrSequence
           $ appSep (docForceSingleline headDoc)
           : spacifyDocs (docForceSingleline <$> paramDocs)

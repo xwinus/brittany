@@ -21,6 +21,8 @@ import qualified GHC.Types.SrcLoc as SrcLoc
 import Language.Haskell.Brittany.Internal.Delimiter.Types
 import Language.Haskell.Brittany.Internal.ExactPrintCompat
 import Language.Haskell.Brittany.Internal.Prelude
+import Language.Haskell.Brittany.Internal.SourceComment.ApplicationBoundary
+  ( classifyApplicationComment )
 import Language.Haskell.Brittany.Internal.SourceComment.Indentation
   ( commentIndentPolicy
   , statementOwnerRelative
@@ -454,7 +456,7 @@ planSourceCommentWithDelta plan source lineDelta columnDelta = case
               && baseLineDelta > 0
             then SrcLoc.srcSpanStartCol (sourceCommentSpan plannedSource) - 1
             else columnDelta
-    in Right $ PlannedComment
+    in Right $ classifyApplicationComment plan $ PlannedComment
       plannedSource
       effectivePlacement
       boundary
