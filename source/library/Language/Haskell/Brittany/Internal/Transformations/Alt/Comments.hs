@@ -3,6 +3,7 @@
 module Language.Haskell.Brittany.Internal.Transformations.Alt.Comments
   ( containsLineComment
   , containsExpressionBoundary
+  , containsFollowingApplicationComment
   , containsCommentLineBreak
   , sequenceRequiresCommentLineBreak
   ) where
@@ -11,6 +12,8 @@ import qualified Control.Monad.Trans.State.Strict as StateS
 import qualified Data.IntSet as IntSet
 import Language.Haskell.Brittany.Internal.Delimiter.Types
 import Language.Haskell.Brittany.Internal.Prelude
+import Language.Haskell.Brittany.Internal.SourceComment.ApplicationBoundary
+  ( isFollowingApplicationComment )
 import Language.Haskell.Brittany.Internal.SourceComment.ExpressionBoundary
   ( interruptsExpression
   )
@@ -27,6 +30,10 @@ containsCommentLineBreak :: BriDocNumbered -> Bool
 containsCommentLineBreak = containsComment $ \planned ->
   sourceCommentSyntax (plannedCommentSource planned) == LineComment
     || interruptsExpression planned
+    || isFollowingApplicationComment planned
+
+containsFollowingApplicationComment :: BriDocNumbered -> Bool
+containsFollowingApplicationComment = containsComment isFollowingApplicationComment
 
 containsExpressionBoundary :: BriDocNumbered -> Bool
 containsExpressionBoundary = containsComment interruptsExpression
@@ -79,7 +86,7 @@ sequenceRequiresCommentLineBreak True documents = first
   inspectDocument document (requiresBreak, hasLayoutToRight, hasCodeToRight) =
     ( requiresBreak
         || endsWithComment isInlineBoundary document && hasLayoutToRight
-        || endsWithComment interruptsExpression document && hasCodeToRight
+        || endsWithComment requiresFollowingLineBreak document && hasCodeToRight
     , hasLayoutToRight || hasLayoutContent document
     , hasCodeToRight || hasCodeContent document
     )
@@ -87,6 +94,8 @@ sequenceRequiresCommentLineBreak True documents = first
     sourceCommentSyntax (plannedCommentSource planned) == LineComment
       && (placementLineRelation (plannedCommentPlacement planned) == InlineComment
         || commentBoundaryGap (plannedCommentBoundary planned) == BeforeCloseBoundary)
+  requiresFollowingLineBreak planned =
+    interruptsExpression planned || isFollowingApplicationComment planned
 
 endsWithComment :: (PlannedComment -> Bool) -> BriDocNumbered -> Bool
 endsWithComment predicate (_, document) = case document of

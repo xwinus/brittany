@@ -1,17 +1,41 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 
 module Language.Haskell.Brittany.Internal.Layouters.Expr.Application
-  ( balancedHangingApplication
+  ( hasApplicationLayoutComments
+  , balancedHangingApplication
   , preferCompactRhs
   ) where
 
+import qualified Data.List as List
 import Data.Semigroup (Last(..))
+import GHC (Located, getLoc)
+import GHC.Hs (HsExpr)
+import qualified GHC.Types.SrcLoc as SrcLoc
+import Language.Haskell.Brittany.Internal.ExactPrintCompat
+  ( commentIdentifier, srcSpanToRealSpan )
 import Language.Haskell.Brittany.Internal.Config.Types
 import Language.Haskell.Brittany.Internal.LayouterBasics
 import Language.Haskell.Brittany.Internal.Prelude
 import Language.Haskell.Brittany.Internal.PreludeUtils
 import Language.Haskell.Brittany.Internal.Transformations.Alt (getSpacing)
 import Language.Haskell.Brittany.Internal.Types
+
+-- A comment after the completed application does not constrain its argument
+-- layout. Keep earlier comments conservative, including comments before the head
+-- and between arguments, regardless of which child owns their annotations.
+hasApplicationLayoutComments
+  :: Located (HsExpr GhcPs)
+  -> [Located (HsExpr GhcPs)]
+  -> ToBriDocM Bool
+hasApplicationLayoutComments application parts = do
+  connected <- List.concat <$> mapM astConnectedComments (application : parts)
+  pure $ any (not . followsApplication . fst) connected
+ where
+  followsApplication comment = fromMaybe False $ do
+    applicationSpan <- srcSpanToRealSpan $ getLoc application
+    commentSpan <- srcSpanToRealSpan $ commentIdentifier comment
+    pure $ SrcLoc.srcSpanFile applicationSpan == SrcLoc.srcSpanFile commentSpan
+      && SrcLoc.realSrcSpanEnd applicationSpan <= SrcLoc.realSrcSpanStart commentSpan
 
 -- Try an enclosing break before fragmenting a RHS that can remain on one line.
 preferCompactRhs

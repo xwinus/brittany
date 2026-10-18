@@ -123,6 +123,7 @@ data CommentIndentPolicy
   = OwnerRelativeIndent
   | RenderedAnchorIndent
   | ContainerRelativeIndent
+  | ApplicationSuffixIndent
   | TokenRelativeIndent
   | SourceColumnIndent
   deriving (Data.Data.Data, Eq, Ord, Show)
