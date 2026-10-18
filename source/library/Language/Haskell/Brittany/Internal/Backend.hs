@@ -432,6 +432,7 @@ renderPlannedComment planned = do
         && isLastCommentBeforeOwner commentPlan planned
         && case commentBoundaryPath $ plannedCommentBoundary planned of
           CaseAlternativeBoundaryPath{} -> True
+          GuardBoundaryPath{} -> True
           _ -> False
         ) $ do
           let NodeId owner = placementOwner placement

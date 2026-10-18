@@ -58,6 +58,8 @@ import Language.Haskell.Brittany.Internal.Layouters.Decl.SignatureComments
   ( appendSignatureSuffix )
 import Language.Haskell.Brittany.Internal.Layouters.Decl.Case
 import Language.Haskell.Brittany.Internal.Layouters.Decl.Guard
+import Language.Haskell.Brittany.Internal.Layouters.Decl.GuardComments
+  ( attachGuardLeadingComments, hasGuardLeadingComments, withGuardLeadingComments )
 import Language.Haskell.Brittany.Internal.Layouters.Decl.Infix
 import {-# SOURCE #-} Language.Haskell.Brittany.Internal.Layouters.Expr
 import Language.Haskell.Brittany.Internal.Layouters.FixitySignature
@@ -914,7 +916,8 @@ layoutGrhs declarationComments lgrhs@(L _ (GRHS _ guards body)) = do
           ++ [layoutExpr (toL body)]
       )
       trailingBodyComments
-  return (guardDocs, bodyDoc, body, handledComments)
+  anchoredGuards <- attachGuardLeadingComments lgrhs guardDocs
+  return (anchoredGuards, bodyDoc, body, handledComments)
 
 hasSingleBooleanGuard :: [LGRHS GhcPs (LHsExpr GhcPs)] -> Bool
 hasSingleBooleanGuard [L _ (GRHS _ [L _ (BodyStmt _ _ _ _)] _)] = True
@@ -1250,7 +1253,28 @@ layoutPatternBindFinal alignmentScope alignmentToken binderDoc mPatDoc mMultilin
                     headDocument body separatedBody
             _ -> docLines [pure headDocument, separatedBody]
 
-    runFilteredAlternative $ do
+    if any (\(guards, _, _, _) -> any hasGuardLeadingComments guards) clauseDocs
+      then do
+        let renderClause (guards, body, rawBody, handled) = case guards of
+              first : rest -> withGuardLeadingComments first $ \predicate ->
+                layoutPatternBindFinal alignmentScope alignmentToken binderDoc
+                  Nothing Nothing Nothing Nothing
+                  [(predicate : rest, body, rawBody, handled)]
+                  hasSingleBodyGuard Nothing False
+              [] -> layoutPatternBindFinal alignmentScope alignmentToken binderDoc
+                Nothing Nothing Nothing Nothing [(guards, body, rawBody, handled)]
+                hasSingleBodyGuard Nothing hasComments
+            clauses = docLines $ renderClause <$> clauseDocs
+            headDocument pat = docAlt
+              $ [docForceSingleline $ pure pat]
+              ++ (pure <$> maybeToList mMultilinePatDoc)
+              ++ (pure <$> maybeToList mArgumentSequenceDoc)
+              ++ [pure pat]
+        docLines $ (case mPatDoc of
+          Nothing -> [clauses]
+          Just pat -> [headDocument pat, docEnsureIndent BrIndentRegular clauses])
+          ++ wherePartMultiLine
+      else runFilteredAlternative $ do
 
       case clauseDocs of
         [(guards, body, bodyRaw, handledComments)] -> do

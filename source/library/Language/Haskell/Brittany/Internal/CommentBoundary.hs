@@ -28,6 +28,8 @@ import Language.Haskell.Brittany.Internal.ConstructorComments
 import Language.Haskell.Brittany.Internal.CommentBoundary.BindArrow
   ( BindArrowIndex, buildBindArrowIndex, bindArrowBoundary
   , materializeBindArrowComments )
+import Language.Haskell.Brittany.Internal.CommentBoundary.Guard
+  ( GuardIndex, buildGuardIndex, guardBoundary, materializeGuardComments )
 import Language.Haskell.Brittany.Internal.CommentBoundary.Case
   ( CaseBoundaryIndex, buildCaseBoundaryIndex
   , caseAlternativeBoundaryWithPlacement, materializeCaseComments )
@@ -41,7 +43,8 @@ import Language.Haskell.Brittany.Internal.SourceComment.Types
 
 materializeCommentBoundaries :: ParsedSource -> Anns -> Anns
 materializeCommentBoundaries (L _ module') annotations =
-  materializeBindArrowComments module'
+  materializeGuardComments module'
+    $ materializeBindArrowComments module'
     $ normalizeConstructorComments declarations
     $ normalizeFinalTrailingRun declarations
     $ foldl materializeDeclarationGap
@@ -247,7 +250,8 @@ attachCommentBoundaries (L _ module') plan = plan
 
 type BoundaryIndex :: Type
 data BoundaryIndex = BoundaryIndex
-  { boundaryBindArrowIndex :: BindArrowIndex
+  { boundaryGuardIndex :: GuardIndex
+  , boundaryBindArrowIndex :: BindArrowIndex
   , boundaryCaseIndex :: CaseBoundaryIndex
   , boundaryDelimiterIndex :: DelimiterBoundaryIndex
   , boundaryExpressionOwners :: Map NodeId Int
@@ -255,7 +259,8 @@ data BoundaryIndex = BoundaryIndex
 
 buildBoundaryIndex :: HsModule GhcPs -> BoundaryIndex
 buildBoundaryIndex module' = BoundaryIndex
-  { boundaryBindArrowIndex = buildBindArrowIndex module'
+  { boundaryGuardIndex = buildGuardIndex module'
+  , boundaryBindArrowIndex = buildBindArrowIndex module'
   , boundaryCaseIndex = buildCaseBoundaryIndex module'
   , boundaryDelimiterIndex = buildDelimiterBoundaryIndex module'
   , boundaryExpressionOwners = expressionOwnerIndices module'
@@ -302,7 +307,8 @@ boundaryFor
   -> CommentBoundaryId
 boundaryFor module' boundaryIndex sourceComment placement =
   fromMaybe moduleBoundary
-    $   bindArrowBoundary (boundaryBindArrowIndex boundaryIndex) commentSpan
+    $   guardBoundary (boundaryGuardIndex boundaryIndex) placement commentSpan
+    <|> bindArrowBoundary (boundaryBindArrowIndex boundaryIndex) commentSpan
     <|> caseAlternativeBoundaryWithPlacement
           (boundaryCaseIndex boundaryIndex) placement commentSpan
     <|> delimiterBoundaryFromIndex

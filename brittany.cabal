@@ -136,6 +136,7 @@ library
     Language.Haskell.Brittany.Internal.ExactPrintUtils
     Language.Haskell.Brittany.Internal.ExactSource
     Language.Haskell.Brittany.Internal.ExtractAnns
+    Language.Haskell.Brittany.Internal.ExtractAnns.GuardComments
     Language.Haskell.Brittany.Internal.Fallbacks
     Language.Haskell.Brittany.Internal.LayouterBasics
     Language.Haskell.Brittany.Internal.Layouters.DataDecl
@@ -193,6 +194,7 @@ library
     Language.Haskell.Brittany.Internal.CommentUtils
     Language.Haskell.Brittany.Internal.ConstructorComments
     Language.Haskell.Brittany.Internal.CommentBoundary.BindArrow
+    Language.Haskell.Brittany.Internal.CommentBoundary.Guard
     Language.Haskell.Brittany.Internal.CommentBoundary.Case
     Language.Haskell.Brittany.Internal.CommentBoundary.Trailing
     Language.Haskell.Brittany.Internal.ExpressionComments
@@ -203,6 +205,7 @@ library
     Language.Haskell.Brittany.Internal.Layouters.DataDecl.Support
     Language.Haskell.Brittany.Internal.Layouters.Decl.Case
     Language.Haskell.Brittany.Internal.Layouters.Decl.Guard
+    Language.Haskell.Brittany.Internal.Layouters.Decl.GuardComments
     Language.Haskell.Brittany.Internal.Layouters.Decl.Infix
     Language.Haskell.Brittany.Internal.Layouters.Pattern.Comments
     Language.Haskell.Brittany.Internal.Layouters.Pattern.Record
@@ -261,6 +264,8 @@ test-suite brittany-test-suite
     CommentedInfixChainFixtures
     TupleOpeningColumnSpec
     TupleOpeningColumnFixtures
+    GuardLeadingCommentSpec
+    GuardLeadingCommentFixtures
     TrailingSignatureCommentSpec
     TrailingSignatureCommentFixtures
     BindArrowCommentSpec

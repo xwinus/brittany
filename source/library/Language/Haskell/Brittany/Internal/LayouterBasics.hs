@@ -408,6 +408,7 @@ hasAnyRegularCommentsConnectedNoFollowing ast = do
         && case Map.lookup (SourceCommentKey $ ExactPrintCompat.commentIdentifier source)
             (commentPlanBoundaries plan) of
           Just (CommentBoundaryId BindArrowBoundaryPath{} _) -> False
+          Just (CommentBoundaryId GuardBoundaryPath{} _) -> False
           _ -> True
   pure $ any requiresOuterBreak $ extractNoFollow =<< Map.elems anns
 
