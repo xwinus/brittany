@@ -180,3 +180,36 @@ protectedPrefixCases =
       ]
     , [seed, "-- C2 continuation", "-- C3 offset"], [6, 6, 8], []
     )
+
+recordGeometryCases :: [(String, Int, String, [String], String)]
+recordGeometryCases =
+  [ ( "construction", 2, moduleSource
+      [ "f = Result { firstField = first, secondField = second"
+      , "           , thirdField = combine first second third"
+      , "           -- field note"
+      , "           , finalField = final"
+      , "           }"
+      ]
+    , ["-- field note"], ", finalField"
+    )
+  , ( "update", 4, moduleSource
+      [ "f = original { firstField = first, secondField = second"
+      , "             , thirdField = combine first second third"
+      , "             -- field note"
+      , "             , finalField = final"
+      , "             }"
+      ]
+    , ["-- field note"], ", finalField"
+    )
+  , ( "trailing wildcard", 2, "{-# LANGUAGE RecordWildCards #-}\n" ++ moduleSource
+      [ "f = Result { firstField = first, secondField = second"
+      , "           , thirdField = combine first second third"
+      , "           -- trailing note"
+      , ""
+      , "           -- final note"
+      , "           , .."
+      , "           }"
+      ]
+    , ["-- trailing note", "-- final note"], ", .."
+    )
+  ]

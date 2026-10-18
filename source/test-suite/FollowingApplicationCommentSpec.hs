@@ -115,6 +115,18 @@ spec projectRoot = Hspec.describe "completed applications before comments" $ do
         assertOrdered (["combine first second third"] ++ prefix ++ suffix ++ [", next"]) output
         assertWithin 80 output
 
+  forM_ policies $ \policy ->
+    forM_ recordGeometryCases $ \(name, indent, source, comments, nextField) ->
+      Hspec.it ("retains record comment geometry in " ++ name ++ ", " ++ show policy) $ do
+        output <- checkedSource 80 indent policy source
+        assertCompact "combine first second third" output
+        assertAligned (comments ++ [nextField]) output
+        assertOrdered (["combine first second third"] ++ comments ++ [nextField]) output
+        case comments of
+          [first, second] -> assertBlankBetween first second output
+          _ -> pure ()
+        assertWithin 80 output
+
   forM_ profiles $ \(columns, indent, policy) -> do
     forM_ betweenCases $ \(name, source, markers) ->
       Hspec.it ("retains a comment after the " ++ name ++ " argument" ++ describeLayout columns indent policy) $ do

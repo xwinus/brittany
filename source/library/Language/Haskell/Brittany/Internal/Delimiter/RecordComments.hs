@@ -122,6 +122,13 @@ ordinaryText source = supportedSyntax
 renderRecordBoundaryComment
   :: BriDocNumbered -> RenderM BriDocNumbered
 renderRecordBoundaryComment (nodeId, BDFComment planned)
+  -- Extracted record rows use the record anchor, including its closing edge.
+  | plannedCommentIndentPolicy planned == ApplicationSuffixIndent =
+      renderRecordBoundaryComment (nodeId, BDFComment planned
+        { plannedCommentIndentPolicy = ContainerRelativeIndent
+        , plannedCommentColumnDelta = SrcLoc.srcSpanStartCol
+            (sourceCommentSpan $ plannedCommentSource planned) - 1
+        })
   | standaloneRecordComment planned = do
       emptyName <- emptyNode
       emptyValue <- emptyNode
